@@ -359,7 +359,7 @@ class DesignSettingsPanel(QWidget):
         self.combo_lbl_size.setStyleSheet(
             "QComboBox { padding: 2px 4px; border: 1px solid #DCDFE6; border-radius: 3px; }")
         self.combo_lbl_size.addItems(["14", "16", "18", "20", "22", "24"])
-        self.combo_lbl_size.setCurrentText("16")
+        self.combo_lbl_size.setCurrentText("20")
         self.combo_lbl_size.setFixedWidth(55)
         self.combo_lbl_size.setMaxVisibleItems(8)
         font_style_layout.addWidget(self.combo_lbl_size)
@@ -614,7 +614,7 @@ class DesignSettingsPanel(QWidget):
         self.sw_show_axis_units.setChecked(False)
 
         self.lbl_color_picker.set_color('#E64A19')
-        self.combo_lbl_size.setCurrentText("16")
+        self.combo_lbl_size.setCurrentText("20")
         self.btn_bold.setChecked(True)
         self.btn_italic.setChecked(False)
 
@@ -791,7 +791,7 @@ class CompareDesignSettingsPanel(QWidget):
         combo_lbl_size = NoWheelComboBox()
         combo_lbl_size.setStyleSheet("QComboBox { padding: 2px 4px; border: 1px solid #DCDFE6; border-radius: 3px; }")
         combo_lbl_size.addItems(["12", "14", "16", "18", "20", "22", "24"])
-        combo_lbl_size.setCurrentText("16")
+        combo_lbl_size.setCurrentText("20")
         combo_lbl_size.setFixedWidth(55)
         combo_lbl_size.setMaxVisibleItems(8)
         font_style_layout.addWidget(combo_lbl_size)
@@ -1108,6 +1108,10 @@ class CompareDesignSettingsPanel(QWidget):
             self.graph_bg_toggle_btn.setText("▶" if not visible else "▼")
         self.graph_bg_toggle_btn.clicked.connect(toggle_graph_bg_cmp)
         graph_header_row.mousePressEvent = lambda e: toggle_graph_bg_cmp()
+        # 다중 플롯(정규화 포함): 그래프 배경 섹션 기본 접힘
+        self.graph_bg_content.setVisible(False)
+        self.graph_bg_collapse_line.setVisible(False)
+        self.graph_bg_toggle_btn.setText("▶")
 
         graph_group.addWidget(graph_content_cmp)
         if self._is_normalized:
@@ -1248,7 +1252,7 @@ class CompareDesignSettingsPanel(QWidget):
 
         # Blue 초기화
         self.ctrl_blue['lbl_color_picker'].set_color('#1976D2')
-        self.ctrl_blue['combo_lbl_size'].setCurrentText("16")
+        self.ctrl_blue['combo_lbl_size'].setCurrentText("20")
         self.ctrl_blue['btn_bold'].setChecked(True)
         self.ctrl_blue['btn_italic'].setChecked(False)
         self.ctrl_blue['group_centroid_marker'].button(0).setChecked(True)
@@ -1259,7 +1263,7 @@ class CompareDesignSettingsPanel(QWidget):
 
         # Red 초기화
         self.ctrl_red['lbl_color_picker'].set_color('#E64A19')
-        self.ctrl_red['combo_lbl_size'].setCurrentText("16")
+        self.ctrl_red['combo_lbl_size'].setCurrentText("20")
         self.ctrl_red['btn_bold'].setChecked(True)
         self.ctrl_red['btn_italic'].setChecked(False)
         self.ctrl_red['group_centroid_marker'].button(0).setChecked(True)

@@ -284,25 +284,25 @@ class ComparePlotPopup(QMainWindow):
         self._apply_pyqt6_icon()
 
         self.setStyleSheet("""
-            QMainWindow { background-color: #F5F7FA; }
-            QWidget#CentralWidget { background-color: transparent; }
+            QMainWindow {{ background-color: #F5F7FA; }}
+            QWidget#CentralWidget {{ background-color: transparent; }}
 
-            QMainWindow::separator {
+            QMainWindow::separator {{
                 width: 0px; height: 0px; margin: 0px; padding: 0px; border: none; background: transparent;
-            }
+            }}
 
-            QDockWidget::title {
+            QDockWidget::title {{
                 text-align: left; background: #FFFFFF; padding-left: 10px; padding-top: 6px; padding-bottom: 6px;
                 font-size: 11px; font-weight: bold; color: #555555;
-            }
+            }}
 
-            QTabWidget::pane { border-top: 1px solid #E4E7ED; background: white; }
-            QTabBar::tab {
+            QTabWidget::pane {{ border-top: 1px solid #E4E7ED; background: white; }}
+            QTabBar::tab {{
                 background: #E4E7ED; border: 1px solid #DCDFE6; border-bottom: none;
                 border-top-left-radius: 4px; border-top-right-radius: 4px; min-width: {0}px; padding: 6px 0px; color: #606266;
-            }
-            QTabBar::tab:selected { background: #FFFFFF; color: #303133; font-weight: bold; }
-            QTabBar::tab:hover:!selected { background: #EBEEF5; color: #409EFF; }
+            }}
+            QTabBar::tab:selected {{ background: #FFFFFF; color: #303133; font-weight: bold; }}
+            QTabBar::tab:hover:!selected {{ background: #EBEEF5; color: #409EFF; }}
         """.format(config.TAB_BAR_MIN_WIDTH_PX))
 
         self.current_unit = "Hz"
