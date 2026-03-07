@@ -707,6 +707,7 @@ class ComparePlotPopup(QMainWindow):
         self.btn_vowel_analysis.setFixedHeight(35)
         self.btn_vowel_analysis.setFont(font_normal)
         self.btn_vowel_analysis.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self.btn_vowel_analysis.setEnabled(False)
         self.btn_vowel_analysis.setStyleSheet("""
             QPushButton { background-color: #F0F2F5; border: 1px solid #DCDFE6; border-radius: 4px; color: #606266; }
             QPushButton:hover { background-color: #E4E7ED; }
@@ -732,6 +733,18 @@ class ComparePlotPopup(QMainWindow):
         """)
         self.btn_ruler.clicked.connect(self.on_toggle_ruler)
         tool_group.addWidget(self.btn_ruler)
+
+        self.btn_draw = QPushButton("그리기")
+        self.btn_draw.setFixedHeight(35)
+        self.btn_draw.setFont(font_normal)
+        self.btn_draw.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self.btn_draw.setEnabled(False)
+        self.btn_draw.setStyleSheet("""
+            QPushButton { background-color: #F0F2F5; border: 1px solid #DCDFE6; border-radius: 4px; color: #606266; }
+            QPushButton:hover { background-color: #E4E7ED; }
+            QPushButton:disabled { background-color: #F5F7FA; color: #C0C4CC; border: 1px solid #E4E7ED; }
+        """)
+        tool_group.addWidget(self.btn_draw)
 
         layout.addLayout(tool_group)
         layout.addStretch()

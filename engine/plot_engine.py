@@ -170,6 +170,7 @@ class PlotEngine:
         if df is None or not hasattr(df, 'columns') or 'F1' not in df.columns or 'F2' not in df.columns:
             ax = figure.add_subplot(111)
             ax.set_box_aspect(1)
+            ax.set_axisbelow(True)
             return ax, [], [], []
         origin = plot_params['origin']
         use_bark_units = plot_params.get('use_bark_units', False)
@@ -213,6 +214,7 @@ class PlotEngine:
 
         ax = figure.add_subplot(111)
         ax.set_box_aspect(1)
+        ax.set_axisbelow(True)
 
         if df.empty:
             return ax, [], [], []
@@ -446,6 +448,7 @@ class PlotEngine:
         if not _has_required(df_blue) or not _has_required(df_red):
             ax = figure.add_subplot(111)
             ax.set_box_aspect(1)
+            ax.set_axisbelow(True)
             return ax, [], [], [], [], []
         origin = plot_params['origin']
         use_bark_units = plot_params.get('use_bark_units', False)
@@ -485,6 +488,7 @@ class PlotEngine:
 
         ax = figure.add_subplot(111)
         ax.set_box_aspect(1)
+        ax.set_axisbelow(True)
 
         plot_type = plot_params['type']
 
@@ -813,6 +817,7 @@ linewidth=ell_thick, linestyle=self._to_mpl_linestyle(ell_style),
         figure.subplots_adjust(left=0.22, right=0.91, bottom=0.12, top=0.88)
         ax = figure.add_subplot(111)
         ax.set_box_aspect(1)
+        ax.set_axisbelow(True)
         ax.set_xlim(r['x_min'], r['x_max'])
         ax.set_ylim(r['y_min'], r['y_max'])
         ax.invert_xaxis()

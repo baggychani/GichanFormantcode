@@ -416,7 +416,7 @@ class LayerDockWidget(QWidget):
         # 드래그 시 삽입 위치 미리 보기: 레이아웃 변형 없이 paintEvent에서 위에 덧그리기만 함.
         self._drop_target = None
         data_layout.addWidget(self.layer_scroll)
-        self.tab_widget.addTab(layer_tab, "레이어")
+        self.tab_widget.addTab(layer_tab, "라벨")
 
         draw_tab = QWidget()
         draw_tab_layout = QVBoxLayout(draw_tab)
@@ -438,6 +438,7 @@ class LayerDockWidget(QWidget):
         draw_tab_layout.addWidget(self._draw_layer_scroll, 1)
         self._draw_layer_scroll.setWidget(draw_list_placeholder)
         self.tab_widget.addTab(draw_tab, "그리기")
+        self.tab_widget.currentChanged.connect(self._on_layer_tab_index_changed)
 
         bottom_sep = QFrame()
         bottom_sep.setFrameShape(QFrame.Shape.HLine)
@@ -495,6 +496,8 @@ class LayerDockWidget(QWidget):
 
         def make_apply(key, get_value):
             def apply():
+                if self.tab_widget.currentIndex() != 0:
+                    return
                 if self._updating or not self._selected_vowels:
                     return
                 overrides = self._get_layer_overrides()
@@ -1099,7 +1102,20 @@ class LayerDockWidget(QWidget):
         self._last_modifier = event.modifiers()
         super().keyPressEvent(event)
 
+    def _on_layer_tab_index_changed(self, index: int):
+        """탭 전환 시 라벨 탭의 레이어 선택을 로직·화면 모두 해제. 다시 라벨로 돌아와도 선택 없음."""
+        self._selected_vowels = set()
+        for r in self._layer_rows.values():
+            r.setProperty("selected", False)
+            if hasattr(r, 'name_btn'):
+                r.name_btn.setChecked(False)
+            r.style().unpolish(r)
+            r.style().polish(r)
+        self._sync_design_controls_to_selection()
+
     def _sync_design_controls_to_selection(self):
+        if self.tab_widget.currentIndex() != 0:
+            return
         self._updating = True
         try:
             overrides = self._get_layer_overrides()
@@ -1187,6 +1203,8 @@ class LayerDockWidget(QWidget):
                 k, v = key, vowel
                 # 버그 수정 반영: (checked=False 추가)
                 def remove_key(checked=False, kk=k, vv=v):
+                    if self.tab_widget.currentIndex() != 0:
+                        return
                     ov = self._get_layer_overrides()
                     if not isinstance(ov, dict):
                         return
