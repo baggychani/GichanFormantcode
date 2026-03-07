@@ -9,6 +9,7 @@ __pycache__/
 .venv/
 venv/
 env/
+.venv_/
 
 # 문서 파일 (무시 요청하신 폴더)
 docs/

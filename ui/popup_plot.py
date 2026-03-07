@@ -709,6 +709,18 @@ class PlotPopup(QMainWindow):
         t_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
         tool_group.addWidget(t_lbl)
 
+        self.btn_vowel_analysis = QPushButton("모음 상세 분석")
+        self.btn_vowel_analysis.setFixedHeight(35)
+        self.btn_vowel_analysis.setFont(font_normal)
+        self.btn_vowel_analysis.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self.btn_vowel_analysis.setStyleSheet("""
+            QPushButton { background-color: #F0F2F5; border: 1px solid #DCDFE6; border-radius: 4px; color: #606266; }
+            QPushButton:hover { background-color: #E4E7ED; }
+            QPushButton:disabled { background-color: #F5F7FA; color: #C0C4CC; border: 1px solid #E4E7ED; }
+        """)
+        self.btn_vowel_analysis.clicked.connect(self._on_vowel_analysis_clicked)
+        tool_group.addWidget(self.btn_vowel_analysis)
+
         self.btn_compare = QPushButton("다중 플롯 모드 (M)")
         self.btn_compare.setFixedHeight(35)
         self.btn_compare.setFont(font_normal)
@@ -1017,6 +1029,8 @@ class PlotPopup(QMainWindow):
 
     def _log_design_lock(self, checked):
         app_logger.info(config.LOG_MSG["DESIGN_KEPT"] if checked else config.LOG_MSG["DESIGN_UNKEPT"])
+        if hasattr(self, 'tool_indicator') and self.tool_indicator is not None:
+            self.tool_indicator.set_lock_on(checked)
 
     def _log_design_reset(self):
         app_logger.info(config.LOG_MSG["DESIGN_RESET"])
@@ -1071,6 +1085,11 @@ class PlotPopup(QMainWindow):
         self.setFocus()
         idx = getattr(self, 'current_idx', self.controller.get_current_index())
         self.controller.open_compare_dialog(idx, parent_window=self)
+
+    def _on_vowel_analysis_clicked(self):
+        """모음 상세 분석 버튼 클릭 핸들러 (추후 구현 예정)"""
+        self.setFocus()
+        pass
 
     def _safe_toggle_layer_dock(self):
         if self._is_input_focused():

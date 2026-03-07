@@ -361,7 +361,7 @@ class ComparePlotPopup(QMainWindow):
         top_row.setContentsMargins(0, 0, 0, 0)
         top_row.setSpacing(0)
         top_row.addStretch()
-        self.tool_indicator = ToolStatusIndicator(canvas_container, ui_font_name=self.ui_font_name)
+        self.tool_indicator = ToolStatusIndicator(canvas_container, ui_font_name=self.ui_font_name, show_lock=False)
         top_row.addWidget(self.tool_indicator, alignment=Qt.AlignmentFlag.AlignRight)
         central_layout.addLayout(top_row)
 
@@ -703,18 +703,22 @@ class ComparePlotPopup(QMainWindow):
         t_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
         tool_group.addWidget(t_lbl)
 
+        self.btn_vowel_analysis = QPushButton("모음 상세 분석")
+        self.btn_vowel_analysis.setFixedHeight(35)
+        self.btn_vowel_analysis.setFont(font_normal)
+        self.btn_vowel_analysis.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self.btn_vowel_analysis.setStyleSheet("""
+            QPushButton { background-color: #F0F2F5; border: 1px solid #DCDFE6; border-radius: 4px; color: #606266; }
+            QPushButton:hover { background-color: #E4E7ED; }
+            QPushButton:disabled { background-color: #F5F7FA; color: #C0C4CC; border: 1px solid #E4E7ED; }
+        """)
+        self.btn_vowel_analysis.clicked.connect(self._on_vowel_analysis_clicked)
+        tool_group.addWidget(self.btn_vowel_analysis)
+
         btn_style = """
             QPushButton { background-color: white; border: 1px solid #DCDFE6; border-radius: 4px; color: #333333; }
             QPushButton:hover { background-color: #F5F7FA; color: #409EFF; border-color: #C0C4CC; }
         """
-
-        self.btn_filter = QPushButton("표시 모음 필터링 (F)")
-        self.btn_filter.setFixedHeight(35)
-        self.btn_filter.setFont(font_normal)
-        self.btn_filter.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-        self.btn_filter.setStyleSheet(btn_style)
-        self.btn_filter.clicked.connect(self.on_filter_clicked)
-        tool_group.addWidget(self.btn_filter)
 
         self.btn_ruler = QPushButton("눈금자 툴 (R)")
         self.btn_ruler.setObjectName("BtnRuler")
@@ -866,8 +870,6 @@ class ComparePlotPopup(QMainWindow):
             lambda: self._safe_switch_to_tab(1))
 
         QShortcut(QKeySequence(Qt.Key.Key_Tab), self).activated.connect(self._toggle_panels_visibility)
-        QShortcut(QKeySequence(Qt.Key.Key_F), self, context=Qt.ShortcutContext.WindowShortcut).activated.connect(
-            self._safe_open_filter)
         QShortcut(QKeySequence(Qt.Key.Key_R), self, context=Qt.ShortcutContext.WindowShortcut).activated.connect(
             self._safe_toggle_ruler)
         QShortcut(QKeySequence("Ctrl+S"), self).activated.connect(self._safe_save_jpg)
@@ -999,6 +1001,11 @@ class ComparePlotPopup(QMainWindow):
     def on_filter_clicked(self):
         self.setFocus()
         self.open_vowel_filter()
+
+    def _on_vowel_analysis_clicked(self):
+        """모음 상세 분석 버튼 클릭 핸들러 (추후 구현 예정)"""
+        self.setFocus()
+        pass
 
     def open_vowel_filter(self):
         if self.filter_panel is not None and self.filter_panel.isVisible():

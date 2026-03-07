@@ -321,11 +321,31 @@ class LayerDockWidget(QWidget):
 
         self.tab_widget = QTabWidget()
         self.tab_widget.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-        self.tab_widget.setStyleSheet(
-            "QTabWidget::pane { border: none; background: #FFFFFF; }"
-            "QTabBar::tab { background: #FFFFFF; border: 1px solid #DCDFE6; border-bottom: none; padding: 4px 10px; }"
-            "QTabBar::tab:selected { color: #409EFF; }"
-        )
+        self.tab_widget.setStyleSheet("""
+            QTabWidget::pane {
+                border-top: 1px solid #E4E7ED;
+                background: #FFFFFF;
+            }
+            QTabBar::tab {
+                background: #E4E7ED;
+                border: 1px solid #DCDFE6;
+                border-bottom: none;
+                border-top-left-radius: 4px;
+                border-top-right-radius: 4px;
+                min-width: %dpx;
+                padding: 6px 0px;
+                color: #606266;
+            }
+            QTabBar::tab:selected {
+                background: #FFFFFF;
+                color: #303133;
+                font-weight: bold;
+            }
+            QTabBar::tab:hover:!selected {
+                background: #EBEEF5;
+                color: #409EFF;
+            }
+        """ % config.TAB_BAR_MIN_WIDTH_PX)
         layer_tab = QWidget()
         data_layout = QVBoxLayout(layer_tab)
         data_layout.setContentsMargins(0, 0, 0, 0)
@@ -398,6 +418,27 @@ class LayerDockWidget(QWidget):
         data_layout.addWidget(self.layer_scroll)
         self.tab_widget.addTab(layer_tab, "레이어")
 
+        draw_tab = QWidget()
+        draw_tab_layout = QVBoxLayout(draw_tab)
+        draw_tab_layout.setContentsMargins(0, 0, 0, 0)
+        draw_tab_layout.setSpacing(0)
+        draw_tab_underline = QFrame()
+        draw_tab_underline.setFrameShape(QFrame.Shape.HLine)
+        draw_tab_underline.setFixedHeight(1)
+        draw_tab_underline.setStyleSheet("background-color: #E4E7ED; margin: 0; border: none;")
+        draw_tab_layout.addWidget(draw_tab_underline)
+        self._draw_global_row = self._build_draw_global_row()
+        draw_tab_layout.addWidget(self._draw_global_row)
+        self._draw_layer_scroll = QScrollArea()
+        self._draw_layer_scroll.setWidgetResizable(True)
+        self._draw_layer_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self._draw_layer_scroll.setStyleSheet("QScrollArea { border: none; background: #FFFFFF; }")
+        draw_list_placeholder = QWidget()
+        draw_list_placeholder.setStyleSheet("background: #FFFFFF;")
+        draw_tab_layout.addWidget(self._draw_layer_scroll, 1)
+        self._draw_layer_scroll.setWidget(draw_list_placeholder)
+        self.tab_widget.addTab(draw_tab, "그리기")
+
         bottom_sep = QFrame()
         bottom_sep.setFrameShape(QFrame.Shape.HLine)
         bottom_sep.setFixedHeight(1)
@@ -416,7 +457,7 @@ class LayerDockWidget(QWidget):
             "QPushButton:hover { background-color: #EBEEF5; }"
         )
         self.btn_reset_order.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-        self.btn_reset_order.clicked.connect(self._reset_layer_order)
+        self.btn_reset_order.clicked.connect(self._on_reset_order_clicked)
         reset_row.addWidget(self.btn_reset_order)
 
         self.btn_reset_layers = QPushButton("레이어 설정 초기화")
@@ -426,7 +467,7 @@ class LayerDockWidget(QWidget):
             "QPushButton:hover { background-color: #EBEEF5; }"
         )
         self.btn_reset_layers.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-        self.btn_reset_layers.clicked.connect(self._reset_layers_for_current_file)
+        self.btn_reset_layers.clicked.connect(self._on_reset_layers_clicked)
         reset_row.addWidget(self.btn_reset_layers)
 
         lower_widget = QWidget()
@@ -616,6 +657,61 @@ class LayerDockWidget(QWidget):
 
         eye_btn.clicked.connect(on_global_eye_clicked)
         semi_btn.clicked.connect(on_global_semi_clicked)
+        row.eye_btn = eye_btn
+        row.semi_btn = semi_btn
+        return row
+
+    def _build_draw_global_row(self):
+        """그리기 탭용 일괄 눈/반투명 행. 레이어 탭과 동일한 외형, 목록 비어 있으면 no-op."""
+        row = QFrame()
+        row.setFixedHeight(26)
+        row.setStyleSheet("background-color: #F5F7FA; border-top: none; border-left: none; border-right: none; border-bottom: 1px solid #EBEEF5;")
+        main_h = QHBoxLayout(row)
+        main_h.setContentsMargins(0, 0, 0, 0)
+        main_h.setSpacing(0)
+
+        col_eye = QFrame()
+        col_eye.setFixedSize(32, 26)
+        col_eye.setStyleSheet("background: transparent; border-right: 1px solid #E4E7ED;")
+        eye_layout = QVBoxLayout(col_eye)
+        eye_layout.setContentsMargins(0, 0, 0, 0)
+        eye_btn = LayerEyeButton()
+        eye_btn.setFixedSize(32, 26)
+        eye_btn.setChecked(True)
+        eye_layout.addWidget(eye_btn)
+        main_h.addWidget(col_eye)
+
+        col_semi = QFrame()
+        col_semi.setFixedSize(54, 26)
+        col_semi.setStyleSheet("background: transparent; border-right: 1px solid #E4E7ED;")
+        semi_layout = QVBoxLayout(col_semi)
+        semi_layout.setContentsMargins(0, 0, 0, 0)
+        semi_btn = QPushButton("반투명")
+        semi_btn.setCheckable(True)
+        semi_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        semi_btn.setFixedHeight(22)
+        semi_btn.setStyleSheet("""
+            QPushButton { border: none; background: transparent; color: #C0C4CC; font-size: 11px; }
+            QPushButton:checked { color: #409EFF; font-weight: bold; }
+            QPushButton:hover { color: #66B1FF; }
+        """)
+        semi_layout.addWidget(semi_btn)
+        main_h.addWidget(col_semi)
+
+        main_h.addStretch()
+
+        def on_eye():
+            if getattr(self, '_draw_layer_rows', None):
+                pass  # 추후 그리기 레이어 목록 연동
+            pass
+
+        def on_semi():
+            if getattr(self, '_draw_layer_rows', None):
+                pass  # 추후 그리기 레이어 목록 연동
+            pass
+
+        eye_btn.clicked.connect(on_eye)
+        semi_btn.clicked.connect(on_semi)
         row.eye_btn = eye_btn
         row.semi_btn = semi_btn
         return row
@@ -1151,6 +1247,28 @@ class LayerDockWidget(QWidget):
         app_logger.info(config.LOG_MSG["LAYER_SETTINGS_RESET"])
         if hasattr(self.popup, 'on_apply'):
             self.popup.on_apply()
+
+    def _on_reset_order_clicked(self):
+        """순서 초기화 버튼: 현재 탭에 따라 레이어/그리기 순서 초기화."""
+        if self.tab_widget.currentIndex() == 0:
+            self._reset_layer_order()
+        else:
+            self._reset_draw_order()
+
+    def _on_reset_layers_clicked(self):
+        """레이어 설정 초기화 버튼: 현재 탭에 따라 레이어/그리기 설정 초기화."""
+        if self.tab_widget.currentIndex() == 0:
+            self._reset_layers_for_current_file()
+        else:
+            self._reset_draw_layers()
+
+    def _reset_draw_order(self):
+        """그리기 탭 순서 초기화. 추후 _draw_layer_rows 등 연동 시 구현."""
+        pass
+
+    def _reset_draw_layers(self):
+        """그리기 탭 레이어 설정 초기화. 추후 그리기 전용 overrides 연동 시 구현."""
+        pass
 
     def _reset_layer_order(self):
         """레이어 표시 순서를 기본값(정렬)으로 초기화. 필터/디자인 설정은 그대로 유지."""

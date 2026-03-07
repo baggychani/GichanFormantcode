@@ -395,23 +395,32 @@ class LayerLockButton(QPushButton):
 
 
 class ToolStatusIndicator(QFrame):
-    """눈금자 / 라벨 이동 상태 인디케이터. QPainter로 아이콘을 그립니다."""
-    def __init__(self, parent=None, ui_font_name: str = "Malgun Gothic"):
+    """눈금자 / 라벨 이동 / 설정 잠금 상태 인디케이터. QPainter로 아이콘을 그립니다."""
+    def __init__(self, parent=None, ui_font_name: str = "Malgun Gothic", show_lock: bool = True):
         super().__init__(parent)
         self.setObjectName("ToolStatusIndicator")
         self.setFrameShape(QFrame.Shape.NoFrame)
         self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
         self._ruler_on = False
         self._move_on = False
+        self._lock_on = False
+        self._show_lock = show_lock
         self._bg_color = QColor(0, 0, 0, 40)
         self._icon_off = QColor(0, 0, 0, 110)
         self._ruler_on_color = QColor("#67C23A")
         self._move_on_color = QColor("#409EFF")
+        self._lock_on_color = QColor(30, 144, 255)
         self.setFixedHeight(30)
-        self.setMinimumWidth(76)
+        self._update_width()
+
+    def _update_width(self):
+        if self._show_lock:
+            self.setMinimumWidth(114)
+        else:
+            self.setMinimumWidth(76)
 
     def sizeHint(self) -> QSize:
-        return QSize(76, 30)
+        return QSize(114 if self._show_lock else 76, 30)
 
     def set_ruler_on(self, is_on: bool):
         if self._ruler_on != is_on:
@@ -421,6 +430,11 @@ class ToolStatusIndicator(QFrame):
     def set_label_move_on(self, is_on: bool):
         if self._move_on != is_on:
             self._move_on = is_on
+            self.update()
+
+    def set_lock_on(self, is_on: bool):
+        if self._lock_on != is_on:
+            self._lock_on = is_on
             self.update()
 
     def paintEvent(self, event):
@@ -434,11 +448,21 @@ class ToolStatusIndicator(QFrame):
             painter.setBrush(self._bg_color)
             radius = rect.height() / 2.0
             painter.drawRoundedRect(rect, radius, radius)
-            w_half = rect.width() / 2.0
-            left_rect = QRectF(rect.left(), rect.top(), w_half, rect.height())
-            right_rect = QRectF(left_rect.right(), rect.top(), w_half, rect.height())
-            self._draw_ruler_icon(painter, left_rect, self._ruler_on)
-            self._draw_move_icon(painter, right_rect, self._move_on)
+            
+            if self._show_lock:
+                seg_w = rect.width() / 3.0
+                left_rect = QRectF(rect.left(), rect.top(), seg_w, rect.height())
+                mid_rect = QRectF(left_rect.right(), rect.top(), seg_w, rect.height())
+                right_rect = QRectF(mid_rect.right(), rect.top(), seg_w, rect.height())
+                self._draw_ruler_icon(painter, left_rect, self._ruler_on)
+                self._draw_move_icon(painter, mid_rect, self._move_on)
+                self._draw_lock_icon(painter, right_rect, self._lock_on)
+            else:
+                w_half = rect.width() / 2.0
+                left_rect = QRectF(rect.left(), rect.top(), w_half, rect.height())
+                right_rect = QRectF(left_rect.right(), rect.top(), w_half, rect.height())
+                self._draw_ruler_icon(painter, left_rect, self._ruler_on)
+                self._draw_move_icon(painter, right_rect, self._move_on)
         finally:
             painter.end()
 
@@ -480,3 +504,76 @@ class ToolStatusIndicator(QFrame):
         painter.drawLine(QPointF(cx - size, cy), QPointF(cx - size + arr_len, cy + arr_width))
         painter.drawLine(QPointF(cx + size, cy), QPointF(cx + size - arr_len, cy - arr_width))
         painter.drawLine(QPointF(cx + size, cy), QPointF(cx + size - arr_len, cy + arr_width))
+
+    def _draw_lock_icon(self, painter: QPainter, rect: QRectF, is_on: bool):
+        """자물쇠 아이콘 그리기 (설정 유지 잠금 상태 표시)"""
+        body_color = self._lock_on_color if is_on else self._icon_off
+        keyhole_color = QColor(255, 255, 255)
+        
+        seg_side = min(rect.width(), rect.height()) * 0.65
+        icon_rect = QRectF(
+            rect.center().x() - seg_side / 2,
+            rect.center().y() - seg_side / 2,
+            seg_side,
+            seg_side
+        )
+        
+        w = icon_rect.width()
+        h = icon_rect.height()
+        x = icon_rect.x()
+        y = icon_rect.y()
+        
+        shackle_w = w * 0.55
+        shackle_h = h * 0.45
+        shackle_x = x + (w - shackle_w) / 2
+        shackle_y = y + h * 0.1
+        
+        pen_width = w * 0.12
+        pen = QPen(body_color, pen_width)
+        pen.setCapStyle(Qt.PenCapStyle.FlatCap)
+        painter.setPen(pen)
+        painter.setBrush(Qt.BrushStyle.NoBrush)
+        
+        # 고리(Shackle): 꺼짐/켜짐 모두 동일하게 전체 표시
+        painter.drawArc(
+            int(shackle_x), int(shackle_y),
+            int(shackle_w), int(shackle_h),
+            0, 180 * 16
+        )
+        painter.drawLine(
+            int(shackle_x), int(shackle_y + shackle_h / 2),
+            int(shackle_x), int(y + h * 0.5)
+        )
+        painter.drawLine(
+            int(shackle_x + shackle_w), int(shackle_y + shackle_h / 2),
+            int(shackle_x + shackle_w), int(y + h * 0.5)
+        )
+        
+        body_w = w * 0.8
+        body_h = h * 0.55
+        body_x = x + (w - body_w) / 2
+        body_y = y + h * 0.45
+        
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(body_color)
+        painter.drawRoundedRect(QRectF(body_x, body_y, body_w, body_h), w * 0.1, w * 0.1)
+        
+        painter.setBrush(keyhole_color)
+        
+        hole_radius = w * 0.08
+        hole_center_x = body_x + body_w / 2
+        hole_center_y = body_y + body_h * 0.35
+        painter.drawEllipse(QRectF(
+            hole_center_x - hole_radius, 
+            hole_center_y - hole_radius,
+            hole_radius * 2, 
+            hole_radius * 2
+        ))
+        
+        path = QPainterPath()
+        path.moveTo(hole_center_x - hole_radius * 0.5, hole_center_y)
+        path.lineTo(hole_center_x + hole_radius * 0.5, hole_center_y)
+        path.lineTo(hole_center_x + hole_radius * 1.0, hole_center_y + hole_radius * 3.0)
+        path.lineTo(hole_center_x - hole_radius * 1.0, hole_center_y + hole_radius * 3.0)
+        path.closeSubpath()
+        painter.drawPath(path)
