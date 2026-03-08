@@ -29,7 +29,7 @@ import app_logger
 from .filter_panel import MultiVowelFilterPanel
 
 from .design_panel import CompareDesignSettingsPanel, NoWheelComboBox
-from .icon_widgets import create_legend_icon_compare
+from .icon_widgets import create_legend_icon_design
 from .display_utils import truncate_display_name, MAX_DISPLAY_NAME_LEN
 from .layer_dock import LayerDockWidget
 from . import layout_constants as layout
@@ -556,7 +556,7 @@ class ComparePlotPopup(QMainWindow):
         lbl_title.setAlignment(Qt.AlignmentFlag.AlignCenter)
         legend_group.addWidget(lbl_title)
 
-        def create_legend_item(group_id, default_color, default_style, file_name):
+        def create_legend_item(group_id, default_color, default_style, file_name, default_marker='o'):
             row = QWidget()
             rlayout = QHBoxLayout(row)
             rlayout.setContentsMargins(0, 0, 0, 0)
@@ -564,7 +564,7 @@ class ComparePlotPopup(QMainWindow):
 
             icon_lbl = QLabel()
             icon_lbl.setFixedSize(50, 16)
-            icon_lbl.setPixmap(create_legend_icon_compare(default_color, default_style))
+            icon_lbl.setPixmap(create_legend_icon_design(default_color, default_style, default_marker))
 
             lbl_a = QLabel("a")
             lbl_a.setFont(font_bold)
@@ -587,8 +587,8 @@ class ComparePlotPopup(QMainWindow):
             self.legend_refs[group_id] = {'icon': icon_lbl, 'text': lbl_a}
             return row
 
-        legend_group.addWidget(create_legend_item("blue", "#1976D2", "-", data_blue))
-        legend_group.addWidget(create_legend_item("red", "#E64A19", "--", data_red))
+        legend_group.addWidget(create_legend_item("blue", "#1976D2", "-", data_blue, "o"))
+        legend_group.addWidget(create_legend_item("red", "#E64A19", "---", data_red, "o"))
         layout.addLayout(legend_group)
         legend_group.addSpacing(8)
 
@@ -816,13 +816,16 @@ class ComparePlotPopup(QMainWindow):
                     ell_color = '#1976D2' if ds_type == 'blue' else '#E64A19'
 
                 ell_style = cfg.get('ell_style', '-' if ds_type == 'blue' else '--')
+                centroid_marker = cfg.get('centroid_marker', 'o')
+                if centroid_marker not in ('o', 's', '^', 'D'):
+                    centroid_marker = 'o'
 
                 lbl_color = cfg.get('lbl_color')
                 if not lbl_color or lbl_color == 'transparent':
                     lbl_color = '#1976D2' if ds_type == 'blue' else '#E64A19'
 
-                # 범례 아이콘(선과 점) 새로 그리기
-                new_pixmap = create_legend_icon_compare(ell_color, ell_style)
+                # 범례 아이콘(선과 점) 새로 그리기 — 디자인 설정과 동일한 create_legend_icon_design 사용
+                new_pixmap = create_legend_icon_design(ell_color, ell_style, centroid_marker)
                 self.legend_refs[ds_type]['icon'].setPixmap(new_pixmap)
 
                 # 라벨(a) 텍스트 색상 적용

@@ -730,8 +730,8 @@ class CompareDesignSettingsPanel(QWidget):
         group.button(default_idx).setChecked(True)
         return frame, group
 
-    def _build_individual_tab(self, default_color, default_style_idx, series):
-        """서브 탭 내부에 들어갈 개별 디자인 요소 팩토리. series: 'blue' | 'red'"""
+    def _build_individual_tab(self, default_color, default_style_str, series):
+        """서브 탭 내부에 들어갈 개별 디자인 요소 팩토리. series: 'blue' | 'red'. default_style_str: '-', '--', '---'."""
         tab_widget = QWidget()
         layout = QVBoxLayout(tab_widget)
         layout.setContentsMargins(0, 15, 0, 10)
@@ -748,7 +748,7 @@ class CompareDesignSettingsPanel(QWidget):
         legend_row.setSpacing(6)
         icon_lbl = QLabel()
         icon_lbl.setFixedSize(50, 16)
-        icon_lbl.setPixmap(create_legend_icon_design(default_color, default_style_idx))
+        icon_lbl.setPixmap(create_legend_icon_design(default_color, default_style_str))
         lbl_a = QLabel("a")
         lbl_a.setFont(font_bold)
         lbl_a.setStyleSheet(f"color: {default_color};")
@@ -864,7 +864,9 @@ class CompareDesignSettingsPanel(QWidget):
                   (2.0, Qt.PenStyle.SolidLine, "0px", "보통"),
                   (3.5, Qt.PenStyle.SolidLine, "0 4px 4px 0", "두껍게")]
         thick_frame, group_ell_thick = self._create_visual_button_group(thicks, 1)
-        # 버튼 아이콘은 레이어 도크와 동일하게 DashLine/DotLine 사용
+        # 버튼 아이콘은 레이어 도크와 동일하게 DashLine/DotLine 사용. default_style_str -> 인덱스: '-'=0, '---'=1, '--'=2
+        style_str_to_idx = {'-': 0, '---': 1, '--': 2}
+        default_style_idx = style_str_to_idx.get(default_style_str, 0)
         styles = [(2.0, Qt.PenStyle.SolidLine, "4px 0 0 4px", "실선"),
                   (2.0, Qt.PenStyle.DashLine, "0px", "긴 점선"),
                   (2.0, Qt.PenStyle.DotLine, "0 4px 4px 0", "짧은 점선")]
@@ -912,7 +914,6 @@ class CompareDesignSettingsPanel(QWidget):
         """디자인 설정 변경 시 각 탭(Blue/Red) 상단 범례 아이콘·텍스트 색상을 실시간 반영. 점 모양은 모음 중심점 모양을 따름."""
         if not settings:
             return
-        style_to_idx = {'-': 0, '--': 1, ':': 2}
         marker_map = ['o', 's', '^', 'D']
         for series, ctrl in [('blue', self.ctrl_blue), ('red', self.ctrl_red)]:
             cfg = settings.get(series, {})
@@ -920,12 +921,11 @@ class CompareDesignSettingsPanel(QWidget):
             if ell_color == 'transparent':
                 ell_color = '#1976D2' if series == 'blue' else '#E64A19'
             ell_style = cfg.get('ell_style', '-' if series == 'blue' else '--')
-            style_idx = style_to_idx.get(ell_style, 0)
             centroid_marker = cfg.get('centroid_marker', 'o')
             if centroid_marker not in marker_map:
                 centroid_marker = 'o'
             if 'legend_icon' in ctrl:
-                ctrl['legend_icon'].setPixmap(create_legend_icon_design(ell_color, style_idx, centroid_marker))
+                ctrl['legend_icon'].setPixmap(create_legend_icon_design(ell_color, ell_style, centroid_marker))
             lbl_color = cfg.get('lbl_color') or ell_color
             if lbl_color == 'transparent':
                 lbl_color = ell_color
@@ -1139,10 +1139,10 @@ class CompareDesignSettingsPanel(QWidget):
             QTabBar::tab:selected {{ background: #FFFFFF; color: #303133; font-weight: bold; }}
         """)
 
-        # Blue (기준) 탭: 텍스트 및 선 디폴트 Blue(#1976D2), 실선(0)
-        self.tab_blue, self.ctrl_blue = self._build_individual_tab('#1976D2', 0, 'blue')
-        # Red (비교) 탭: 텍스트 및 선 디폴트 Red(#E64A19), 긴 점선(1)
-        self.tab_red, self.ctrl_red = self._build_individual_tab('#E64A19', 1, 'red')
+        # Blue (기준) 탭: 텍스트 및 선 디폴트 Blue(#1976D2), 실선('-')
+        self.tab_blue, self.ctrl_blue = self._build_individual_tab('#1976D2', '-', 'blue')
+        # Red (비교) 탭: 텍스트 및 선 디폴트 Red(#E64A19), 긴 점선('---')
+        self.tab_red, self.ctrl_red = self._build_individual_tab('#E64A19', '---', 'red')
 
         idx_blue = self.sub_tabs.addTab(self.tab_blue, strip_gichan_prefix(self.name_blue))
         self.sub_tabs.setTabToolTip(idx_blue, self.name_blue)
@@ -1268,11 +1268,19 @@ class CompareDesignSettingsPanel(QWidget):
 
     def _parse_individual_settings(self, ctrl):
         thick_map = {0: 0.5, 1: 1.0, 2: 2.0}
-        style_map = {0: '-', 1: '---', 2: '--'}
+        style_map = {0: '-', 1: '---', 2: '--'}  # 실선, 긴 점선, 짧은 점선
         marker_map = {0: 'o', 1: 's', 2: '^', 3: 'D'}
 
         line_color = ctrl['ell_line_picker'].current_color
         fill_color = ctrl['ell_fill_picker'].current_color
+
+        # ell_style: checkedId()가 -1이면(토글 순간 등) checkedButton()으로 보정
+        g_ell = ctrl['group_ell_style']
+        style_id = g_ell.checkedId()
+        if style_id < 0:
+            btn = g_ell.checkedButton()
+            style_id = g_ell.id(btn) if btn else 0
+        ell_style = style_map.get(style_id, '-')
 
         return {
             'lbl_color': ctrl['lbl_color_picker'].current_color,
@@ -1282,7 +1290,7 @@ class CompareDesignSettingsPanel(QWidget):
             'centroid_marker': marker_map.get(ctrl['group_centroid_marker'].checkedId(), 'o'),
 
             'ell_thick': thick_map.get(ctrl['group_ell_thick'].checkedId(), 1.0),
-            'ell_style': style_map.get(ctrl['group_ell_style'].checkedId(), '-'),
+            'ell_style': ell_style,
             'ell_color': line_color if line_color != 'transparent' else None,
             'ell_fill_color': fill_color if fill_color != 'transparent' else None,
         }

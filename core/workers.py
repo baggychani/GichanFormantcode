@@ -28,7 +28,7 @@ class BatchSaveWorker(QThread):
         total = len(self.plot_data_list)
         for i, data in enumerate(self.plot_data_list):
             fname = data['name']
-            save_name = f"{os.path.splitext(fname)[0]}_plot.{self.img_format}"
+            save_name = f"{os.path.splitext(fname)[0]}.{self.img_format}"
             save_path = os.path.join(self.save_dir, save_name)
             try:
                 temp_fig = Figure(figsize=(6.5, 6.5), dpi=300)

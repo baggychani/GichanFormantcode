@@ -67,9 +67,22 @@ def create_raw_marker_icon(marker_kind):
     return QIcon(pixmap)
 
 
-def create_legend_icon_design(color_hex, style_idx, marker_char='o'):
-    """선 스타일 + 점 아이콘 (50x16). style_idx: 0=실선, 1=긴점선, 2=짧은점선. marker_char: o/s/^/D."""
-    style = Qt.PenStyle.SolidLine if style_idx == 0 else (Qt.PenStyle.DashLine if style_idx == 1 else Qt.PenStyle.DotLine)
+def create_legend_icon_design(color_hex, line_style_str, marker_char='o'):
+    """선 스타일 + 점 아이콘 (50x16). line_style_str: '-' (실선), '--' (짧은 점선), '---' (긴 점선), ':' (레거시 DotLine). marker_char: o/s/^/D."""
+    # UI 버튼의 Qt.PenStyle 매핑 기준 ('-': 실선, '---': 긴 점선, '--': 짧은 점선)
+    qt_style = Qt.PenStyle.SolidLine
+    dash_pattern = None
+    cap_style = Qt.PenCapStyle.RoundCap  # 실선일 때는 둥근 캡 유지
+    if line_style_str == '---':  # 긴 점선: 조금 길게 끊어짐
+        qt_style = Qt.PenStyle.CustomDashLine
+        # 펜 두께(2.0) 기준. 3.0=6px 선, 1.5=3px 공백 -> 약 2~3개 패턴
+        dash_pattern = [3.0, 1.5]
+        cap_style = Qt.PenCapStyle.FlatCap  # 점선은 뭉개지지 않게 평면 캡
+    elif line_style_str == '--' or line_style_str == ':':  # 짧은 점선: 더 잘게 쪼개짐
+        qt_style = Qt.PenStyle.CustomDashLine
+        # 1.5=3px 선, 1.0=2px 공백 -> 약 3~4개 패턴
+        dash_pattern = [1.5, 1.0]
+        cap_style = Qt.PenCapStyle.FlatCap
     pixmap = QPixmap(50, 16)
     pixmap.fill(Qt.GlobalColor.transparent)
     painter = QPainter(pixmap)
@@ -78,10 +91,14 @@ def create_legend_icon_design(color_hex, style_idx, marker_char='o'):
         pen = QPen()
         pen.setColor(QColor(color_hex))
         pen.setWidthF(2.0)
-        pen.setStyle(style)
-        pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+        pen.setStyle(qt_style)
+        if dash_pattern:
+            pen.setDashPattern(dash_pattern)
+        pen.setCapStyle(cap_style)
         painter.setPen(pen)
-        painter.drawLine(2, 8, 48, 8)
+        # 대칭 점선을 위해 왼쪽(2~18), 오른쪽(32~48) 두 구간으로 끊어서 그림. 중앙(25)은 마커가 덮음.
+        painter.drawLine(2, 8, 18, 8)
+        painter.drawLine(32, 8, 48, 8)
         painter.setPen(Qt.PenStyle.NoPen)
         painter.setBrush(QColor(color_hex))
         cx, cy = 25, 8
@@ -100,36 +117,6 @@ def create_legend_icon_design(color_hex, style_idx, marker_char='o'):
             painter.drawEllipse(int(cx - r), int(cy - r), 2 * r, 2 * r)
     finally:
         painter.end()
-    return pixmap
-
-
-def create_legend_icon_compare(color_hex, line_style_str):
-    """범례용 선+원 아이콘 (50x16). line_style_str: '-' / '--' / ':'."""
-    pixmap = QPixmap(50, 16)
-    pixmap.fill(Qt.GlobalColor.transparent)
-    try:
-        painter = QPainter(pixmap)
-        try:
-            painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-            qt_style = Qt.PenStyle.SolidLine
-            if line_style_str == '--':
-                qt_style = Qt.PenStyle.DashLine
-            elif line_style_str == ':':
-                qt_style = Qt.PenStyle.DotLine
-            pen = QPen()
-            pen.setColor(QColor(color_hex))
-            pen.setWidthF(2.0)
-            pen.setStyle(qt_style)
-            pen.setCapStyle(Qt.PenCapStyle.RoundCap)
-            painter.setPen(pen)
-            painter.drawLine(2, 8, 48, 8)
-            painter.setPen(Qt.PenStyle.NoPen)
-            painter.setBrush(QColor(color_hex))
-            painter.drawEllipse(21, 4, 8, 8)
-        finally:
-            painter.end()
-    except Exception:
-        pass
     return pixmap
 
 
