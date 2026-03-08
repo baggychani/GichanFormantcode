@@ -101,7 +101,13 @@ class MainUI(QMainWindow):
             }
             QTableWidget::item { border-bottom: 1px solid #f0f2f5; }
 
-            /* 복구된 테이블 숫자 열(수직 헤더) 디자인 */
+            /* 헤더 전체의 배경색을 설정하여 빈 공간을 회색으로 채움 */
+            QHeaderView {
+                background-color: #fafafa;
+                border: none;
+            }
+
+            /* 수직 헤더(숫자 열) 섹션 스타일 */
             QHeaderView::section:vertical {
                 border: none;
                 border-bottom: 1px solid #f0f2f5;
@@ -109,6 +115,21 @@ class MainUI(QMainWindow):
                 padding-left: 5px;
                 padding-right: 5px;
                 color: #909399;
+                min-width: 25px;
+            }
+
+            /* 가로 헤더(파일명 열) 섹션 스타일 */
+            QHeaderView::section:horizontal {
+                background-color: #fafafa;
+                border: none;
+                border-bottom: 1px solid #e4e7ed;
+                color: #909399;
+            }
+
+            /* 테이블 왼쪽 상단 모서리 빈 칸도 회색으로 */
+            QTableWidget QTableCornerButton::section {
+                background-color: #fafafa;
+                border: none;
             }
         """)
 
