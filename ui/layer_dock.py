@@ -13,9 +13,11 @@ from PyQt6.QtCore import Qt, pyqtSignal, QPointF, QEvent, QObject, QMimeData, QB
 from PyQt6.QtGui import QFont, QPainter, QPainterPath, QPen, QColor, QDrag, QPixmap
 
 import json
+import os
 import config
 import app_logger
 from .design_panel import ColorPalette
+from .display_utils import strip_gichan_prefix
 from .icon_widgets import LinePreviewButton, MarkerShapeButton, LayerEyeButton, LayerLockButton
 from . import layout_constants as lc
 
@@ -363,9 +365,13 @@ class LayerDockWidget(QWidget):
         self._compare_file_btn_b = None
         self._compare_file_group = None
         if self._compare_mode:
-            _trunc = 20
-            btn_label_a = (self._file_a_name[:_trunc] + '…') if len(self._file_a_name) > _trunc else self._file_a_name
-            btn_label_b = (self._file_b_name[:_trunc] + '…') if len(self._file_b_name) > _trunc else self._file_b_name
+            _max = 20  # 레이어 목록 위 파일 선택 버튼용 글자 수 제한
+            def _trunc(s):
+                return s if len(s) <= _max else s[: _max - 3] + "..."
+            name_a = os.path.splitext(self._file_a_name)[0]
+            name_b = os.path.splitext(self._file_b_name)[0]
+            btn_label_a = _trunc(strip_gichan_prefix(name_a))
+            btn_label_b = _trunc(strip_gichan_prefix(name_b))
             self._compare_file_switch_row = QFrame()
             self._compare_file_switch_row.setFixedHeight(32)
             self._compare_file_switch_row.setStyleSheet("background-color: #F5F7FA; border-bottom: 1px solid #EBEEF5;")

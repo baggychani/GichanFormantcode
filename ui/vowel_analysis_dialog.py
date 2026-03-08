@@ -12,6 +12,7 @@ from PyQt6.QtGui import QIcon, QPixmap, QBrush, QColor, QFont, QPen, QPainter
 
 from utils import icon_utils
 from utils.math_utils import calc_f2_prime
+from ui.display_utils import truncate_display_name, MAX_DISPLAY_NAME_LEN
 from utils.vowel_stats import (
     analyze_vowels,
     calculate_point_distances_from_centroid,
@@ -250,7 +251,7 @@ class VowelAnalysisDialog(QDialog):
         w = QWidget()
         layout = QVBoxLayout(w)
         layout.addWidget(QLabel(message))
-        self.tabs.addTab(w, tab_label)
+        self.tabs.addTab(w, truncate_display_name(tab_label, MAX_DISPLAY_NAME_LEN))
 
     def _add_table_tab(self, tab_label, result):
         if not result or not result.get('statistics'):
@@ -335,7 +336,7 @@ class VowelAnalysisDialog(QDialog):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
         layout.addWidget(table)
-        self.tabs.addTab(w, tab_label)
+        self.tabs.addTab(w, truncate_display_name(tab_label, MAX_DISPLAY_NAME_LEN))
 
     def _current_file_name_and_result(self):
         """현재 선택된 탭의 (file_name, result_dict) 반환."""

@@ -277,7 +277,7 @@ class LabelMoveTool:
         # 우클릭(Matplotlib button 3) 원상복귀: 사용자 오프셋 제거 후 refresh로 자동 배치 복귀
         if event.button == 3:
             if self.hovered_label is not None:
-                vowel = self.hovered_label.get('vowel')
+                vowel = (self.hovered_label or {}).get('vowel')
                 if vowel is not None and callable(getattr(self, 'on_offset_cleared', None)):
                     self.on_offset_cleared(vowel)
                 self._clear_highlight()

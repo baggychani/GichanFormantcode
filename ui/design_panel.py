@@ -1,6 +1,7 @@
 # ui_design_panel.py
 
 import os
+import config
 from PyQt6.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout,
                              QLabel, QPushButton, QComboBox,
                              QScrollArea, QFrame, QColorDialog, QButtonGroup,
@@ -16,6 +17,8 @@ from .icon_widgets import (
     MarkerShapeButton,
     ColorCircleButton,
 )
+from .display_utils import truncate_display_name, MAX_DISPLAY_NAME_LEN, strip_gichan_prefix
+from . import layout_constants as lc
 
 
 class NoWheelComboBox(QComboBox):
@@ -739,6 +742,7 @@ class CompareDesignSettingsPanel(QWidget):
         # 0. 데이터 범례 (현재 탭 파일명)
         file_name = self.name_blue if series == 'blue' else self.name_red
         clean_name = os.path.splitext(file_name)[0]
+        display_name = truncate_display_name(clean_name, MAX_DISPLAY_NAME_LEN)
         legend_row = QHBoxLayout()
         legend_row.setContentsMargins(0, 0, 0, 8)
         legend_row.setSpacing(6)
@@ -748,7 +752,7 @@ class CompareDesignSettingsPanel(QWidget):
         lbl_a = QLabel("a")
         lbl_a.setFont(font_bold)
         lbl_a.setStyleSheet(f"color: {default_color};")
-        lbl_name = QLabel(clean_name)
+        lbl_name = QLabel(display_name)
         lbl_name.setFont(font_normal)
         lbl_name.setStyleSheet("color: #333333;")
         lbl_name.setToolTip(clean_name)
@@ -928,30 +932,8 @@ class CompareDesignSettingsPanel(QWidget):
             if 'legend_a' in ctrl:
                 ctrl['legend_a'].setStyleSheet(f"color: {lbl_color};")
 
-    def _setup_ui(self):
-        main_layout = QVBoxLayout(self)
-        main_layout.setContentsMargins(0, 0, 0, 0)
-        main_layout.setSpacing(0)
-
-        scroll_area = QScrollArea()
-        scroll_area.setWidgetResizable(True)
-        scroll_area.setFrameShape(QFrame.Shape.NoFrame)
-        scroll_area.setStyleSheet("QScrollArea { background-color: transparent; }")
-        scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-
-        scroll_content = QWidget()
-        scroll_content.setStyleSheet("QWidget { background-color: white; }")
-        scroll_content.setMaximumWidth(260)
-        scroll_content.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
-        layout = QVBoxLayout(scroll_content)
-        layout.setContentsMargins(12, 12, 12, 15)
-        layout.setSpacing(14)
-
-        font_bold = QFont(self.ui_font_name, 10, QFont.Weight.Bold)
-
-        # ------------------------------------------------
-        # 1. 데이터 표시
-        # ------------------------------------------------
+    def _setup_compare_data_section(self, layout, font_bold):
+        """CompareDesignSettingsPanel: 데이터 표시 구역."""
         data_group = QVBoxLayout()
         data_group.setSpacing(10)
         data_group.addWidget(QLabel("데이터 표시", font=font_bold))
@@ -960,22 +942,19 @@ class CompareDesignSettingsPanel(QWidget):
         data_group.addLayout(row1)
         data_group.addLayout(row2)
         layout.addLayout(data_group)
-
-        # 구분선
         line1 = QFrame()
         line1.setFrameShape(QFrame.Shape.HLine)
         line1.setStyleSheet("color: #EBEEF5;")
         layout.addWidget(line1)
 
-        # ------------------------------------------------
-        # 2. 스타일 (폰트 스타일)
-        # ------------------------------------------------
+    def _setup_compare_style_section(self, layout, font_bold):
+        """CompareDesignSettingsPanel: 스타일(폰트·데이터 포인트) 구역."""
         style_group = QVBoxLayout()
         style_group.setSpacing(8)
         style_group.addWidget(QLabel("스타일", font=font_bold))
         font_style_row = QHBoxLayout()
         font_style_row.setSpacing(4)
-        lbl_font_style_c = QLabel("폰트 스타일:", font=QFont(self.ui_font_name, 9))
+        lbl_font_style_c = QLabel("폰트 스타일:", font=QFont(self.ui_font_name, config.FONT_SIZE_SMALL))
         lbl_font_style_c.setMinimumWidth(95)
         font_style_row.addWidget(lbl_font_style_c)
         btn_style = """
@@ -1007,10 +986,9 @@ class CompareDesignSettingsPanel(QWidget):
         font_style_row.addWidget(btn_sans)
         font_style_row.addStretch()
         style_group.addLayout(font_style_row)
-
         dp_shape_row = QHBoxLayout()
         dp_shape_row.setSpacing(4)
-        lbl_dp_c = QLabel("데이터 포인트:", font=QFont(self.ui_font_name, 9))
+        lbl_dp_c = QLabel("데이터 포인트:", font=QFont(self.ui_font_name, config.FONT_SIZE_SMALL))
         lbl_dp_c.setMinimumWidth(95)
         dp_shape_row.addWidget(lbl_dp_c)
         self.group_raw_marker_common = QButtonGroup(self)
@@ -1031,19 +1009,15 @@ class CompareDesignSettingsPanel(QWidget):
         dp_shape_row.addStretch()
         style_group.addLayout(dp_shape_row)
         layout.addLayout(style_group)
-
-        # 구분선
         line2 = QFrame()
         line2.setFrameShape(QFrame.Shape.HLine)
         line2.setStyleSheet("color: #EBEEF5;")
         layout.addWidget(line2)
 
-        # ------------------------------------------------
-        # 3. 그래프 배경 — "그래프 배경" 옆에 ▼, 접는 영역 위에 구분선
-        # ------------------------------------------------
+    def _setup_compare_graph_background_section(self, layout, font_bold):
+        """CompareDesignSettingsPanel: 그래프 배경(접기·토글) 구역."""
         graph_group = QVBoxLayout()
         graph_group.setSpacing(10)
-        # 제목 행: "그래프 배경" 텍스트 바로 옆에 ▼
         graph_header_row = QWidget()
         graph_header_row.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
         graph_header_layout = QHBoxLayout(graph_header_row)
@@ -1059,29 +1033,23 @@ class CompareDesignSettingsPanel(QWidget):
         graph_header_layout.addWidget(self.graph_bg_toggle_btn)
         graph_header_layout.addStretch()
         graph_group.addWidget(graph_header_row)
-
-        # 항상 보이는 3개: 사방 테두리, 배경 실선(Grid), Y축 라벨 눕히기
         row3, self.sw_box_spines = self._create_toggle_row("사방 테두리", default_checked=self._is_normalized)
         row4, self.sw_show_grid = self._create_toggle_row("배경 실선(Grid)", default_checked=self._is_normalized)
         row_y_rot, self.sw_y_label_rotation = self._create_toggle_row("Y축 라벨 눕히기", default_checked=False)
-        self.sw_y_label_rotation.setToolTip("Y축(nF1 등) 글자를 90도 눕혀 표시합니다. 끄면 똑바로 세웁니다.")
+        self.sw_y_label_rotation.setToolTip("Y축 글자를 90도 눕혀 표시합니다. 끄면 똑바로 세웁니다.")
         graph_group.addLayout(row3)
         graph_group.addLayout(row4)
         graph_group.addLayout(row_y_rot)
-
-        # 접었을 때 숨겨지는 영역 위 얇은 구분선 + 펼치면 보이는 3개
         graph_collapse_line = QFrame()
         graph_collapse_line.setFrameShape(QFrame.Shape.HLine)
         graph_collapse_line.setStyleSheet("color: #EBEEF5;")
         graph_collapse_line.setFixedHeight(1)
         graph_group.addWidget(graph_collapse_line)
         self.graph_bg_collapse_line = graph_collapse_line
-
         graph_content_cmp = QWidget()
         graph_content_cmp_layout = QVBoxLayout(graph_content_cmp)
         graph_content_cmp_layout.setContentsMargins(0, 4, 0, 0)
         graph_content_cmp_layout.setSpacing(10)
-
         row_unit, self.sw_show_axis_units = self._create_toggle_row("눈금 단위", default_checked=False)
         self.sw_show_axis_units.setToolTip("ON 시 X·Y축 이름 뒤에 (Hz) 등 눈금 단위 표시")
         self.axis_units_row_widget = QWidget()
@@ -1100,19 +1068,11 @@ class CompareDesignSettingsPanel(QWidget):
         graph_content_cmp_layout.addLayout(row_minor)
         graph_content_cmp_layout.addWidget(self.axis_position_swap_row_widget)
         self.graph_bg_content = graph_content_cmp
-
-        def toggle_graph_bg_cmp():
-            visible = not self.graph_bg_content.isVisible()
-            self.graph_bg_content.setVisible(visible)
-            self.graph_bg_collapse_line.setVisible(visible)
-            self.graph_bg_toggle_btn.setText("▶" if not visible else "▼")
-        self.graph_bg_toggle_btn.clicked.connect(toggle_graph_bg_cmp)
-        graph_header_row.mousePressEvent = lambda e: toggle_graph_bg_cmp()
-        # 다중 플롯(정규화 포함): 그래프 배경 섹션 기본 접힘
+        self.graph_bg_toggle_btn.clicked.connect(self._on_graph_bg_toggle_clicked)
+        graph_header_row.mousePressEvent = lambda e: self._on_graph_header_pressed(e)
         self.graph_bg_content.setVisible(False)
         self.graph_bg_collapse_line.setVisible(False)
         self.graph_bg_toggle_btn.setText("▶")
-
         graph_group.addWidget(graph_content_cmp)
         if self._is_normalized:
             self.axis_units_row_widget.setVisible(False)
@@ -1128,6 +1088,36 @@ class CompareDesignSettingsPanel(QWidget):
         self.sw_show_minor_ticks.setChecked(True)
         layout.addLayout(graph_group)
 
+    def _on_graph_bg_toggle_clicked(self):
+        visible = not self.graph_bg_content.isVisible()
+        self.graph_bg_content.setVisible(visible)
+        self.graph_bg_collapse_line.setVisible(visible)
+        self.graph_bg_toggle_btn.setText("▶" if not visible else "▼")
+
+    def _on_graph_header_pressed(self, e):
+        self._on_graph_bg_toggle_clicked()
+
+    def _setup_ui(self):
+        main_layout = QVBoxLayout(self)
+        main_layout.setContentsMargins(0, 0, 0, 0)
+        main_layout.setSpacing(0)
+        scroll_area = QScrollArea()
+        scroll_area.setWidgetResizable(True)
+        scroll_area.setFrameShape(QFrame.Shape.NoFrame)
+        scroll_area.setStyleSheet("QScrollArea { background-color: transparent; }")
+        scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        scroll_content = QWidget()
+        scroll_content.setStyleSheet("QWidget { background-color: white; }")
+        scroll_content.setMaximumWidth(260)
+        scroll_content.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
+        layout = QVBoxLayout(scroll_content)
+        layout.setContentsMargins(*lc.MARGIN_DOCK_CONTENTS)
+        layout.setSpacing(14)
+        font_bold = QFont(self.ui_font_name, config.FONT_SIZE_NORMAL, QFont.Weight.Bold)
+        self._setup_compare_data_section(layout, font_bold)
+        self._setup_compare_style_section(layout, font_bold)
+        self._setup_compare_graph_background_section(layout, font_bold)
+
         # ------------------------------------------------
         # [ 개별 설정 구역 (서브 탭) ]
         # ------------------------------------------------
@@ -1137,15 +1127,16 @@ class CompareDesignSettingsPanel(QWidget):
         self.sub_tabs.setUsesScrollButtons(False)
         self.sub_tabs.tabBar().setElideMode(Qt.TextElideMode.ElideRight)
 
-        # 도크 폭 내 수용: 탭 최대 폭 제한 + 11px 글자, 말줄임·툴팁으로 전체 이름 표시
-        self.sub_tabs.setStyleSheet("""
-            QTabWidget::pane { border-top: 2px solid #E4E7ED; background: white; }
-            QTabBar::tab {
+        # 도크 폭 내 수용: 탭 너비 고정(두 탭 합쳐 도크를 넘지 않도록), 말줄임·툴팁으로 전체 이름 표시
+        _tab_width_px = 100  # 탭 하나당 고정 너비; 2탭 합 200px로 마진 내 가용 폭에 맞춤
+        self.sub_tabs.setStyleSheet(f"""
+            QTabWidget::pane {{ border-top: 2px solid #E4E7ED; background: white; }}
+            QTabBar::tab {{
                 background: #F5F7FA; border: 1px solid #DCDFE6; border-bottom: none;
                 border-top-left-radius: 4px; border-top-right-radius: 4px;
-                max-width: 108px; min-width: 56px; padding: 6px 5px; color: #606266; font-size: 11px;
-            }
-            QTabBar::tab:selected { background: #FFFFFF; color: #303133; font-weight: bold; }
+                min-width: {_tab_width_px}px; max-width: {_tab_width_px}px; padding: 6px 5px; color: #606266; font-size: 11px;
+            }}
+            QTabBar::tab:selected {{ background: #FFFFFF; color: #303133; font-weight: bold; }}
         """)
 
         # Blue (기준) 탭: 텍스트 및 선 디폴트 Blue(#1976D2), 실선(0)
@@ -1153,10 +1144,10 @@ class CompareDesignSettingsPanel(QWidget):
         # Red (비교) 탭: 텍스트 및 선 디폴트 Red(#E64A19), 긴 점선(1)
         self.tab_red, self.ctrl_red = self._build_individual_tab('#E64A19', 1, 'red')
 
-        idx_blue = self.sub_tabs.addTab(self.tab_blue, self.name_blue)
+        idx_blue = self.sub_tabs.addTab(self.tab_blue, strip_gichan_prefix(self.name_blue))
         self.sub_tabs.setTabToolTip(idx_blue, self.name_blue)
 
-        idx_red = self.sub_tabs.addTab(self.tab_red, self.name_red)
+        idx_red = self.sub_tabs.addTab(self.tab_red, strip_gichan_prefix(self.name_red))
         self.sub_tabs.setTabToolTip(idx_red, self.name_red)
 
         self._update_compare_tab_text_colors()

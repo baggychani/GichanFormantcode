@@ -1,34 +1,41 @@
 # math_utils.py (utils 패키지)
 
+from __future__ import annotations
+
 import pandas as pd
 import numpy as np
 from scipy import stats
+from typing import Union
 
 
-def hz_to_linear(hz):
+def hz_to_linear(hz: Union[float, np.ndarray]) -> Union[float, np.ndarray]:
     """리니어 스케일: 입력받은 Hz 값을 그대로 반환"""
     return hz
 
 
-def hz_to_bark(hz):
+def hz_to_bark(hz: Union[float, np.ndarray]) -> Union[float, np.ndarray]:
     """바크 스케일: Traunmuller(1990) 공식을 사용해 청각 척도로 변환"""
     hz_safe = np.maximum(hz, 0.1)  # 0 이하 값 방어
     return 26.81 / (1 + 1960 / hz_safe) - 0.53
 
 
-def bark_to_hz(bark):
+def bark_to_hz(bark: Union[float, np.ndarray]) -> Union[float, np.ndarray]:
     """Bark -> Hz 역변환: 사용자 입력 범위를 연산용 Hz로 변환"""
     bark_safe = np.maximum(bark, 0.0)  # -0.53 미만 방어
     denom = (26.81 / (bark_safe + 0.53)) - 1
     return np.where(denom > 0, 1960 / denom, 20000)
 
 
-def hz_to_log(hz):
+def hz_to_log(hz: Union[float, np.ndarray]) -> Union[float, np.ndarray]:
     """로그 스케일: 밑이 10인 상용로그 적용"""
     return np.log10(np.maximum(hz, 0.1))
 
 
-def calc_f2_prime(f1, f2, f3):
+def calc_f2_prime(
+    f1: Union[float, np.ndarray],
+    f2: Union[float, np.ndarray],
+    f3: Union[float, np.ndarray],
+) -> Union[float, np.ndarray]:
     """유효 제2포먼트(F2'): F2와 F3의 청각적 통합 현상을 보정 연산"""
     f3_safe = np.where(pd.isna(f3) | (f3 == 0), f2, f3)
     denom = np.where(f3_safe == f1, 0.1, f3_safe - f1)  # 분모 0 방지

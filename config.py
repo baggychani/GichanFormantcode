@@ -37,6 +37,19 @@ CENTRAL_LAYOUT_MARGIN_PX = 10
 # 도크와 캔버스 사이 구분선 스타일 시트용 색상 (compare_plot / popup_plot)
 SEPARATOR_BG_COLOR = "#F5F7FA"
 
+# UI 폰트 크기 (pt). 플롯 창·다이얼로그·패널 등에서 공통 참조
+FONT_SIZE_SMALL = 9
+FONT_SIZE_NORMAL = 10
+FONT_SIZE_MEDIUM = 11
+FONT_SIZE_TITLE = 12
+
+# UI 색상 (Hex). 테두리·배경·텍스트 등 공통 참조
+COLOR_BORDER = "#DCDFE6"
+COLOR_BORDER_LIGHT = "#E4E7ED"
+COLOR_BG_LIGHT = "#F5F7FA"
+COLOR_TEXT_SECONDARY = "#606266"
+COLOR_TEXT_PRIMARY = "#303133"
+
 # OS별 UI 기본 폰트 (플롯 창·다이얼로그 등에서 사용)
 UI_FONT_WINDOWS = "Malgun Gothic"
 UI_FONT_MAC = "AppleGothic"

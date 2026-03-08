@@ -10,6 +10,7 @@ from PyQt6.QtCore import Qt, QPoint, QEvent
 from PyQt6.QtGui import QFont, QIcon, QPixmap
 
 from utils import icon_utils
+from .display_utils import strip_gichan_prefix
 
 
 class LiveVowelFilterPanel(QDialog):
@@ -118,7 +119,7 @@ class LiveVowelFilterPanel(QDialog):
         lbl_title = QLabel("모음 가시성 설정")
         lbl_title.setFont(QFont(self.ui_font_name, 12, QFont.Weight.Bold))
 
-        lbl_subtitle = QLabel(os.path.splitext(self.file_name)[0])
+        lbl_subtitle = QLabel(strip_gichan_prefix(os.path.splitext(self.file_name)[0]))
         lbl_subtitle.setFont(QFont(self.ui_font_name, 9))
         lbl_subtitle.setStyleSheet("color: #909399;")
 
@@ -370,12 +371,14 @@ class MultiVowelFilterPanel(QDialog):
 
         name1 = os.path.splitext(self.file1_name)[0]
         name2 = os.path.splitext(self.file2_name)[0]
+        name1_display = strip_gichan_prefix(name1)
+        name2_display = strip_gichan_prefix(name2)
 
-        tab1 = self._create_tab_page(name1, self.vowels1, self.state1, 1)
-        tab2 = self._create_tab_page(name2, self.vowels2, self.state2, 2)
+        tab1 = self._create_tab_page(name1_display, self.vowels1, self.state1, 1)
+        tab2 = self._create_tab_page(name2_display, self.vowels2, self.state2, 2)
 
-        self.tab_widget.addTab(tab1, name1)
-        self.tab_widget.addTab(tab2, name2)
+        self.tab_widget.addTab(tab1, name1_display)
+        self.tab_widget.addTab(tab2, name2_display)
 
         layout.addWidget(self.tab_widget)
 

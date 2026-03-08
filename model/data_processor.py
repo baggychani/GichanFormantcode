@@ -7,6 +7,23 @@ import re
 
 import config
 
+# 텍스트 파일 로드 시 시도할 인코딩 순서 (UTF-16 BOM, UTF-8, 한글 Windows, 기타)
+ENCODINGS = ["utf-8", "utf-16", "utf-16-le", "utf-16-be", "cp949", "euc-kr", "latin-1"]
+
+
+def _read_csv_with_encoding(path):
+    """여러 인코딩을 순서대로 시도하여 CSV/텍스트 파일을 읽는다. 성공 시 DataFrame 반환."""
+    last_err = None
+    for enc in ENCODINGS:
+        try:
+            return pd.read_csv(path, sep=None, engine="python", header=None, encoding=enc)
+        except (UnicodeDecodeError, UnicodeError) as e:
+            last_err = e
+            continue
+    if last_err is not None:
+        raise last_err
+    raise ValueError("파일을 읽을 수 있는 인코딩을 찾지 못했습니다.")
+
 
 class DataProcessor:
     def __init__(self):
@@ -32,7 +49,7 @@ class DataProcessor:
                 if ext in ['.xls', '.xlsx']:
                     temp_df = pd.read_excel(path, header=None)
                 else:
-                    temp_df = pd.read_csv(path, sep=None, engine='python', header=None)
+                    temp_df = _read_csv_with_encoding(path)
 
                 # 개별 파일 전처리 (실패 시 구체적 사유 반환)
                 processed_df, parse_error = self._parse_fixed_columns(temp_df)

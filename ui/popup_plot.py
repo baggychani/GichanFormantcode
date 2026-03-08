@@ -29,7 +29,7 @@ from .design_panel import DesignSettingsPanel, NoWheelComboBox
 from .tool_indicator import ToolStatusIndicator
 from .layer_dock import LayerDockWidget
 from . import layout_constants as layout
-
+from .display_utils import format_file_label
 
 class RangeInputFilter(QObject):
     """좌표축 범위 입력란: 숫자·소수점·마이너스 외 키는 입력되지 않게 막고 포커스 해제."""
@@ -148,12 +148,16 @@ class BatchSaveDialog(QDialog):
         sig_h.setSpacing(0)
         self.sig_group = QButtonGroup(self)
         self.sig_group.setExclusive(True)
+        _seg_btn_radius = [
+            "QPushButton { border-top-left-radius: 4px; border-bottom-left-radius: 4px; border-right: none; }",
+            "QPushButton { border-top-right-radius: 4px; border-bottom-right-radius: 4px; border-left: none; }",
+        ]
         for i, (text, val) in enumerate([("1σ (68%)", "1.0"), ("2σ (95%)", "2.0")]):
             btn = QPushButton(text)
             btn.setCheckable(True)
             btn.setProperty("val", val)
             btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-            btn.setStyleSheet(seg_btn_style + ("QPushButton { border-top-left-radius: 4px; border-bottom-left-radius: 4px; border-right: none; }" if i == 0 else "QPushButton { border-top-right-radius: 4px; border-bottom-right-radius: 4px; border-left: none; }"))
+            btn.setStyleSheet(seg_btn_style + _seg_btn_radius[i])
             self.sig_group.addButton(btn, i)
             btn.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
             sig_h.addWidget(btn, stretch=1)
@@ -169,12 +173,17 @@ class BatchSaveDialog(QDialog):
         fmt_h.setSpacing(0)
         self.fmt_group = QButtonGroup(self)
         self.fmt_group.setExclusive(True)
+        _fmt_btn_radius = [
+            "QPushButton { border-top-left-radius: 4px; border-bottom-left-radius: 4px; border-right: none; }",
+            "QPushButton { border-left: none; border-right: none; }",
+            "QPushButton { border-top-right-radius: 4px; border-bottom-right-radius: 4px; border-left: none; }",
+        ]
         for i, (text, val) in enumerate([("JPG", "jpg"), ("PNG", "png"), ("EPS", "eps")]):
             btn = QPushButton(text)
             btn.setCheckable(True)
             btn.setProperty("val", val)
             btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-            btn.setStyleSheet(seg_btn_style + ("QPushButton { border-top-left-radius: 4px; border-bottom-left-radius: 4px; border-right: none; }" if i == 0 else ("QPushButton { border-top-right-radius: 4px; border-bottom-right-radius: 4px; border-left: none; }" if i == 2 else "QPushButton { border-left: none; border-right: none; }")))
+            btn.setStyleSheet(seg_btn_style + _fmt_btn_radius[i])
             self.fmt_group.addButton(btn, i)
             btn.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
             fmt_h.addWidget(btn, stretch=1)
@@ -744,6 +753,7 @@ class PlotPopup(QMainWindow):
         tool_group.addWidget(self.btn_ruler)
 
         self.btn_draw = QPushButton("그리기")
+        self.btn_draw.setToolTip("추후 업데이트로 추가될 기능입니다.")
         self.btn_draw.setFixedHeight(35)
         self.btn_draw.setFont(font_normal)
         self.btn_draw.setFocusPolicy(Qt.FocusPolicy.NoFocus)
@@ -1021,7 +1031,7 @@ class PlotPopup(QMainWindow):
         current_data = data_list[idx]
         self._update_window_title(current_data['name'])
         self.lbl_info.setText(
-            f"{idx + 1}/{len(data_list)}: {current_data['name']}")
+            format_file_label(idx + 1, len(data_list), current_data['name']))
 
         if self.filter_panel is not None and self.filter_panel.isVisible():
             self.filter_panel.close()

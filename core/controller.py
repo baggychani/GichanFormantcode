@@ -15,6 +15,7 @@ import app_logger
 from ui.main_window import MainUI
 from ui.file_guide import DataGuidePopup
 from ui.popup_plot import PlotPopup
+from ui.display_utils import format_file_label
 from ui.compare_plot import SelectCompareDialog, ComparePlotPopup
 from ui.vowel_analysis_dialog import VowelAnalysisDialog
 from model.data_processor import DataProcessor
@@ -495,7 +496,7 @@ class MainController:
         popup.range_widgets['x_min'].setText(smart_ranges['x_min'])
         popup.range_widgets['x_max'].setText(smart_ranges['x_max'])
 
-        popup.lbl_info.setText(f"{popup.current_idx + 1}/{len(popup.plot_data_snapshot)}: {current_data['name']}")
+        popup.lbl_info.setText(format_file_label(popup.current_idx + 1, len(popup.plot_data_snapshot), current_data['name']))
 
         filter_state = popup.get_filter_state()
         ds_settings = popup.get_design_settings() or self._get_default_design()
@@ -542,8 +543,11 @@ class MainController:
             names = [snapshot[0].get('name', ''), snapshot[1].get('name', '')]
             title_suffix = f"{names[0]}, {names[1]}{suffix}"
         else:
-            first_name = snapshot[0].get('name', '') if snapshot else ''
-            title_suffix = f"{first_name} 외 {len(snapshot) - 1}개{suffix}"
+            if len(snapshot) > 0:
+                first_name = snapshot[0].get('name', '')
+                title_suffix = f"{first_name} 외 {len(snapshot) - 1}개{suffix}"
+            else:
+                title_suffix = "데이터 없음" + suffix
         norm = (params or {}).get('normalization')
         if norm:
             title_suffix += f" / {norm}"
@@ -877,7 +881,7 @@ class MainController:
         popup_window.current_idx = idx
 
         current_data = data_list[idx]
-        lbl_info.setText(f"{idx + 1}/{len(data_list)}: {current_data['name']}")
+        lbl_info.setText(format_file_label(idx + 1, len(data_list), current_data['name']))
 
         self.refresh_plot(figure, canvas, range_widgets, lbl_info, popup_window)
 

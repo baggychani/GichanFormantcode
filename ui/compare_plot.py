@@ -30,6 +30,7 @@ from .filter_panel import MultiVowelFilterPanel
 
 from .design_panel import CompareDesignSettingsPanel, NoWheelComboBox
 from .icon_widgets import create_legend_icon_compare
+from .display_utils import truncate_display_name, MAX_DISPLAY_NAME_LEN
 from .layer_dock import LayerDockWidget
 from . import layout_constants as layout
 
@@ -507,15 +508,21 @@ class ComparePlotPopup(QMainWindow):
         self.layer_dock_widget.setWidget(self._layer_dock_container)
         self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.layer_dock_widget)
 
+        def _get_label_column(df):
+            if df is None:
+                return None
+            return 'Label' if 'Label' in df.columns else ('label' if 'label' in df.columns else None)
+
         def _feed_layer_vowels():
             d_blue = (data_blue_item or {}).get('df')
             d_red = (data_red_item or {}).get('df')
-            col = lambda df: 'Label' if df is not None and 'Label' in df.columns else ('label' if df is not None and 'label' in df.columns else None)
-            if d_blue is not None and col(d_blue):
-                vowels_blue = sorted(d_blue[col(d_blue)].dropna().astype(str).unique().tolist())
+            lbl_col_blue = _get_label_column(d_blue)
+            lbl_col_red = _get_label_column(d_red)
+            if d_blue is not None and lbl_col_blue:
+                vowels_blue = sorted(d_blue[lbl_col_blue].dropna().astype(str).unique().tolist())
                 self._layer_dock_blue.set_vowels(vowels_blue)
-            if d_red is not None and col(d_red):
-                vowels_red = sorted(d_red[col(d_red)].dropna().astype(str).unique().tolist())
+            if d_red is not None and lbl_col_red:
+                vowels_red = sorted(d_red[lbl_col_red].dropna().astype(str).unique().tolist())
                 self._layer_dock_red.set_vowels(vowels_red)
         _feed_layer_vowels()
         self._layer_dock_blue.set_compare_file_index(0)
@@ -564,7 +571,8 @@ class ComparePlotPopup(QMainWindow):
             lbl_a.setStyleSheet(f"color: {default_color};")
 
             clean_name = os.path.splitext(file_name)[0]
-            lbl_text = QLabel(clean_name)
+            display_name = truncate_display_name(clean_name, MAX_DISPLAY_NAME_LEN)
+            lbl_text = QLabel(display_name)
             lbl_text.setFont(font_normal)
             lbl_text.setStyleSheet("color: #333333;")
             lbl_text.setToolTip(clean_name)
@@ -736,6 +744,7 @@ class ComparePlotPopup(QMainWindow):
         tool_group.addWidget(self.btn_ruler)
 
         self.btn_draw = QPushButton("그리기")
+        self.btn_draw.setToolTip("추후 업데이트로 추가될 기능입니다.")
         self.btn_draw.setFixedHeight(35)
         self.btn_draw.setFont(font_normal)
         self.btn_draw.setFocusPolicy(Qt.FocusPolicy.NoFocus)
