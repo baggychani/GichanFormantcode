@@ -26,9 +26,17 @@ class BatchSaveWorker(QThread):
         from matplotlib.figure import Figure
         success_count = 0
         total = len(self.plot_data_list)
+        outlier_mode = self.plot_params.get('outlier_mode')
+        outlier_suffix = ""
+        if outlier_mode == '1sigma':
+            outlier_suffix = "_이상치 제거 1σ"
+        elif outlier_mode == '2sigma':
+            outlier_suffix = "_이상치 제거 2σ"
+
         for i, data in enumerate(self.plot_data_list):
             fname = data['name']
-            save_name = f"{os.path.splitext(fname)[0]}.{self.img_format}"
+            base_name = os.path.splitext(fname)[0]
+            save_name = f"{base_name}{outlier_suffix}.{self.img_format}"
             save_path = os.path.join(self.save_dir, save_name)
             try:
                 temp_fig = Figure(figsize=(6.5, 6.5), dpi=300)

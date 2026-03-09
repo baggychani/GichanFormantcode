@@ -1120,6 +1120,8 @@ class MainController:
 
         plot_params = self._get_current_plot_params()
         plot_params['sigma'] = sigma
+        # 일괄 저장 파일명에도 단일 저장과 동일하게 이상치 제거 꼬리표 반영
+        plot_params['outlier_mode'] = getattr(self.ui, 'get_outlier_mode', lambda: None)()
         ds_settings = design_settings if design_settings else self._get_default_design()
 
         total = len(self.plot_data_list)

@@ -183,9 +183,14 @@ class LabelMoveTool:
 
         self.drag_preview_text = self.ax.text(lx, ly, lb.get('vowel', '?'), **kw)
 
-        # 원본 라벨에 있던 흰색 테두리(PathEffect)를 그대로 프리뷰에도 복사
-        if artist and artist.get_path_effects():
-            self.drag_preview_text.set_path_effects(artist.get_path_effects())
+        # 원본 라벨에 있던 속성(테두리, 폰트 패밀리)을 프리뷰에도 복사
+        if artist:
+            # 1. 폰트 종류(세리프/산세리프 및 다국어 폰트) 복사 추가!
+            self.drag_preview_text.set_fontfamily(artist.get_fontfamily())
+            
+            # 2. 흰색 테두리(PathEffect) 복사
+            if artist.get_path_effects():
+                self.drag_preview_text.set_path_effects(artist.get_path_effects())
 
         if self.canvas:
             self.canvas.draw_idle()
