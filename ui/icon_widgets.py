@@ -2,7 +2,7 @@
 # design_panel, layer_dock, compare_plot, tool_indicator에서 import하여 사용.
 
 from PyQt6.QtWidgets import QPushButton, QFrame
-from PyQt6.QtCore import Qt, QSize, QRectF, QPointF
+from PyQt6.QtCore import Qt, QSize, QRectF, QPointF, QVariantAnimation
 from PyQt6.QtGui import (
     QPainter,
     QPen,
@@ -679,3 +679,72 @@ class ToolStatusIndicator(QFrame):
         )
         path.closeSubpath()
         painter.drawPath(path)
+
+
+class BidirectionalArrowButton(QPushButton):
+    """Hz↔Bark 변환용 버튼. 위(→)·아래(←) 화살표, 호버 시 색상 애니메이션."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setFlat(True)
+        self.setStyleSheet("background: transparent; border: none;")
+        self.setFixedSize(28, 24)
+        self.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
+        self.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+
+        self.default_color = QColor("#666666")
+        self.hover_color = QColor("#E5A93A")
+        self._current_color = QColor(self.default_color)
+
+        self.color_anim = QVariantAnimation(self)
+        self.color_anim.setDuration(200)
+        self.color_anim.valueChanged.connect(self._on_color_changed)
+
+    def _on_color_changed(self, color):
+        self._current_color = color
+        self.update()
+
+    def enterEvent(self, event):
+        self.color_anim.setStartValue(self._current_color)
+        self.color_anim.setEndValue(self.hover_color)
+        self.color_anim.start()
+        super().enterEvent(event)
+
+    def leaveEvent(self, event):
+        self.color_anim.setStartValue(self._current_color)
+        self.color_anim.setEndValue(self.default_color)
+        self.color_anim.start()
+        super().leaveEvent(event)
+
+    def paintEvent(self, event):
+        super().paintEvent(event)
+        painter = QPainter(self)
+        painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+
+        pen = QPen(self._current_color)
+        pen.setWidth(2)
+        pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+        pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
+        painter.setPen(pen)
+
+        rect = self.rect()
+        w, h = rect.width(), rect.height()
+        cx, cy = w / 2, h / 2
+        length = min(w, h) * 0.4
+        spacing = min(w, h) * 0.15
+        head = length * 0.35
+
+        # 위쪽 화살표 (오른쪽 →)
+        y_top = cy - spacing
+        x_left = cx - length / 2
+        x_right = cx + length / 2
+        painter.drawLine(int(x_left), int(y_top), int(x_right), int(y_top))
+        painter.drawLine(int(x_right), int(y_top), int(x_right - head), int(y_top - head))
+        painter.drawLine(int(x_right), int(y_top), int(x_right - head), int(y_top + head))
+
+        # 아래쪽 화살표 (왼쪽 ←)
+        y_bottom = cy + spacing
+        painter.drawLine(int(x_right), int(y_bottom), int(x_left), int(y_bottom))
+        painter.drawLine(int(x_left), int(y_bottom), int(x_left + head), int(y_bottom - head))
+        painter.drawLine(int(x_left), int(y_bottom), int(x_left + head), int(y_bottom + head))
+        painter.end()

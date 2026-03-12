@@ -33,6 +33,7 @@ from utils.math_utils import (
     nearey1_normalization,
 )
 from .workers import BatchSaveWorker
+from utils import path_prefs
 
 
 class MainController:
@@ -51,6 +52,15 @@ class MainController:
         self.last_save_dir = None
         # 파일 열기 다이얼로그에서 사용할 마지막 선택 디렉터리 (없으면 Documents)
         self.last_open_dir = None
+
+        # JSON에서 최근 경로 로드 (폴더가 존재할 때만 반영)
+        _prefs_base = QStandardPaths.writableLocation(QStandardPaths.StandardLocation.AppDataLocation)
+        if _prefs_base:
+            _loaded = path_prefs.load_path_prefs(_prefs_base)
+            if _loaded.get("last_open_dir") and os.path.isdir(_loaded["last_open_dir"]):
+                self.last_open_dir = _loaded["last_open_dir"]
+            if _loaded.get("last_save_dir") and os.path.isdir(_loaded["last_save_dir"]):
+                self.last_save_dir = _loaded["last_save_dir"]
 
         # PyQt6에서는 팝업 창이 가비지 컬렉터(GC)에 의해 증발하는 것을
         # 막기 위해 리스트에 참조를 보관해야 합니다.
@@ -400,6 +410,23 @@ class MainController:
         """파일 열기 후 선택한 폴더를 기억 (다음 열기 시 초기 폴더로 사용)."""
         if dir_path and os.path.isdir(dir_path):
             self.last_open_dir = dir_path
+            self._save_path_prefs()
+
+    def set_last_save_dir(self, dir_path):
+        """저장 후 선택한 폴더를 기억 (다음 저장 시 초기 폴더로 사용)."""
+        if dir_path and os.path.isdir(dir_path):
+            self.last_save_dir = dir_path
+            self._save_path_prefs()
+
+    def _save_path_prefs(self):
+        """현재 last_open_dir / last_save_dir를 JSON에 저장."""
+        base = QStandardPaths.writableLocation(QStandardPaths.StandardLocation.AppDataLocation)
+        if not base:
+            return
+        path_prefs.save_path_prefs(base, {
+            "last_open_dir": self.last_open_dir,
+            "last_save_dir": self.last_save_dir,
+        })
 
     def _get_default_design(self):
         """라이브 모니터 등 UI 객체가 없을 때 사용할 기본 디자인 설정"""
@@ -1420,9 +1447,8 @@ class MainController:
 
         if file_path:
             try:
-                # 마지막 저장 폴더 업데이트
                 try:
-                    self.last_save_dir = os.path.dirname(file_path)
+                    self.set_last_save_dir(os.path.dirname(file_path))
                 except Exception:
                     pass
                 figure.set_size_inches(6.5, 6.5)
@@ -1462,8 +1488,7 @@ class MainController:
         if not save_dir:
             return
 
-        # 마지막 저장 폴더 업데이트
-        self.last_save_dir = save_dir
+        self.set_last_save_dir(save_dir)
 
         plot_params = self._get_current_plot_params()
         plot_params["sigma"] = sigma

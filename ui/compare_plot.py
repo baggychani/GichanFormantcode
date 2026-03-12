@@ -59,10 +59,48 @@ import app_logger
 from .filter_panel import MultiVowelFilterPanel
 
 from .design_panel import CompareDesignSettingsPanel, NoWheelComboBox
-from .icon_widgets import create_legend_icon_design
+from .icon_widgets import create_legend_icon_design, BidirectionalArrowButton
 from .display_utils import truncate_display_name, MAX_DISPLAY_NAME_LEN
+from utils.math_utils import hz_to_bark, bark_to_hz
 from .layer_dock import LayerDockWidget
 from . import layout_constants as layout
+
+
+class ClickClearFocusFilter(QObject):
+    """다른 위젯 클릭 시 지정한 LineEdit들에서 포커스를 빼서 분석 탭으로 넘깁니다."""
+
+    def __init__(self, window, analysis_tab, edits, parent=None):
+        super().__init__(parent)
+        self._window = window
+        self._analysis_tab = analysis_tab
+        self._edits = set(edits)
+
+    def eventFilter(self, obj, event):
+        if event.type() != QEvent.Type.MouseButtonPress or event.button() != Qt.MouseButton.LeftButton:
+            return False
+        f = QApplication.focusWidget()
+        if not f or f not in self._edits:
+            return False
+        try:
+            # obj가 QWindow일 수 있음 → isAncestorOf는 QWidget에만 사용
+            clicked_inside_edit = obj is f
+            if not clicked_inside_edit and isinstance(obj, QWidget) and hasattr(f, "isAncestorOf"):
+                clicked_inside_edit = f.isAncestorOf(obj)
+            if clicked_inside_edit:
+                return False
+            same_window = False
+            if isinstance(obj, QWidget) and hasattr(obj, "window"):
+                same_window = (obj.window() is self._window)
+            else:
+                tw = f.window() if hasattr(f, "window") else None
+                if tw and hasattr(tw, "windowHandle") and tw.windowHandle() is obj:
+                    same_window = True
+            if same_window:
+                f.clearFocus()
+                self._analysis_tab.setFocus()
+        except (RuntimeError, TypeError):
+            pass
+        return False
 
 
 class RangeInputFilter(QObject):
@@ -722,6 +760,7 @@ class ComparePlotPopup(QMainWindow):
             self.sep_right.setVisible(sep_right_show)
 
     def _setup_analysis_ui(self, parent_widget, data_blue, data_red):
+        parent_widget.setFocusPolicy(Qt.FocusPolicy.ClickFocus)
         layout = QVBoxLayout(parent_widget)
         layout.setContentsMargins(12, 15, 12, 15)
         layout.setSpacing(12)
@@ -807,9 +846,93 @@ class ComparePlotPopup(QMainWindow):
         """
         range_group = QVBoxLayout()
         range_group.setSpacing(8)
+        range_header = QWidget()
+        range_header.setCursor(Qt.CursorShape.PointingHandCursor)
+        range_header_layout = QHBoxLayout(range_header)
+        range_header_layout.setContentsMargins(0, 0, 0, 0)
         title_lbl = QLabel("좌표축 범위 설정", font=font_bold)
         title_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        range_group.addWidget(title_lbl)
+        self._range_toggle_btn = QPushButton("▶")
+        self._range_toggle_btn.setFixedSize(22, 22)
+        self._range_toggle_btn.setFlat(True)
+        self._range_toggle_btn.setStyleSheet("background: transparent; border: none; font-size: 11px;")
+        self._range_toggle_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._range_toggle_btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        range_header_layout.addWidget(title_lbl)
+        range_header_layout.addWidget(self._range_toggle_btn)
+        self._converter_container = QWidget()
+        converter_layout = QVBoxLayout(self._converter_container)
+        converter_layout.setContentsMargins(0, 0, 0, 0)
+        line_conv = QFrame()
+        line_conv.setFrameShape(QFrame.Shape.HLine)
+        line_conv.setStyleSheet("color: #E4E7ED;")
+        converter_layout.addWidget(line_conv)
+        conv_row = QHBoxLayout()
+        conv_row.setSpacing(6)
+        self._hz_edit = QLineEdit()
+        self._bark_edit = QLineEdit()
+        for le in (self._hz_edit, self._bark_edit):
+            le.setFixedWidth(52)
+            le.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            le.setStyleSheet(clean_line_edit_style)
+            le.setFocusPolicy(Qt.FocusPolicy.ClickFocus)
+            le.setPlaceholderText("—")
+        self._conv_btn = BidirectionalArrowButton(self)
+        self._last_conv_focus = "hz"  # 마지막으로 포커스된 입력 (버튼 클릭 시 포커스가 버튼으로 가므로 이 값 사용)
+
+        def _hz_focus_in(event):
+            self._last_conv_focus = "hz"
+            QLineEdit.focusInEvent(self._hz_edit, event)
+
+        def _bark_focus_in(event):
+            self._last_conv_focus = "bark"
+            QLineEdit.focusInEvent(self._bark_edit, event)
+
+        self._hz_edit.focusInEvent = _hz_focus_in
+        self._bark_edit.focusInEvent = _bark_focus_in
+        conv_row.addWidget(QLabel("Hz", font=font_normal))
+        conv_row.addWidget(self._hz_edit)
+        conv_row.addWidget(self._conv_btn)
+        conv_row.addWidget(self._bark_edit)
+        conv_row.addWidget(QLabel("Bark", font=font_normal))
+        conv_row.addStretch()
+        converter_layout.addLayout(conv_row)
+        self._converter_container.setVisible(False)
+
+        def _toggle_converter():
+            vis = self._converter_container.isVisible()
+            self._converter_container.setVisible(not vis)
+            self._range_toggle_btn.setText("▼" if not vis else "▶")
+
+        def _on_conv_clicked():
+            try:
+                hz_text = self._hz_edit.text().strip()
+                bark_text = self._bark_edit.text().strip()
+                # 마지막으로 포커스된 입력란을 소스로 사용 (버튼 클릭 시 포커스가 버튼으로 가므로 hasFocus 대신 사용)
+                if self._last_conv_focus == "bark" and bark_text:
+                    val = float(bark_text)
+                    out = float(bark_to_hz(val))
+                    self._hz_edit.setText(f"{out:.1f}")
+                elif hz_text:
+                    val = float(hz_text)
+                    out = float(hz_to_bark(val))
+                    self._bark_edit.setText(f"{out:.2f}")
+                elif bark_text:
+                    val = float(bark_text)
+                    out = float(bark_to_hz(val))
+                    self._hz_edit.setText(f"{out:.1f}")
+            except ValueError:
+                pass
+
+        self._range_toggle_btn.clicked.connect(_toggle_converter)
+        self._conv_btn.clicked.connect(_on_conv_clicked)
+
+        def _header_clicked(event):
+            if event.button() == Qt.MouseButton.LeftButton:
+                _toggle_converter()
+        range_header.mousePressEvent = _header_clicked
+
+        range_group.addWidget(range_header)
 
         self.range_widgets = {}
 
@@ -859,6 +982,8 @@ class ComparePlotPopup(QMainWindow):
             self.range_widgets["y_max"],
             self.range_widgets["x_min"],
             self.range_widgets["x_max"],
+            self._hz_edit,
+            self._bark_edit,
         ]
         self._range_input_filter = RangeInputFilter(self)
         for le in range_edits:
@@ -896,7 +1021,13 @@ class ComparePlotPopup(QMainWindow):
         apply_h.addWidget(btn_reset)
         apply_h.addWidget(btn_apply)
         range_group.addLayout(apply_h)
+        range_group.addWidget(self._converter_container)
         layout.addLayout(range_group)
+
+        analysis_edits = set(self.range_widgets.values()) | {self._hz_edit, self._bark_edit}
+        self._click_clear_focus_filter = ClickClearFocusFilter(self, parent_widget, analysis_edits)
+        QApplication.instance().installEventFilter(self._click_clear_focus_filter)
+
         self._apply_normalization_axis_ui()
 
         line2 = QFrame()
@@ -1061,6 +1192,12 @@ class ComparePlotPopup(QMainWindow):
     def closeEvent(self, event):
         if self.controller.ruler_tool.active:
             self.controller.toggle_ruler(self)
+        if hasattr(self, "_click_clear_focus_filter") and self._click_clear_focus_filter is not None:
+            try:
+                QApplication.instance().removeEventFilter(self._click_clear_focus_filter)
+            except Exception:
+                pass
+            self._click_clear_focus_filter = None
 
         try:
             # 창이 닫힐 때 이 팝업과 연결된 모든 라벨 오프셋을 완전히 제거

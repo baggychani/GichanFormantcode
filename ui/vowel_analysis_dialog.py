@@ -415,8 +415,8 @@ class VowelAnalysisDialog(QDialog):
             _export_to_excel(
                 result, path, self._x_axis_label, normalized=bool(self._normalization)
             )
-            if hasattr(self.controller, "last_save_dir"):
-                self.controller.last_save_dir = os.path.dirname(path)
+            if hasattr(self.controller, "set_last_save_dir"):
+                self.controller.set_last_save_dir(os.path.dirname(path))
             QMessageBox.information(self, "저장 완료", f"저장되었습니다:\n{path}")
         except ImportError:
             QMessageBox.warning(
@@ -446,8 +446,8 @@ class VowelAnalysisDialog(QDialog):
             _export_to_csv(
                 result, path, self._x_axis_label, normalized=bool(self._normalization)
             )
-            if hasattr(self.controller, "last_save_dir"):
-                self.controller.last_save_dir = os.path.dirname(path)
+            if hasattr(self.controller, "set_last_save_dir"):
+                self.controller.set_last_save_dir(os.path.dirname(path))
             QMessageBox.information(self, "저장 완료", f"저장되었습니다:\n{path}")
         except Exception as e:
             QMessageBox.critical(self, "저장 실패", str(e))
