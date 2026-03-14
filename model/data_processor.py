@@ -101,7 +101,7 @@ class DataProcessor:
         데이터프레임의 열을 분석하여 포먼트 및 라벨을 추출합니다.
         - Col 0: F1, Col 1: F2 (필수)
         - Col 2~: 순서대로 첫 번째 숫자 열은 F3(선택), 첫 번째 /.../ 패턴 열은 라벨로 인식. F4 등 추가 포먼트는 지원하지 않음.
-        반환: (결과 DataFrame 또는 None, 실패 시 오류 메시지 또는 None)
+        반환: (결과 DataFrame 또는 None, 실패 시 오류 메시지 또는 None, 제거된 행 리포트 또는 None)
         """
         # 분석에 필요한 최소 열 개수 검증
         if len(df.columns) < 2:
