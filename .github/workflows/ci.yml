@@ -1,0 +1,84 @@
+name: CI/CD
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Build for ${{ matrix.os }} (${{ matrix.arch }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            arch: x86_64
+            artifact_name: GichanFormant-windows-x64
+          - os: macos-15-intel # Intel Mac
+            arch: x86_64
+            artifact_name: GichanFormant-macos-intel
+          - os: macos-latest # Apple Silicon Mac
+            arch: arm64
+            artifact_name: GichanFormant-macos-arm64
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version-file: .python-version
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+
+      - name: Install the project
+        run: uv sync --locked --all-extras --dev
+
+      - name: Run tests
+        run: uv run python -m unittest discover tests
+
+      - name: Set Short SHA
+        shell: bash
+        run: echo "SHORT_SHA=$(git rev-parse --short HEAD)" >> $GITHUB_ENV
+
+      - name: Build executable
+        shell: bash
+        run: |
+          if [[ "${{ runner.os }}" == "Windows" ]]; then
+            uv run pyinstaller --noconfirm --onefile --windowed --icon=icon.ico --name=GichanFormant main.py
+          else
+            # For macOS, PyQt6 needs --collect-all for full framework compatibility
+            uv run pyinstaller --noconfirm --windowed --name=GichanFormant --collect-all PyQt6 main.py
+          fi
+
+      - name: Package artifacts (Windows)
+        if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          # The binary is in dist/GichanFormant.exe
+          mv dist/GichanFormant.exe ${{ matrix.artifact_name }}.exe
+
+      - name: Package artifacts (macOS)
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          # The .app is in dist/GichanFormant.app
+          cd dist
+          # Use ditto to preserve symlinks and app bundle integrity
+          ditto -c -k --sequesterRsrc --keepParent GichanFormant.app ../${{ matrix.artifact_name }}.zip
+          cd ..
+
+      - name: Upload Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact_name }}-${{ env.SHORT_SHA }}
+          path: |
+            ${{ matrix.artifact_name }}.*
