@@ -17,17 +17,14 @@ from PyQt6.QtWidgets import (
     QTabWidget,
     QGridLayout,
 )
-from PyQt6.QtCore import Qt, pyqtSignal, QRectF, QPointF
+from PyQt6.QtCore import Qt, pyqtSignal, QRectF
 from PyQt6.QtGui import (
     QFont,
     QColor,
     QCursor,
     QPainter,
     QPainterPath,
-    QPen,
     QPixmap,
-    QIcon,
-    QPolygonF,
 )
 
 from .icon_widgets import (

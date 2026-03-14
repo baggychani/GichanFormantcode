@@ -232,8 +232,8 @@ class PlotEngine:
         # 기본값(광역); 루프 내에서 layer_overrides로 덮어씀
         lbl_color = design_settings.get("lbl_color", "#FF0000")
         lbl_size = design_settings.get("lbl_size", 16)
-        lbl_bold = "bold" if design_settings.get("lbl_bold", True) else "normal"
-        lbl_italic = "italic" if design_settings.get("lbl_italic", False) else "normal"
+        "bold" if design_settings.get("lbl_bold", True) else "normal"
+        "italic" if design_settings.get("lbl_italic", False) else "normal"
 
         ell_thick = design_settings.get("ell_thick", 1.0)
         ell_style = design_settings.get("ell_style", "--")
@@ -1454,7 +1454,6 @@ class PlotEngine:
                     )
                 mean_x, mean_y = x.mean(), y.mean()
                 if show_centroid:
-                    mean_alpha = 0.2 if is_semi else 1.0
                     z_offset = -10 if is_semi else 0
                     ax.scatter(
                         [mean_x],

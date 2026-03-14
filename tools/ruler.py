@@ -1,11 +1,10 @@
 # tool_ruler.py
 
 import logging
-import matplotlib.pyplot as plt
 import numpy as np
 import platform
 from PyQt6.QtCore import Qt
-from utils.math_utils import hz_to_bark, hz_to_log
+from utils.math_utils import hz_to_bark
 
 _log = logging.getLogger(__name__)
 

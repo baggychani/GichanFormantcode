@@ -28,9 +28,8 @@ from PyQt6.QtCore import (
     QObject,
     QMimeData,
     QByteArray,
-    QTimer,
 )
-from PyQt6.QtGui import QFont, QPainter, QPainterPath, QPen, QColor, QDrag, QPixmap
+from PyQt6.QtGui import QFont, QPainter, QPen, QColor, QDrag
 
 import json
 import os
