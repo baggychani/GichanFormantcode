@@ -11,3 +11,25 @@ dependencies = [
     "pyqt6>=6.10.2",
     "scipy>=1.15.3",
 ]
+
+[dependency-groups]
+dev = [
+    "pyinstaller>=6.19.0",
+    "ruff>=0.15.6",
+]
+
+[tool.ruff]
+line-length = 88
+indent-width = 4
+
+[tool.ruff.lint]
+ignore = [
+    "E402", # module-import-not-at-top-of-file
+]
+fixable = ["ALL"]
+unfixable = []
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+docstring-code-format = true

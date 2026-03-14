@@ -18,7 +18,7 @@ from PyQt6.QtWidgets import (
     QStyledItemDelegate,
 )
 from PyQt6.QtCore import Qt, QStandardPaths
-from PyQt6.QtGui import QIcon, QPixmap, QBrush, QColor, QFont, QPen, QPainter
+from PyQt6.QtGui import QIcon, QPixmap, QBrush, QColor, QFont, QPen
 
 from utils import icon_utils
 from utils.math_utils import calc_f2_prime
@@ -524,7 +524,6 @@ def _result_to_dataframe(result, x_axis_label, normalized=False):
 
 
 def _export_to_excel(result, path, x_axis_label="F2", normalized=False):
-    import pandas as pd
 
     try:
         import openpyxl  # noqa: F401
@@ -535,7 +534,6 @@ def _export_to_excel(result, path, x_axis_label="F2", normalized=False):
 
 
 def _export_to_csv(result, path, x_axis_label, normalized=False):
-    import pandas as pd
 
     df = _result_to_dataframe(result, x_axis_label, normalized=normalized)
     df.to_csv(path, index=False, encoding="utf-8-sig")

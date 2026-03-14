@@ -1,12 +1,9 @@
 # data_processor.py
 
 import pandas as pd
-import numpy as np
 import os
-import re
 
 import config
-import app_logger
 
 # 텍스트 파일 로드 시 시도할 인코딩 순서 (UTF-16 BOM, UTF-8, 한글 Windows, 기타)
 ENCODINGS = ["utf-8", "utf-16", "utf-16-le", "utf-16-be", "cp949", "euc-kr", "latin-1"]
@@ -101,7 +98,7 @@ class DataProcessor:
         데이터프레임의 열을 분석하여 포먼트 및 라벨을 추출합니다.
         - Col 0: F1, Col 1: F2 (필수)
         - Col 2~: 순서대로 첫 번째 숫자 열은 F3(선택), 첫 번째 /.../ 패턴 열은 라벨로 인식. F4 등 추가 포먼트는 지원하지 않음.
-        반환: (결과 DataFrame 또는 None, 실패 시 오류 메시지 또는 None)
+        반환: (결과 DataFrame 또는 None, 실패 시 오류 메시지 또는 None, 제거된 행 리포트 또는 None)
         """
         # 분석에 필요한 최소 열 개수 검증
         if len(df.columns) < 2:

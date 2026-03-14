@@ -1,6 +1,5 @@
 # ui_popup.py
 
-import base64
 import inspect
 import platform
 from PyQt6.QtWidgets import (
@@ -8,10 +7,8 @@ from PyQt6.QtWidgets import (
     QWidget,
     QVBoxLayout,
     QHBoxLayout,
-    QGridLayout,
     QLabel,
     QPushButton,
-    QComboBox,
     QLineEdit,
     QDialog,
     QButtonGroup,
@@ -21,10 +18,9 @@ from PyQt6.QtWidgets import (
     QFrame,
     QSizePolicy,
     QFormLayout,
-    QStyle,
     QTabWidget,
 )
-from PyQt6.QtCore import Qt, QTimer, QObject, QEvent
+from PyQt6.QtCore import Qt, QObject, QEvent
 
 
 class TabBarWheelBlocker(QObject):
@@ -39,7 +35,6 @@ class TabBarWheelBlocker(QObject):
 from PyQt6.QtGui import (
     QFont,
     QIcon,
-    QPixmap,
     QShortcut,
     QKeySequence,
     QRegularExpressionValidator,
@@ -915,7 +910,7 @@ class PlotPopup(QMainWindow):
 
         AXIS_LABEL_WIDTH = 58
         f1_row = QHBoxLayout()
-        self.lbl_f1_axis = QLabel(f"F1:", font=font_normal)
+        self.lbl_f1_axis = QLabel("F1:", font=font_normal)
         self.lbl_f1_axis.setFixedWidth(AXIS_LABEL_WIDTH)
         self.range_widgets["y_min"] = QLineEdit()
         self.range_widgets["y_max"] = QLineEdit()
@@ -1647,7 +1642,7 @@ class PlotPopup(QMainWindow):
         if f2_unit is None:
             f2_unit = f1_unit
 
-        self.lbl_f1_axis.setText(f"F1:")
+        self.lbl_f1_axis.setText("F1:")
         self.lbl_x_axis.setText(f"{self.x_axis_label}:")
 
         self.lbl_f1_unit.setText(f"({f1_unit})")

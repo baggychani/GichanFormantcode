@@ -13,10 +13,9 @@ from PyQt6.QtWidgets import (
     QScrollArea,
     QWidget,
     QFrame,
-    QSizePolicy,
     QTabWidget,
 )
-from PyQt6.QtCore import Qt, QPoint, QEvent
+from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QFont, QIcon, QPixmap
 
 from utils import icon_utils

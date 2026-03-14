@@ -9,13 +9,11 @@ from PyQt6.QtWidgets import (
     QWidget,
     QVBoxLayout,
     QHBoxLayout,
-    QGridLayout,
     QLabel,
     QPushButton,
     QListWidget,
     QListWidgetItem,
     QDockWidget,
-    QGroupBox,
     QLineEdit,
     QComboBox,
     QMessageBox,
@@ -44,9 +42,6 @@ from PyQt6.QtGui import (
     QPixmap,
     QShortcut,
     QKeySequence,
-    QPainter,
-    QPen,
-    QColor,
 )
 
 from .canvas_fixed import FixedFigureCanvas
@@ -938,7 +933,7 @@ class ComparePlotPopup(QMainWindow):
 
         AXIS_LABEL_WIDTH = 58
         f1_row = QHBoxLayout()
-        self.lbl_f1_axis = QLabel(f"F1:", font=font_normal)
+        self.lbl_f1_axis = QLabel("F1:", font=font_normal)
         self.lbl_f1_axis.setFixedWidth(AXIS_LABEL_WIDTH)
         self.range_widgets["y_min"] = QLineEdit()
         self.range_widgets["y_max"] = QLineEdit()
@@ -1055,10 +1050,6 @@ class ComparePlotPopup(QMainWindow):
         """
         self.btn_vowel_analysis.setStyleSheet(nav_btn_style)
 
-        btn_style = """
-            QPushButton { background-color: white; border: 1px solid #DCDFE6; border-radius: 4px; color: #333333; }
-            QPushButton:hover { background-color: #F5F7FA; color: #409EFF; border-color: #C0C4CC; }
-        """
 
         self.btn_ruler = QPushButton("눈금자 툴 (R)")
         self.btn_ruler.setObjectName("BtnRuler")
@@ -1552,7 +1543,7 @@ class ComparePlotPopup(QMainWindow):
         if f2_unit is None:
             f2_unit = f1_unit
 
-        self.lbl_f1_axis.setText(f"F1:")
+        self.lbl_f1_axis.setText("F1:")
         self.lbl_x_axis.setText(f"{self.x_axis_label}:")
 
         if hasattr(self, "lbl_f1_unit"):

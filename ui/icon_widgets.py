@@ -305,9 +305,9 @@ class ColorCircleButton(QPushButton):
                     pen4.setStyle(Qt.PenStyle.SolidLine)
                     pen4.setCapStyle(Qt.PenCapStyle.RoundCap)
                     painter.setPen(pen4)
-                    l = side * 0.25
-                    painter.drawLine(QPointF(cx - l, cy), QPointF(cx + l, cy))
-                    painter.drawLine(QPointF(cx, cy - l), QPointF(cx, cy + l))
+                    line_len = side * 0.25
+                    painter.drawLine(QPointF(cx - line_len, cy), QPointF(cx + line_len, cy))
+                    painter.drawLine(QPointF(cx, cy - line_len), QPointF(cx, cy + line_len))
                 else:
                     painter.setBrush(QColor(self.color_hex))
                     pen5 = QPen()

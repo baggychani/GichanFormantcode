@@ -1,4 +1,4 @@
-# 🎙️ GichanFormat
+# 🎙️ GichanFormant
 
 ![Python](https://img.shields.io/badge/python-3670A0?style=for-the-badge&logo=python&logoColor=ffdd54)
 ![PyQt](https://img.shields.io/badge/PyQt-41CD52?style=for-the-badge&logo=Qt&logoColor=white)
