@@ -17,3 +17,17 @@ dev = [
     "pyinstaller>=6.19.0",
     "ruff>=0.15.6",
 ]
+
+[tool.ruff]
+line-length = 88
+indent-width = 4
+
+[tool.ruff.lint]
+ignore = ["E402"]
+fixable = ["ALL"]
+unfixable = []
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+docstring-code-format = true
