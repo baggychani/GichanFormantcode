@@ -1595,3 +1595,10 @@ class ComparePlotPopup(QMainWindow):
         )
         if hasattr(self, "tool_indicator") and self.tool_indicator is not None:
             self.tool_indicator.set_ruler_on(is_on)
+        if (
+            is_on
+            and hasattr(self, "draw_indicator")
+            and self.draw_indicator is not None
+        ):
+            self.draw_indicator.turn_off()
+            self._draw_tool_deactivate()

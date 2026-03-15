@@ -1,0 +1,237 @@
+# draw/draw_line.py — 선(Polyline) 그리기·저장·표시
+
+from __future__ import annotations
+
+import logging
+from typing import Callable
+
+from .draw_common import snap_query, LineObject
+
+_log = logging.getLogger(__name__)
+
+
+class DrawLineTool:
+    """선 그리기: 클릭으로 점 추가, 스냅만 허용, Enter/더블클릭 완료, Esc 취소, Ctrl+Z 점 롤백."""
+
+    def __init__(
+        self,
+        canvas,
+        ax,
+        snapping_data: list,
+        axis_units: str = "Hz",
+        on_complete: Callable[[LineObject], None] | None = None,
+        on_cancel: Callable[[], None] | None = None,
+    ):
+        self.canvas = canvas
+        self.ax = ax
+        self.snapping_data = snapping_data or []
+        self.axis_units = axis_units
+        self.on_complete = on_complete
+        self.on_cancel = on_cancel
+
+        self._points: list[tuple[float, float]] = []
+        self._point_labels: list[str] = []
+        self._line_artist = None
+        self._guide_line = None
+        self._snap_marker = None
+        self._tooltip_artist = None
+        self._cid_click = None
+        self._cid_move = None
+        self._cid_key = None
+
+    def activate(self):
+        self._connect()
+
+    def deactivate(self):
+        self._disconnect()
+        self._clear_current()
+
+    def _connect(self):
+        if self.canvas:
+            self._cid_click = self.canvas.mpl_connect(
+                "button_press_event", self._on_click
+            )
+            self._cid_move = self.canvas.mpl_connect(
+                "motion_notify_event", self._on_move
+            )
+            self._cid_key = self.canvas.mpl_connect("key_press_event", self._on_key)
+
+    def _disconnect(self):
+        if self.canvas:
+            for cid in (self._cid_click, self._cid_move, self._cid_key):
+                if cid is not None:
+                    self.canvas.mpl_disconnect(cid)
+        self._cid_click = self._cid_move = self._cid_key = None
+
+    def _clear_current(self):
+        self._points.clear()
+        self._point_labels.clear()
+        self._remove_artist(self._line_artist)
+        self._line_artist = None
+        self._remove_artist(self._guide_line)
+        self._guide_line = None
+        self._remove_artist(self._snap_marker)
+        self._snap_marker = None
+        self._remove_artist(self._tooltip_artist)
+        self._tooltip_artist = None
+        if self.canvas:
+            self.canvas.draw_idle()
+
+    @staticmethod
+    def _remove_artist(artist):
+        if artist is None:
+            return
+        try:
+            artist.remove()
+        except Exception as e:
+            _log.warning("DrawLineTool remove artist: %s", e)
+
+    def _on_move(self, event):
+        self._remove_artist(self._guide_line)
+        self._guide_line = None
+        if event.inaxes is not self.ax or not self.snapping_data:
+            self._remove_artist(self._snap_marker)
+            self._snap_marker = None
+            self._remove_artist(self._tooltip_artist)
+            self._tooltip_artist = None
+            if self.canvas:
+                self.canvas.draw_idle()
+            return
+        pt = snap_query(self.ax, self.snapping_data, event.x, event.y, max_dist_px=20)
+        if pt is not None:
+            self._draw_snap_feedback(pt)
+            if self._points:
+                x1, y1 = self._points[-1]
+                x2, y2 = pt["x"], pt["y"]
+                (self._guide_line,) = self.ax.plot(
+                    [x1, x2],
+                    [y1, y2],
+                    color="gray",
+                    ls=":",
+                    lw=1,
+                    alpha=0.5,
+                    zorder=2,
+                    clip_on=False,
+                )
+        else:
+            self._remove_artist(self._snap_marker)
+            self._snap_marker = None
+            self._remove_artist(self._tooltip_artist)
+            self._tooltip_artist = None
+            if self._points and event.xdata is not None and event.ydata is not None:
+                x1, y1 = self._points[-1]
+                (self._guide_line,) = self.ax.plot(
+                    [x1, event.xdata],
+                    [y1, event.ydata],
+                    color="gray",
+                    ls=":",
+                    lw=1,
+                    alpha=0.5,
+                    zorder=2,
+                    clip_on=False,
+                )
+        if self.canvas:
+            self.canvas.draw_idle()
+
+    def _draw_snap_feedback(self, pt):
+        """스냅 피드백만 그림. 결과물로 남지 않음(호버 시 동그라미/사각형)."""
+        self._remove_artist(self._snap_marker)
+        x, y = pt["x"], pt["y"]
+        m_style = "s" if pt.get("type") == "mean" else "o"
+        (self._snap_marker,) = self.ax.plot(
+            x,
+            y,
+            m_style,
+            markersize=12 if pt.get("type") == "mean" else 10,
+            markerfacecolor="none",
+            markeredgecolor=pt.get("color", "gray"),
+            markeredgewidth=2,
+            zorder=200,
+            clip_on=False,
+        )
+        # 툴팁(선택): 좌표 표시
+        self._remove_artist(self._tooltip_artist)
+        label = pt.get("label", pt.get("Label", "")) or ""
+        txt = f"{label}\n({x:.0f}, {y:.0f})" if label else f"({x:.0f}, {y:.0f})"
+        self._tooltip_artist = self.ax.annotate(
+            txt,
+            xy=(x, y),
+            xytext=(15, 15),
+            textcoords="offset points",
+            bbox=dict(boxstyle="round,pad=0.3", fc="#ffffe0", ec="gray", alpha=0.9),
+            fontsize=9,
+            zorder=300,
+            clip_on=False,
+        )
+
+    def _on_click(self, event):
+        if event.inaxes is not self.ax or event.button != 1:
+            return
+        # 더블클릭 → 완료
+        if event.dblclick:
+            self._complete()
+            return
+        pt = snap_query(self.ax, self.snapping_data, event.x, event.y, max_dist_px=20)
+        if pt is None:
+            return
+        self._points.append((pt["x"], pt["y"]))
+        lbl = pt.get("label") or pt.get("Label") or ""
+        if lbl is None:
+            lbl = ""
+        lbl = str(lbl).strip()
+        self._point_labels.append(lbl if lbl else "?")
+        self._redraw_line_and_markers()
+
+    def _on_key(self, event):
+        if event.key == "escape":
+            self._clear_current()
+        elif event.key == "enter" or event.key == "return":
+            self._complete()
+        elif event.key == "ctrl+z":
+            if self._points:
+                self._points.pop()
+                if self._point_labels:
+                    self._point_labels.pop()
+                self._redraw_line_and_markers()
+
+    def cancel(self):
+        """외부(Qt 단축키 등)에서 호출: 현재 선 그리기 취소."""
+        self._clear_current()
+
+    def complete(self):
+        """외부에서 호출: 현재 선 완료."""
+        self._complete()
+
+    def rollback(self):
+        """외부에서 호출: 점 하나 롤백."""
+        if self._points:
+            self._points.pop()
+            self._redraw_line_and_markers()
+
+    def _redraw_line_and_markers(self):
+        self._remove_artist(self._line_artist)
+        self._line_artist = None
+        if not self._points:
+            if self.canvas:
+                self.canvas.draw_idle()
+            return
+        xs = [p[0] for p in self._points]
+        ys = [p[1] for p in self._points]
+        (self._line_artist,) = self.ax.plot(
+            xs, ys, "k-", linewidth=1.5, alpha=0.8, zorder=1, clip_on=False
+        )
+        if self.canvas:
+            self.canvas.draw_idle()
+
+    def _complete(self):
+        if len(self._points) < 2:
+            self._clear_current()
+            return
+        obj = LineObject(
+            points=self._points.copy(),
+            point_labels=self._point_labels.copy(),
+            axis_units=self.axis_units,
+        )
+        self._clear_current()
+        if self.on_complete:
+            self.on_complete(obj)

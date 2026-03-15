@@ -1167,6 +1167,16 @@ class MainController:
         self.current_idx = idx
         popup_window.current_idx = idx
 
+        # 파일 전환 시 그리기 레이어 완전 초기화: 현재(새) 파일의 그리기 목록·UI 상태 비우기
+        if hasattr(popup_window, "_set_current_draw_objects"):
+            popup_window._set_current_draw_objects([])
+        if hasattr(popup_window, "_layer_dock_content") and getattr(
+            popup_window, "_layer_dock_content", None
+        ):
+            ld = popup_window._layer_dock_content
+            ld._selected_draw_indices = set()
+            ld.update_draw_layer_list([])
+
         current_data = data_list[idx]
         lbl_info.setText(
             format_file_label(idx + 1, len(data_list), current_data["name"])
@@ -1671,18 +1681,25 @@ class MainController:
         }
 
     def _get_main_ui_plot_params(self):
-        """메인 창 UI에서 현재 플롯 타입·스케일·원점 등 설정값을 취합한다."""
+        """메인 창 UI에서 현재 플롯 타입·스케일·원점·단위(Unit)를 취합한다. Scale과 Unit은 별개."""
+        f1_scale = self.ui.get_f1_scale()
+        f2_scale = self.ui.get_f2_scale()
+        use_bark = self.ui.get_use_bark_units()
+        f1_unit = "Bark" if (f1_scale == "bark" and use_bark) else "Hz"
+        f2_unit = "Bark" if (f2_scale == "bark" and use_bark) else "Hz"
         return {
             "type": self.ui.get_plot_type(),
-            "f1_scale": self.ui.get_f1_scale(),
-            "f2_scale": self.ui.get_f2_scale(),
+            "f1_scale": f1_scale,
+            "f2_scale": f2_scale,
+            "f1_unit": f1_unit,
+            "f2_unit": f2_unit,
             "origin": self.ui.get_origin(),
-            "use_bark_units": self.ui.get_use_bark_units(),
+            "use_bark_units": use_bark,
             "sigma": config.DEFAULT_SIGMA,
         }
 
     def _get_current_plot_params(self, popup_window=None):
-        """팝업이 있으면 해당 창의 고정 파라미터, 없으면 메인 UI 설정값을 반환한다."""
+        """팝업이 있으면 해당 창의 고정 파라미터, 없으면 메인 UI 설정값을 반환한다. Scale과 Unit은 별도 필드로 유지."""
         if popup_window and hasattr(popup_window, "fixed_plot_params"):
             params = popup_window.fixed_plot_params.copy()
             if hasattr(popup_window, "get_sigma"):
@@ -1690,5 +1707,16 @@ class MainController:
                     params["sigma"] = float(popup_window.get_sigma())
                 except ValueError:
                     pass
+            # 단위(Unit)가 없으면 스케일+use_bark로 보정 (호환성)
+            if "f1_unit" not in params or "f2_unit" not in params:
+                f1_scale = params.get("f1_scale", "linear")
+                f2_scale = params.get("f2_scale", "linear")
+                use_bark = params.get("use_bark_units", False)
+                params.setdefault(
+                    "f1_unit", "Bark" if (f1_scale == "bark" and use_bark) else "Hz"
+                )
+                params.setdefault(
+                    "f2_unit", "Bark" if (f2_scale == "bark" and use_bark) else "Hz"
+                )
             return params
         return self._get_main_ui_plot_params()

@@ -50,6 +50,7 @@ from .design_panel import DesignSettingsPanel, NoWheelComboBox
 from .icon_widgets import BidirectionalArrowButton
 from .tool_indicator import ToolStatusIndicator
 from .layer_dock import LayerDockWidget
+from draw import DrawModeIndicator, DrawMode, draw_line, draw_polygon, draw_reference
 from . import layout_constants as layout
 from .display_utils import format_file_label
 from utils.math_utils import hz_to_bark, bark_to_hz
@@ -519,13 +520,32 @@ class PlotPopup(QMainWindow):
         top_row.addWidget(self.tool_indicator, alignment=Qt.AlignmentFlag.AlignRight)
         central_layout.addLayout(top_row)
 
-        # 캔버스 고정 크기: config.PLOT_CANVAS_SIZE_PX (compare_plot / popup_plot 동일)
+        # 캔버스 고정 크기 + 좌측 하단 그리기 모드 인디케이터 오버레이 (기존 영역 길이 변경 없음)
         central_layout.addStretch(1)
+        canvas_wrapper = QWidget()
+        canvas_wrapper.setFixedSize(
+            config.PLOT_CANVAS_SIZE_PX, config.PLOT_CANVAS_SIZE_PX
+        )
         self.canvas = FixedFigureCanvas(self.figure)
+        self.canvas.setParent(canvas_wrapper)
+        self.canvas.setGeometry(
+            0, 0, config.PLOT_CANVAS_SIZE_PX, config.PLOT_CANVAS_SIZE_PX
+        )
         self.canvas.setFixedSize(config.PLOT_CANVAS_SIZE_PX, config.PLOT_CANVAS_SIZE_PX)
         self.canvas.setSizePolicy(QSizePolicy.Policy.Fixed, QSizePolicy.Policy.Fixed)
         self.canvas.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-        central_layout.addWidget(self.canvas, alignment=Qt.AlignmentFlag.AlignCenter)
+        self.draw_indicator = DrawModeIndicator(canvas_wrapper)
+        self.draw_indicator.setParent(canvas_wrapper)
+        self._draw_indicator_height = 34
+        self.draw_indicator.move(
+            8, config.PLOT_CANVAS_SIZE_PX - 8 - self._draw_indicator_height
+        )
+        self.draw_indicator.mode_changed.connect(self._on_draw_mode_changed)
+        self._draw_tool = None
+        self._draw_objects_by_file = {}  # current_idx -> list of draw objects (파일별 분리)
+        self._draw_layer_artists = []  # 그리기 레이어로 추가한 아티스트 (재그리기 전 제거용)
+        self.draw_indicator.hide()
+        central_layout.addWidget(canvas_wrapper, alignment=Qt.AlignmentFlag.AlignCenter)
         central_layout.addStretch(1)
 
         self.central_outer_layout.addWidget(self.sep_left)
@@ -564,6 +584,14 @@ class PlotPopup(QMainWindow):
         self.label_data = label_data
         self.label_text_artists = label_text_artists
         self._plot_key = plot_key
+        self._redraw_draw_layer()
+        if (
+            hasattr(self, "_layer_dock_content")
+            and self._layer_dock_content is not None
+        ):
+            self._layer_dock_content.update_draw_layer_list(
+                self._get_current_draw_objects()
+            )
 
     def get_filter_state(self):
         return self.vowel_filter_state
@@ -1061,17 +1089,21 @@ class PlotPopup(QMainWindow):
         self.btn_ruler.clicked.connect(self.on_toggle_ruler)
         tool_group.addWidget(self.btn_ruler)
 
-        self.btn_draw = QPushButton("그리기")
-        self.btn_draw.setToolTip("추후 업데이트로 추가될 기능입니다.")
+        self.btn_draw = QPushButton("그리기 (P)")
+        self.btn_draw.setToolTip(
+            "선·영역·참조선 그리기. P로 켜기/끄기. 켜면 좌측 하단에서 도구 선택."
+        )
+        self.btn_draw.setCheckable(True)
         self.btn_draw.setFixedHeight(35)
         self.btn_draw.setFont(font_normal)
         self.btn_draw.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-        self.btn_draw.setEnabled(False)
+        self.btn_draw.setEnabled(True)
         self.btn_draw.setStyleSheet("""
-            QPushButton { background-color: #F0F2F5; border: 1px solid #DCDFE6; border-radius: 4px; color: #606266; }
-            QPushButton:hover { background-color: #E4E7ED; }
-            QPushButton:disabled { background-color: #F5F7FA; color: #C0C4CC; border: 1px solid #E4E7ED; }
+            QPushButton { background-color: #F0F2F5; border: 1px solid #DCDFE6; border-radius: 4px; color: #333; }
+            QPushButton:checked { background-color: #409EFF; color: white; font-weight: bold; border: none; }
+            QPushButton:hover:!checked { background-color: #E4E7ED; }
         """)
+        self.btn_draw.clicked.connect(self._on_toggle_draw)
         tool_group.addWidget(self.btn_draw)
 
         layout.addLayout(tool_group)
@@ -1211,7 +1243,25 @@ class PlotPopup(QMainWindow):
 
         QShortcut(
             QKeySequence("Esc"), self, context=Qt.ShortcutContext.WindowShortcut
-        ).activated.connect(self._safe_cancel_ruler_point)
+        ).activated.connect(self._safe_cancel_ruler_or_draw)
+        QShortcut(
+            QKeySequence(Qt.Key.Key_Return),
+            self,
+            context=Qt.ShortcutContext.ApplicationShortcut,
+        ).activated.connect(self._safe_draw_complete)
+        QShortcut(
+            QKeySequence(Qt.Key.Key_Enter),
+            self,
+            context=Qt.ShortcutContext.ApplicationShortcut,
+        ).activated.connect(self._safe_draw_complete)
+        QShortcut(
+            QKeySequence(QKeySequence.StandardKey.Undo),
+            self,
+            context=Qt.ShortcutContext.ApplicationShortcut,
+        ).activated.connect(self._safe_draw_rollback)
+        QShortcut(
+            QKeySequence(Qt.Key.Key_P), self, context=Qt.ShortcutContext.WindowShortcut
+        ).activated.connect(self._safe_toggle_draw)
         # L: 설정 유지 토글
         QShortcut(
             QKeySequence(Qt.Key.Key_L), self, context=Qt.ShortcutContext.WindowShortcut
@@ -1226,11 +1276,43 @@ class PlotPopup(QMainWindow):
             QKeySequence("Ctrl+I"), self, context=Qt.ShortcutContext.WindowShortcut
         ).activated.connect(self._safe_toggle_italic)
 
-    def _safe_cancel_ruler_point(self):
+    def _safe_cancel_ruler_or_draw(self):
         if self._is_input_focused():
+            return
+        if getattr(self, "btn_draw", None) and self.btn_draw.isChecked():
+            # 그리기 모드는 유지하고, 현재 그리던 오브젝트만 취소 (도구/인디케이터는 그대로)
+            if getattr(self, "_draw_tool", None) is not None:
+                self._draw_tool.cancel()
             return
         if self.controller.ruler_tool.active:
             self.controller.ruler_tool._cancel_current_drawing()
+
+    def _safe_draw_complete(self):
+        if self._is_input_focused():
+            return
+        if (
+            getattr(self, "btn_draw", None)
+            and self.btn_draw.isChecked()
+            and getattr(self, "_draw_tool", None)
+        ):
+            self._draw_tool.complete()
+
+    def _safe_draw_rollback(self):
+        if self._is_input_focused():
+            return
+        if (
+            getattr(self, "btn_draw", None)
+            and self.btn_draw.isChecked()
+            and getattr(self, "_draw_tool", None)
+        ):
+            self._draw_tool.rollback()
+
+    def _safe_toggle_draw(self):
+        if self._is_input_focused():
+            return
+        if getattr(self, "btn_draw", None):
+            self.btn_draw.setChecked(not self.btn_draw.isChecked())
+            self._on_toggle_draw()
 
     def _safe_toggle_design_lock(self):
         if self._is_input_focused():
@@ -1415,6 +1497,13 @@ class PlotPopup(QMainWindow):
             self.vowel_filter_state = {}
 
     def _on_navigate_update(self):
+        # 파일 전환 시 플롯이 clear되기 전에 그리기 도구 및 UI 완벽 비활성화
+        if getattr(self, "btn_draw", None) and self.btn_draw.isChecked():
+            self.btn_draw.setChecked(False)
+            self._on_toggle_draw()
+        else:
+            self._draw_tool_deactivate()
+
         self._update_nav_buttons()
         data_list = (
             getattr(self, "plot_data_snapshot", None)
@@ -1445,6 +1534,17 @@ class PlotPopup(QMainWindow):
                 self.figure, self.canvas, self.range_widgets, self.lbl_info, self
             )
         self._refresh_layer_dock_vowels()
+        # 파일 전환 시 해당 파일의 그리기 객체만 표시
+        self._redraw_draw_layer()
+        if (
+            hasattr(self, "_layer_dock_content")
+            and self._layer_dock_content is not None
+        ):
+            self._layer_dock_content.update_draw_layer_list(
+                self._get_current_draw_objects()
+            )
+        if self.canvas:
+            self.canvas.draw_idle()
 
     def on_reset_clicked(self):
         self.setFocus()
@@ -1511,6 +1611,261 @@ class PlotPopup(QMainWindow):
         )
         if hasattr(self, "tool_indicator") and self.tool_indicator is not None:
             self.tool_indicator.set_label_move_on(is_on)
+        if is_on and getattr(self, "btn_draw", None) and self.btn_draw.isChecked():
+            self.btn_draw.setChecked(False)
+            if hasattr(self, "draw_indicator") and self.draw_indicator is not None:
+                self.draw_indicator.hide()
+            self._draw_tool_deactivate()
+
+    def _draw_tool_deactivate(self):
+        if getattr(self, "_draw_tool", None) is not None:
+            try:
+                self._draw_tool.deactivate()
+            except Exception:
+                pass
+            self._draw_tool = None
+        if getattr(self, "canvas", None) is not None:
+            self.canvas.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+
+    def _on_toggle_draw(self):
+        if self.btn_draw.isChecked():
+            self.draw_indicator.show()
+            self.draw_indicator.set_mode(None)
+            # 인디케이터가 키보드 포커스를 갖지 않도록 캔버스 또는 메인 창으로 포커스 이동
+            if getattr(self, "canvas", None) is not None:
+                self.canvas.setFocus()
+            else:
+                self.setFocus()
+        else:
+            self._draw_tool_deactivate()
+            self.draw_indicator.hide()
+
+    def _get_current_draw_objects(self):
+        """현재 파일 인덱스에 해당하는 그리기 객체 리스트 (파일별 분리)."""
+        idx = getattr(self, "current_idx", None)
+        if (
+            idx is None
+            and hasattr(self, "controller")
+            and hasattr(self.controller, "get_current_index")
+        ):
+            idx = self.controller.get_current_index()
+        if idx is None:
+            idx = 0
+        return getattr(self, "_draw_objects_by_file", {}).setdefault(idx, [])
+
+    def _set_current_draw_objects(self, lst):
+        """현재 파일의 그리기 객체 리스트를 교체."""
+        idx = getattr(self, "current_idx", None)
+        if (
+            idx is None
+            and hasattr(self, "controller")
+            and hasattr(self.controller, "get_current_index")
+        ):
+            idx = self.controller.get_current_index()
+        if idx is None:
+            idx = 0
+        if not hasattr(self, "_draw_objects_by_file"):
+            self._draw_objects_by_file = {}
+        self._draw_objects_by_file[idx] = list(lst)
+
+    def _on_draw_object_complete(self, obj):
+        self._get_current_draw_objects().append(obj)
+        self._redraw_draw_layer()
+        if (
+            hasattr(self, "_layer_dock_content")
+            and self._layer_dock_content is not None
+        ):
+            self._layer_dock_content.update_draw_layer_list(
+                self._get_current_draw_objects()
+            )
+        if self.canvas:
+            self.canvas.draw_idle()
+
+    def _redraw_draw_layer(self):
+        if not self.figure.axes:
+            return
+        ax = self.figure.axes[0]
+        # 이전 그리기 레이어 아티스트 제거 (삭제/파일 전환 시 화면에서 사라지도록)
+        for a in getattr(self, "_draw_layer_artists", []):
+            try:
+                a.remove()
+            except Exception:
+                pass
+        self._draw_layer_artists = []
+        for obj in self._get_current_draw_objects():
+            if not getattr(obj, "visible", True):
+                continue
+            alpha = 0.4 if getattr(obj, "semi", False) else 0.8
+            if getattr(obj, "type", None) == "line" and hasattr(obj, "points"):
+                xs = [p[0] for p in obj.points]
+                ys = [p[1] for p in obj.points]
+                (line,) = ax.plot(
+                    xs, ys, "k-", linewidth=1.5, alpha=alpha, zorder=1, clip_on=False
+                )
+                self._draw_layer_artists.append(line)
+            elif getattr(obj, "type", None) == "polygon" and hasattr(obj, "points"):
+                from matplotlib.patches import Polygon as MplPolygon
+
+                # 테두리만 alpha 적용, 내부는 고정 투명도(0.15) — alpha 인자 제거로 덮어씌움 방지
+                edge_alpha = 0.4 if getattr(obj, "semi", False) else 0.8
+                poly = MplPolygon(
+                    obj.points,
+                    facecolor=(0.2, 0.4, 0.8, 0.15),
+                    edgecolor=(0, 0, 0, edge_alpha),
+                    linewidth=1.5,
+                    zorder=1,
+                )
+                ax.add_patch(poly)
+                self._draw_layer_artists.append(poly)
+            elif getattr(obj, "type", None) == "reference" and hasattr(obj, "mode"):
+                from draw.draw_reference import (
+                    REF_LINE_COLOR,
+                    REF_LINE_ALPHA,
+                    format_ref_label,
+                )
+
+                xlim, ylim = ax.get_xlim(), ax.get_ylim()
+                v = obj.value  # 단위(Unit) 기준 순수 데이터 값 (Hz 등)
+                axis_units = getattr(obj, "axis_units", "") or "Hz"
+                axis_scale = getattr(obj, "axis_scale", "linear")
+                if axis_scale == "bark" and (axis_units or "").strip().lower() == "hz":
+                    plot_v = float(hz_to_bark(v))
+                else:
+                    plot_v = v
+                lbl = format_ref_label(v, axis_units)
+                font_family = ["DejaVu Sans", "Malgun Gothic"]
+                if (
+                    getattr(self, "design_settings", None)
+                    and self.design_settings.get("font_style") == "serif"
+                ):
+                    font_family = ["Times New Roman", "Noto Serif KR", "DejaVu Serif"]
+                if obj.mode == "horizontal":
+                    (ref_line,) = ax.plot(
+                        xlim,
+                        [plot_v, plot_v],
+                        color=REF_LINE_COLOR,
+                        linewidth=1,
+                        alpha=REF_LINE_ALPHA
+                        if not getattr(obj, "semi", False)
+                        else 0.3,
+                        zorder=1.5,
+                        clip_on=True,
+                    )
+                    ref_txt = ax.text(
+                        xlim[0],
+                        plot_v,
+                        lbl,
+                        fontsize=12,
+                        fontfamily=font_family,
+                        color="#303133",
+                        va="center",
+                        zorder=2,
+                        clip_on=True,
+                    )
+                    self._draw_layer_artists.append(ref_line)
+                    self._draw_layer_artists.append(ref_txt)
+                else:
+                    (ref_line,) = ax.plot(
+                        [plot_v, plot_v],
+                        ylim,
+                        color=REF_LINE_COLOR,
+                        linewidth=1,
+                        alpha=REF_LINE_ALPHA
+                        if not getattr(obj, "semi", False)
+                        else 0.3,
+                        zorder=1.5,
+                        clip_on=True,
+                    )
+                    ref_txt = ax.text(
+                        plot_v,
+                        ylim[0],
+                        lbl,
+                        fontsize=12,
+                        fontfamily=font_family,
+                        color="#303133",
+                        va="bottom",
+                        ha="center",
+                        zorder=2,
+                        clip_on=True,
+                    )
+                    self._draw_layer_artists.append(ref_line)
+                    self._draw_layer_artists.append(ref_txt)
+        if self.canvas:
+            self.canvas.draw_idle()
+
+    def _on_draw_mode_changed(self, mode):
+        if mode is None:
+            self._draw_tool_deactivate()
+            return
+        if self.btn_ruler.isChecked():
+            self.controller.toggle_ruler(self)
+        if self.design_tab.btn_label_move.isChecked():
+            self.controller.toggle_label_move(self)
+        ax = self.figure.axes[0] if self.figure.axes else None
+        snapping_data = getattr(self, "snapping_data", None) or []
+        # Scale과 Unit 완전 분리: 그리기 도구에는 실제 눈금 단위(Unit)만 전달. 스케일이 Bark여도 단위가 Hz면 Hz.
+        params = getattr(self, "fixed_plot_params", None) or {}
+        if params.get("normalization"):
+            x_unit = y_unit = "norm"
+        else:
+            x_unit = (params.get("f2_unit") or "Hz").strip()
+            y_unit = (params.get("f1_unit") or "Hz").strip()
+        x_scale = (params.get("f2_scale") or "linear").strip().lower()
+        y_scale = (params.get("f1_scale") or "linear").strip().lower()
+        x_name = getattr(self, "x_axis_label", None) or "F2"
+        y_name = "F1"
+        if ax is None:
+            return
+        self._draw_tool_deactivate()
+        font_family = ["DejaVu Sans", "Malgun Gothic"]
+        if (
+            getattr(self, "design_settings", None)
+            and self.design_settings.get("font_style") == "serif"
+        ):
+            font_family = ["Times New Roman", "Noto Serif KR", "DejaVu Serif"]
+
+        def _on_draw_cancel():
+            self.draw_indicator.set_mode(None)
+
+        if mode == DrawMode.LINE:
+            self._draw_tool = draw_line.DrawLineTool(
+                self.canvas,
+                ax,
+                snapping_data,
+                axis_units=y_unit,
+                on_complete=self._on_draw_object_complete,
+                on_cancel=_on_draw_cancel,
+            )
+        elif mode == DrawMode.POLYGON:
+            self._draw_tool = draw_polygon.DrawPolygonTool(
+                self.canvas,
+                ax,
+                snapping_data,
+                axis_units=y_unit,
+                on_complete=self._on_draw_object_complete,
+                on_cancel=_on_draw_cancel,
+            )
+        elif mode in (DrawMode.REF_H, DrawMode.REF_V):
+            self._draw_tool = draw_reference.DrawReferenceTool(
+                self.canvas,
+                ax,
+                horizontal=(mode == DrawMode.REF_H),
+                x_unit=x_unit,
+                y_unit=y_unit,
+                x_scale=x_scale,
+                y_scale=y_scale,
+                x_name=x_name,
+                y_name=y_name,
+                on_complete=self._on_draw_object_complete,
+                on_cancel=_on_draw_cancel,
+                font_family=font_family,
+                tick_color="#303133",
+            )
+        else:
+            return
+        self.canvas.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        self.canvas.setFocus()
+        self._draw_tool.activate()
 
     def _safe_compare_click(self):
         if self._is_input_focused() or not self.btn_compare.isEnabled():
@@ -1682,6 +2037,11 @@ class PlotPopup(QMainWindow):
         )
         if hasattr(self, "tool_indicator") and self.tool_indicator is not None:
             self.tool_indicator.set_ruler_on(is_on)
+        if is_on and getattr(self, "btn_draw", None) and self.btn_draw.isChecked():
+            self.btn_draw.setChecked(False)
+            if hasattr(self, "draw_indicator") and self.draw_indicator is not None:
+                self.draw_indicator.hide()
+            self._draw_tool_deactivate()
 
     def open_vowel_filter(self):
         data_list = (

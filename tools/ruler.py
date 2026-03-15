@@ -17,6 +17,31 @@ except ImportError:
     _HAS_KD = False
 
 
+def snap_query(ax, snapping_data, x_px, y_px, max_dist_px=20):
+    """픽셀 좌표 (x_px, y_px)에서 가장 가까운 스냅 점을 찾아 반환.
+    draw 모드 등에서 눈금자와 동일한 스냅 로직을 재사용할 때 사용.
+    ax: matplotlib Axes, snapping_data: [{"x","y", ...}, ...], (x_px,y_px): 캔버스 픽셀.
+    반환: 거리 <= max_dist_px이면 해당 점 dict, 아니면 None.
+    """
+    if not ax or not snapping_data:
+        return None
+    pts = np.array([[p["x"], p["y"]] for p in snapping_data])
+    pts_px = ax.transData.transform(pts)
+    query_pt = np.array([x_px, y_px])
+    if _HAS_KD and len(pts_px) > 0:
+        kdtree = cKDTree(pts_px)
+        d_min, min_idx = kdtree.query(query_pt, k=1)
+        d_min = float(d_min)
+        min_idx = int(min_idx)
+    else:
+        dists = np.linalg.norm(pts_px - query_pt, axis=1)
+        min_idx = int(np.argmin(dists))
+        d_min = float(dists[min_idx])
+    if d_min <= max_dist_px:
+        return snapping_data[min_idx]
+    return None
+
+
 class RulerTool:
     def __init__(self):
         self.active = False

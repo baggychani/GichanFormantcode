@@ -1,0 +1,97 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project version="4">
+  <component name="ChangeListManager">
+    <list default="true" id="82b2c6ac-789d-4c74-9ccb-b31084457704" name="변경" comment="랩신두야 힘내라">
+      <change afterPath="$PROJECT_DIR$/config.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/data_processor.py" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/main.py" beforeDir="false" afterPath="$PROJECT_DIR$/main.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/math_utils.py" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/plot_engine.py" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/preview_engine.py" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/tool_ruler.py" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/ui_main.py" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/ui_popup.py" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/현재사용X/screen.py" beforeDir="false" />
+    </list>
+    <option name="SHOW_DIALOG" value="false" />
+    <option name="HIGHLIGHT_CONFLICTS" value="true" />
+    <option name="HIGHLIGHT_NON_ACTIVE_CHANGELIST" value="false" />
+    <option name="LAST_RESOLUTION" value="IGNORE" />
+  </component>
+  <component name="FileTemplateManagerImpl">
+    <option name="RECENT_TEMPLATES">
+      <list>
+        <option value="Python Script" />
+      </list>
+    </option>
+  </component>
+  <component name="Git.Settings">
+    <option name="RECENT_GIT_ROOT_PATH" value="$PROJECT_DIR$" />
+  </component>
+  <component name="GitHubPullRequestSearchHistory">{
+  &quot;lastFilter&quot;: {
+    &quot;state&quot;: &quot;OPEN&quot;,
+    &quot;assignee&quot;: &quot;baggychani&quot;
+  }
+}</component>
+  <component name="GithubPullRequestsUISettings">{
+  &quot;selectedUrlAndAccountId&quot;: {
+    &quot;url&quot;: &quot;https://github.com/baggychani/GichanFormant.git&quot;,
+    &quot;accountId&quot;: &quot;09111d42-438e-489a-a7ec-bfca18902dac&quot;
+  }
+}</component>
+  <component name="ProjectColorInfo">{
+  &quot;associatedIndex&quot;: 4
+}</component>
+  <component name="ProjectId" id="39key2NaxOKJZmoZgNyUX7xHV7U" />
+  <component name="ProjectViewState">
+    <option name="hideEmptyMiddlePackages" value="true" />
+    <option name="showLibraryContents" value="true" />
+  </component>
+  <component name="PropertiesComponent"><![CDATA[{
+  "keyToString": {
+    "ModuleVcsDetector.initialDetectionPerformed": "true",
+    "Python.converticon.executor": "Run",
+    "Python.main.executor": "Run",
+    "Python.ui_main.executor": "Run",
+    "Python.ui_scaler.executor": "Run",
+    "RunOnceActivity.ShowReadmeOnStart": "true",
+    "RunOnceActivity.TerminalTabsStorage.copyFrom.TerminalArrangementManager.252": "true",
+    "RunOnceActivity.git.unshallow": "true",
+    "com.google.cloudcode.ide_session_index": "20260305_0001",
+    "git-widget-placeholder": "master",
+    "ignore.virus.scanning.warn.message": "true",
+    "settings.editor.selected.configurable": "com.android.studio.ml.bot.mainConfigurable"
+  }
+}]]></component>
+  <component name="SharedIndexes">
+    <attachedChunks>
+      <set>
+        <option value="bundled-python-sdk-4762d8aabb82-6d6dccd035ac-com.jetbrains.pycharm.pro.sharedIndexes.bundled-PY-253.30387.173" />
+      </set>
+    </attachedChunks>
+  </component>
+  <component name="TaskManager">
+    <task active="true" id="Default" summary="디폴트 작업">
+      <changelist id="82b2c6ac-789d-4c74-9ccb-b31084457704" name="변경" comment="" />
+      <created>1771244747584</created>
+      <option name="number" value="Default" />
+      <option name="presentableId" value="Default" />
+      <updated>1771244747584</updated>
+    </task>
+    <task id="LOCAL-00001" summary="랩신두야 힘내라">
+      <option name="closed" value="true" />
+      <created>1771345989655</created>
+      <option name="number" value="00001" />
+      <option name="presentableId" value="LOCAL-00001" />
+      <option name="project" value="LOCAL" />
+      <updated>1771345989655</updated>
+    </task>
+    <option name="localTasksCounter" value="2" />
+    <servers />
+  </component>
+  <component name="VcsManagerConfiguration">
+    <MESSAGE value="랩신두야 힘내라" />
+    <option name="LAST_COMMIT_MESSAGE" value="랩신두야 힘내라" />
+  </component>
+</project>

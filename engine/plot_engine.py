@@ -409,6 +409,7 @@ class PlotEngine:
                             "y": mean_y,
                             "raw_f1": raw_f1_mean,
                             "raw_f2": raw_f2_mean,
+                            "label": vowel,
                             "type": "mean",
                             "color": "blue",
                         }
@@ -1394,20 +1395,15 @@ class PlotEngine:
                     or ("#1976D2" if ds_type == "blue" else "#E64A19")
                 )
                 hide_text = lbl_color == "transparent" or (
-                    isinstance(lbl_color, str)
-                    and lbl_color.lower() == "transparent"
+                    isinstance(lbl_color, str) and lbl_color.lower() == "transparent"
                 )
-                ell_style = cfg_v.get(
-                    "ell_style", "-" if ds_type == "blue" else "--"
-                )
+                ell_style = cfg_v.get("ell_style", "-" if ds_type == "blue" else "--")
                 ell_thick = cfg_v.get("ell_thick", 1.0)
                 ell_fill = cfg_v.get("ell_fill_color", None)
                 centroid_marker = cfg_v.get("centroid_marker", "o")
                 lbl_size = cfg_v.get("lbl_size", 16)
                 lbl_bold = "bold" if cfg_v.get("lbl_bold", True) else "normal"
-                lbl_italic = (
-                    "italic" if cfg_v.get("lbl_italic", False) else "normal"
-                )
+                lbl_italic = "italic" if cfg_v.get("lbl_italic", False) else "normal"
 
                 subset = df_plot[df_plot[label_col] == vowel]
                 x, y = subset["x_val"], subset["y_val"]
