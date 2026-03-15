@@ -306,8 +306,12 @@ class ColorCircleButton(QPushButton):
                     pen4.setCapStyle(Qt.PenCapStyle.RoundCap)
                     painter.setPen(pen4)
                     line_len = side * 0.25
-                    painter.drawLine(QPointF(cx - line_len, cy), QPointF(cx + line_len, cy))
-                    painter.drawLine(QPointF(cx, cy - line_len), QPointF(cx, cy + line_len))
+                    painter.drawLine(
+                        QPointF(cx - line_len, cy), QPointF(cx + line_len, cy)
+                    )
+                    painter.drawLine(
+                        QPointF(cx, cy - line_len), QPointF(cx, cy + line_len)
+                    )
                 else:
                     painter.setBrush(QColor(self.color_hex))
                     pen5 = QPen()
@@ -739,12 +743,20 @@ class BidirectionalArrowButton(QPushButton):
         x_left = cx - length / 2
         x_right = cx + length / 2
         painter.drawLine(int(x_left), int(y_top), int(x_right), int(y_top))
-        painter.drawLine(int(x_right), int(y_top), int(x_right - head), int(y_top - head))
-        painter.drawLine(int(x_right), int(y_top), int(x_right - head), int(y_top + head))
+        painter.drawLine(
+            int(x_right), int(y_top), int(x_right - head), int(y_top - head)
+        )
+        painter.drawLine(
+            int(x_right), int(y_top), int(x_right - head), int(y_top + head)
+        )
 
         # 아래쪽 화살표 (왼쪽 ←)
         y_bottom = cy + spacing
         painter.drawLine(int(x_right), int(y_bottom), int(x_left), int(y_bottom))
-        painter.drawLine(int(x_left), int(y_bottom), int(x_left + head), int(y_bottom - head))
-        painter.drawLine(int(x_left), int(y_bottom), int(x_left + head), int(y_bottom + head))
+        painter.drawLine(
+            int(x_left), int(y_bottom), int(x_left + head), int(y_bottom - head)
+        )
+        painter.drawLine(
+            int(x_left), int(y_bottom), int(x_left + head), int(y_bottom + head)
+        )
         painter.end()

@@ -1255,6 +1255,8 @@ class PlotEngine:
         custom_label_offsets_blue=None,
         custom_label_offsets_red=None,
         manual_ranges=None,
+        layer_overrides_blue=None,
+        layer_overrides_red=None,
     ):
         """정규화된 F1 vs F2 비교 플롯. manual_ranges 있으면(Gerstman 제외) 해당 범위 사용."""
         figure.clear()
@@ -1268,6 +1270,15 @@ class PlotEngine:
             custom_label_offsets_blue = {}
         if custom_label_offsets_red is None:
             custom_label_offsets_red = {}
+        if layer_overrides_blue is None:
+            layer_overrides_blue = {}
+        if layer_overrides_red is None:
+            layer_overrides_red = {}
+
+        layer_overrides_by_side = {
+            "blue": layer_overrides_blue,
+            "red": layer_overrides_red,
+        }
 
         show_raw = common.get("show_raw", True)
         show_centroid = common.get("show_centroid", True)
@@ -1351,28 +1362,11 @@ class PlotEngine:
         ]:
             if df_curr.empty:
                 continue
+            curr_layer_overrides = layer_overrides_by_side.get(ds_type, {})
             # 플롯용 복사본 (이 루프에서는 F1/F2를 그대로 x_val, y_val로 사용)
             df_plot = df_curr.copy()
             df_plot["y_val"] = df_plot["F1"]
             df_plot["x_val"] = df_plot["F2"]
-            ell_color = cfg.get(
-                "ell_color", "#1976D2" if ds_type == "blue" else "#E64A19"
-            )
-            lbl_color = (
-                cfg.get("lbl_color")
-                or ell_color
-                or ("#1976D2" if ds_type == "blue" else "#E64A19")
-            )
-            hide_text = lbl_color == "transparent" or (
-                isinstance(lbl_color, str) and lbl_color.lower() == "transparent"
-            )
-            ell_style = cfg.get("ell_style", "-" if ds_type == "blue" else "--")
-            ell_thick = cfg.get("ell_thick", 1.0)
-            ell_fill = cfg.get("ell_fill_color", None)
-            centroid_marker = cfg.get("centroid_marker", "o")
-            lbl_size = cfg.get("lbl_size", 16)
-            lbl_bold = "bold" if cfg.get("lbl_bold", True) else "normal"
-            lbl_italic = "italic" if cfg.get("lbl_italic", False) else "normal"
             label_col = "Label" if "Label" in df_plot.columns else "label"
             vowels = df_plot[label_col].unique()
             custom_offsets = (
@@ -1386,6 +1380,35 @@ class PlotEngine:
                 if state == "OFF":
                     continue
                 is_semi = state == "SEMI"
+                over = curr_layer_overrides.get(vowel, {})
+                cfg_v = dict(cfg)
+                for k, v in over.items():
+                    if v is not None:
+                        cfg_v[k] = v
+                ell_color = cfg_v.get(
+                    "ell_color", "#1976D2" if ds_type == "blue" else "#E64A19"
+                )
+                lbl_color = (
+                    cfg_v.get("lbl_color")
+                    or ell_color
+                    or ("#1976D2" if ds_type == "blue" else "#E64A19")
+                )
+                hide_text = lbl_color == "transparent" or (
+                    isinstance(lbl_color, str)
+                    and lbl_color.lower() == "transparent"
+                )
+                ell_style = cfg_v.get(
+                    "ell_style", "-" if ds_type == "blue" else "--"
+                )
+                ell_thick = cfg_v.get("ell_thick", 1.0)
+                ell_fill = cfg_v.get("ell_fill_color", None)
+                centroid_marker = cfg_v.get("centroid_marker", "o")
+                lbl_size = cfg_v.get("lbl_size", 16)
+                lbl_bold = "bold" if cfg_v.get("lbl_bold", True) else "normal"
+                lbl_italic = (
+                    "italic" if cfg_v.get("lbl_italic", False) else "normal"
+                )
+
                 subset = df_plot[df_plot[label_col] == vowel]
                 x, y = subset["x_val"], subset["y_val"]
 

@@ -52,7 +52,9 @@ class MainController:
         self.last_open_dir = None
 
         # JSON에서 최근 경로 로드 (폴더가 존재할 때만 반영)
-        _prefs_base = QStandardPaths.writableLocation(QStandardPaths.StandardLocation.AppDataLocation)
+        _prefs_base = QStandardPaths.writableLocation(
+            QStandardPaths.StandardLocation.AppDataLocation
+        )
         if _prefs_base:
             _loaded = path_prefs.load_path_prefs(_prefs_base)
             if _loaded.get("last_open_dir") and os.path.isdir(_loaded["last_open_dir"]):
@@ -418,13 +420,18 @@ class MainController:
 
     def _save_path_prefs(self):
         """현재 last_open_dir / last_save_dir를 JSON에 저장."""
-        base = QStandardPaths.writableLocation(QStandardPaths.StandardLocation.AppDataLocation)
+        base = QStandardPaths.writableLocation(
+            QStandardPaths.StandardLocation.AppDataLocation
+        )
         if not base:
             return
-        path_prefs.save_path_prefs(base, {
-            "last_open_dir": self.last_open_dir,
-            "last_save_dir": self.last_save_dir,
-        })
+        path_prefs.save_path_prefs(
+            base,
+            {
+                "last_open_dir": self.last_open_dir,
+                "last_save_dir": self.last_save_dir,
+            },
+        )
 
     def _get_default_design(self):
         """라이브 모니터 등 UI 객체가 없을 때 사용할 기본 디자인 설정"""
@@ -896,6 +903,8 @@ class MainController:
                 key_red = (idx_blue, idx_red, "f1_f2", norm, "red")
                 custom_blue = self.custom_label_offsets.get(key_blue, {})
                 custom_red = self.custom_label_offsets.get(key_red, {})
+                layer_overrides_blue = popup_window.get_layer_design_overrides_blue()
+                layer_overrides_red = popup_window.get_layer_design_overrides_red()
                 manual_ranges = {
                     "y_min": range_widgets["y_min"].text(),
                     "y_max": range_widgets["y_max"].text(),
@@ -923,6 +932,8 @@ class MainController:
                     custom_label_offsets_blue=custom_blue,
                     custom_label_offsets_red=custom_red,
                     manual_ranges=manual_ranges,
+                    layer_overrides_blue=layer_overrides_blue,
+                    layer_overrides_red=layer_overrides_red,
                 )
                 popup_window.snapping_data = snapping_data
                 popup_window.label_data_blue = label_data_blue

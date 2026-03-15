@@ -203,6 +203,9 @@ poetry.toml
 # ruff
 .ruff_cache/
 
+# 중첩 프로젝트 폴더 (실수로 생긴 내부 복사본 제외)
+GichanFormant/
+
 # LSP config files
 pyrightconfig.json
 

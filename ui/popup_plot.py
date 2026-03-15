@@ -54,6 +54,7 @@ from . import layout_constants as layout
 from .display_utils import format_file_label
 from utils.math_utils import hz_to_bark, bark_to_hz
 
+
 class ClickClearFocusFilter(QObject):
     """다른 위젯 클릭 시 지정한 LineEdit들에서 포커스를 빼서 분석 탭으로 넘깁니다."""
 
@@ -64,7 +65,10 @@ class ClickClearFocusFilter(QObject):
         self._edits = set(edits)
 
     def eventFilter(self, obj, event):
-        if event.type() != QEvent.Type.MouseButtonPress or event.button() != Qt.MouseButton.LeftButton:
+        if (
+            event.type() != QEvent.Type.MouseButtonPress
+            or event.button() != Qt.MouseButton.LeftButton
+        ):
             return False
         f = QApplication.focusWidget()
         if not f or f not in self._edits:
@@ -72,13 +76,17 @@ class ClickClearFocusFilter(QObject):
         try:
             # obj가 QWindow일 수 있음 → isAncestorOf는 QWidget에만 사용
             clicked_inside_edit = obj is f
-            if not clicked_inside_edit and isinstance(obj, QWidget) and hasattr(f, "isAncestorOf"):
+            if (
+                not clicked_inside_edit
+                and isinstance(obj, QWidget)
+                and hasattr(f, "isAncestorOf")
+            ):
                 clicked_inside_edit = f.isAncestorOf(obj)
             if clicked_inside_edit:
                 return False
             same_window = False
             if isinstance(obj, QWidget) and hasattr(obj, "window"):
-                same_window = (obj.window() is self._window)
+                same_window = obj.window() is self._window
             else:
                 tw = f.window() if hasattr(f, "window") else None
                 if tw and hasattr(tw, "windowHandle") and tw.windowHandle() is obj:
@@ -89,7 +97,6 @@ class ClickClearFocusFilter(QObject):
         except (RuntimeError, TypeError):
             pass
         return False
-
 
 
 class RangeInputFilter(QObject):
@@ -828,7 +835,9 @@ class PlotPopup(QMainWindow):
         self._range_toggle_btn = QPushButton("▶")
         self._range_toggle_btn.setFixedSize(22, 22)
         self._range_toggle_btn.setFlat(True)
-        self._range_toggle_btn.setStyleSheet("background: transparent; border: none; font-size: 11px;")
+        self._range_toggle_btn.setStyleSheet(
+            "background: transparent; border: none; font-size: 11px;"
+        )
         self._range_toggle_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self._range_toggle_btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         range_header_layout.addWidget(title_lbl)
@@ -902,6 +911,7 @@ class PlotPopup(QMainWindow):
         def _header_clicked(event):
             if event.button() == Qt.MouseButton.LeftButton:
                 _toggle_converter()
+
         range_header.mousePressEvent = _header_clicked
 
         range_group.addWidget(range_header)
@@ -996,8 +1006,13 @@ class PlotPopup(QMainWindow):
         range_group.addWidget(self._converter_container)
         layout.addLayout(range_group)
 
-        analysis_edits = set(self.range_widgets.values()) | {self._hz_edit, self._bark_edit}
-        self._click_clear_focus_filter = ClickClearFocusFilter(self, parent_widget, analysis_edits)
+        analysis_edits = set(self.range_widgets.values()) | {
+            self._hz_edit,
+            self._bark_edit,
+        }
+        self._click_clear_focus_filter = ClickClearFocusFilter(
+            self, parent_widget, analysis_edits
+        )
         QApplication.instance().installEventFilter(self._click_clear_focus_filter)
 
         self.line2 = QFrame()
@@ -1118,9 +1133,14 @@ class PlotPopup(QMainWindow):
         self.setWindowTitle(base)
 
     def closeEvent(self, event):
-        if hasattr(self, "_click_clear_focus_filter") and self._click_clear_focus_filter is not None:
+        if (
+            hasattr(self, "_click_clear_focus_filter")
+            and self._click_clear_focus_filter is not None
+        ):
             try:
-                QApplication.instance().removeEventFilter(self._click_clear_focus_filter)
+                QApplication.instance().removeEventFilter(
+                    self._click_clear_focus_filter
+                )
             except Exception:
                 pass
             self._click_clear_focus_filter = None
