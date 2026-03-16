@@ -230,8 +230,9 @@ class DrawPolygonTool:
             return
         xs = [p[0] for p in self._points]
         ys = [p[1] for p in self._points]
+        # 임시(그리는 중) 외곽선은 확정 외곽선보다 연하게 표시
         (self._line_artist,) = self.ax.plot(
-            xs, ys, "k-", linewidth=1.5, alpha=0.8, zorder=1, clip_on=False
+            xs, ys, "k-", linewidth=1.5, alpha=0.4, zorder=1, clip_on=False
         )
         from matplotlib.patches import Polygon as MplPolygon
 

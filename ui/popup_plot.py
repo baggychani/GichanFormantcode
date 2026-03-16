@@ -1722,9 +1722,9 @@ class PlotPopup(QMainWindow):
         for obj in self._get_current_draw_objects():
             if not getattr(obj, "visible", True):
                 continue
-            # 라벨 레이어와 동일: semi 시 scatter_alpha 0.15 수준, text_alpha 0.3
+            # semi: 확정 객체도 반투명 표시 (선/외곽선만 알파 조정)
             is_semi = getattr(obj, "semi", False)
-            line_alpha = 0.15 if is_semi else 0.5
+            line_alpha = 0.5 if is_semi else 0.9
             if getattr(obj, "type", None) == "line" and hasattr(obj, "points"):
                 xs = [p[0] for p in obj.points]
                 ys = [p[1] for p in obj.points]
@@ -1741,9 +1741,9 @@ class PlotPopup(QMainWindow):
             elif getattr(obj, "type", None) == "polygon" and hasattr(obj, "points"):
                 from matplotlib.patches import Polygon as MplPolygon
 
-                # 라벨 레이어와 동일: semi 시 내부·테두리 모두 반투명
+                # semi: 내부·테두리 모두 반투명, 확정 외곽선은 진하게
                 face_alpha = 0.06 if is_semi else 0.15
-                edge_alpha = 0.3 if is_semi else 0.8
+                edge_alpha = 0.5 if is_semi else 1.0
                 poly = MplPolygon(
                     obj.points,
                     facecolor=(0.2, 0.4, 0.8, face_alpha),
@@ -1883,6 +1883,53 @@ class PlotPopup(QMainWindow):
         except Exception:
             self._area_label_drag_cids = ()
 
+    def _area_label_draw_index(self, obj):
+        """넓이 텍스트 객체 obj가 그리기 객체 목록에서 차지하는 인덱스. 없으면 None."""
+        objs = self._get_current_draw_objects()
+        for i, o in enumerate(objs):
+            if o is obj:
+                return i
+        return None
+
+    def _is_area_label_focused(self, obj):
+        """해당 넓이 텍스트 레이어가 레이어 도크에서 포커스(단일 선택)되어 있을 때만 True."""
+        idx = self._area_label_draw_index(obj)
+        if idx is None:
+            return False
+        dock = getattr(self, "_layer_dock_content", None)
+        if not dock:
+            return False
+        sel = getattr(dock, "_selected_draw_indices", set())
+        return len(sel) == 1 and idx in sel
+
+    def _area_label_reset_to_centroid(self, obj):
+        """넓이 텍스트를 부모 폴리곤 무게중심으로 되돌린 뒤 화면·레이어 목록 갱신."""
+        objs = self._get_current_draw_objects()
+        pid = getattr(obj, "parent_id", None)
+        if not pid:
+            return
+        for o in objs:
+            if getattr(o, "type", "") == "polygon" and getattr(o, "id", None) == pid:
+                pts = getattr(o, "points", None)
+                if pts and len(pts) >= 3:
+                    xs = [p[0] for p in pts]
+                    ys = [p[1] for p in pts]
+                    obj.x = sum(xs) / len(xs)
+                    obj.y = sum(ys) / len(ys)
+                break
+        refs = getattr(self, "_draw_layer_area_label_refs", [])
+        for art, o in refs:
+            if o is obj:
+                try:
+                    art.set_position((obj.x, obj.y))
+                except Exception:
+                    pass
+                break
+        if self.canvas:
+            self.canvas.draw_idle()
+        if hasattr(self, "_layer_dock_content") and self._layer_dock_content is not None:
+            self._layer_dock_content.update_draw_layer_list(objs)
+
     def _area_label_hit_at_px(self, x_px, y_px, pad_px=14):
         """픽셀 좌표 (x_px, y_px)에서 넓이 텍스트 히트 여부. 라벨 이동 툴과 동일하게 get_window_extent+패딩 사용."""
         refs = getattr(self, "_draw_layer_area_label_refs", [])
@@ -1909,7 +1956,17 @@ class PlotPopup(QMainWindow):
         if getattr(self, "_draw_tool", None) is not None:
             return
         hit = self._area_label_hit_at_px(event.x, event.y)
-        if hit is not None:
+        if hit is None:
+            return
+        # 우클릭: 포커스된 넓이 텍스트만 디폴트 위치(무게중심)로 복귀
+        if event.button == 3:
+            if self._is_area_label_focused(hit):
+                self._area_label_reset_to_centroid(hit)
+            return
+        if event.button != 1:
+            return
+        # 포커스(해당 넓이 텍스트 레이어가 단일 선택)일 때만 드래그 허용
+        if self._is_area_label_focused(hit):
             self._dragging_area_label_obj = hit
 
     def _on_canvas_area_label_move(self, event):
@@ -1943,7 +2000,8 @@ class PlotPopup(QMainWindow):
             else None
         )
         try:
-            if hit is not None:
+            # 포커스된 넓이 텍스트 위에서만 이동 커서 표시
+            if hit is not None and self._is_area_label_focused(hit):
                 if not getattr(self, "_area_label_cursor_changed", False):
                     self.canvas.setCursor(Qt.CursorShape.SizeAllCursor)
                     self._area_label_cursor_changed = True

@@ -35,6 +35,16 @@ import json
 import os
 import config
 import app_logger
+from .layer_logic import (
+    LAYER_ROW_MIME_TYPE as _LAYER_ROW_MIME_TYPE,
+    DRAW_ROW_MIME_TYPE as _DRAW_ROW_MIME_TYPE,
+    apply_global_eye,
+    apply_global_semi,
+    toggle_item_visibility,
+    compute_order_after_drop,
+    get_children_indices,
+    sync_parent_lock_to_children,
+)
 from .design_panel import ColorPalette
 from .display_utils import strip_gichan_prefix
 from .icon_widgets import (
@@ -93,12 +103,6 @@ class _RowClickForwarder(QObject):
             if self._callback:
                 self._callback()
         return False
-
-
-# 레이어 행 드래그 시 MimeData 식별용 (단일: "v", 다중: json 배열 문자열)
-_LAYER_ROW_MIME_TYPE = "application/x-gichan-layer-vowel"
-# 그리기 레이어 행 드래그 (단일: 인덱스 문자열, 다중: json 배열)
-_DRAW_ROW_MIME_TYPE = "application/x-gichan-draw-layer"
 
 
 class _LayerRowFrame(QFrame):
@@ -997,18 +1001,13 @@ class LayerDockWidget(QWidget):
             if not vowels:
                 return
             all_off = all(st.get(v) == "OFF" for v in vowels)
+            new_st = apply_global_eye(st, vowels, turn_on=all_off)
             self._updating = True
             try:
-                if all_off:
-                    for v in vowels:
-                        st[v] = "ON"
-                else:
-                    for v in vowels:
-                        st[v] = "OFF"
-                self._set_filter_state(st)
+                self._set_filter_state(new_st)
                 for v in vowels:
                     self._layer_rows[v].eye_btn.blockSignals(True)
-                    self._layer_rows[v].eye_btn.setChecked(st.get(v) != "OFF")
+                    self._layer_rows[v].eye_btn.setChecked(new_st.get(v) != "OFF")
                     self._layer_rows[v].eye_btn.blockSignals(False)
             finally:
                 self._updating = False
@@ -1023,25 +1022,15 @@ class LayerDockWidget(QWidget):
                 self._layer_rows[v].semi_btn.isChecked() and st.get(v) != "OFF"
                 for v in vowels
             )
+            new_st = apply_global_semi(st, vowels, semi=not all_semi)
             self._updating = True
             try:
-                if all_semi:
-                    for v in vowels:
-                        if st.get(v) != "OFF":
-                            st[v] = "ON"
-                        self._layer_rows[v].semi_btn.blockSignals(True)
-                        self._layer_rows[v].semi_btn.setChecked(False)
-                        self._layer_rows[v].semi_btn.blockSignals(False)
-                        self._semi_memory[v] = False
-                else:
-                    for v in vowels:
-                        if st.get(v) != "OFF":
-                            st[v] = "SEMI"
-                        self._layer_rows[v].semi_btn.blockSignals(True)
-                        self._layer_rows[v].semi_btn.setChecked(True)
-                        self._layer_rows[v].semi_btn.blockSignals(False)
-                        self._semi_memory[v] = True
-                self._set_filter_state(st)
+                for v in vowels:
+                    self._layer_rows[v].semi_btn.blockSignals(True)
+                    self._layer_rows[v].semi_btn.setChecked(new_st.get(v) == "SEMI")
+                    self._layer_rows[v].semi_btn.blockSignals(False)
+                    self._semi_memory[v] = new_st.get(v) == "SEMI"
+                self._set_filter_state(new_st)
             finally:
                 self._updating = False
             self._update_global_row_state()
@@ -1308,7 +1297,14 @@ class LayerDockWidget(QWidget):
             objs = popup._get_current_draw_objects()
             if 0 <= idx < len(objs):
                 objs[idx].locked = checked
-                _sync_area_labels_to_parent(objs, idx, "locked", checked)
+                sync_parent_lock_to_children(objs, idx, checked)
+                for child_idx in get_children_indices(objs, idx):
+                    if 0 <= child_idx < len(getattr(self, "_draw_layer_rows", [])):
+                        r = self._draw_layer_rows[child_idx]
+                        if hasattr(r, "lock_btn"):
+                            r.lock_btn.blockSignals(True)
+                            r.lock_btn.setChecked(checked)
+                            r.lock_btn.blockSignals(False)
 
         row._click_forwarder = _RowClickForwarder(on_name_clicked, col_name)
         col_name.installEventFilter(row._click_forwarder)
@@ -1396,28 +1392,12 @@ class LayerDockWidget(QWidget):
         """드래그한 레이어(단일 또는 다중 선택)를 드롭 대상 행 위/아래로 이동"""
         if not isinstance(dragged_list, list):
             dragged_list = [dragged_list]
-        dragged_set = set(dragged_list)
         ordered = self._get_ordered_vowels_for_display(list(self._layer_rows.keys()))
-        if not dragged_set.issubset(set(ordered)) or drop_target_vowel not in ordered:
+        new_order = compute_order_after_drop(
+            ordered, dragged_list, drop_target_vowel, after
+        )
+        if new_order is None:
             return
-
-        new_order = [v for v in ordered if v not in dragged_set]
-        if drop_target_vowel in dragged_set:
-            target_pos = ordered.index(drop_target_vowel)
-            insert_idx = len(
-                [
-                    v
-                    for v in ordered[: target_pos + (1 if after else 0)]
-                    if v not in dragged_set
-                ]
-            )
-        else:
-            target_idx = new_order.index(drop_target_vowel)
-            insert_idx = target_idx + (1 if after else 0)
-
-        for v in dragged_list:
-            new_order.insert(insert_idx, v)
-            insert_idx += 1
 
         self.popup.layer_order = list(new_order)
         self._hide_drop_indicator()
@@ -1468,19 +1448,11 @@ class LayerDockWidget(QWidget):
         objs = self.popup._get_current_draw_objects()
         if not objs or target_index is None:
             return
-        dragged_set = set(dragged_indices)
-        new_order = [o for i, o in enumerate(objs) if i not in dragged_set]
-        insert_idx = len(
-            [
-                i
-                for i in range(target_index + (1 if after else 0))
-                if i not in dragged_set
-            ]
-        )
-        for idx in sorted(dragged_indices):
-            if 0 <= idx < len(objs):
-                new_order.insert(insert_idx, objs[idx])
-                insert_idx += 1
+        dragged_list = [objs[i] for i in sorted(dragged_indices) if 0 <= i < len(objs)]
+        drop_target = objs[target_index]
+        new_order = compute_order_after_drop(objs, dragged_list, drop_target, after)
+        if new_order is None:
+            return
         self.popup._set_current_draw_objects(new_order)
         self._hide_draw_drop_indicator()
         self._selected_draw_indices = set()
@@ -1787,19 +1759,14 @@ class LayerDockWidget(QWidget):
         # --- 시그널 함수 정의 ---
         def on_eye_toggled(checked):
             st = self._get_current_filter_state()
-            if checked:
-                # 눈이 켜질 때, 반투명 버튼이 눌려있었다면 SEMI, 아니면 ON 적용
-                st[vowel] = "SEMI" if semi_btn.isChecked() else "ON"
-            else:
-                st[vowel] = "OFF"
+            st[vowel] = toggle_item_visibility(checked, semi_btn.isChecked())
             self._set_filter_state(st)
 
         def on_semi_toggled(checked):
             self._semi_memory[vowel] = checked
-            # 눈이 켜져 있을 때만 즉시 상태를 반영 (눈이 꺼져있을 땐 버튼 UI만 눌리고 무시됨)
             if eye_btn.isChecked():
                 st = self._get_current_filter_state()
-                st[vowel] = "SEMI" if checked else "ON"
+                st[vowel] = toggle_item_visibility(True, checked)
                 self._set_filter_state(st)
 
         def on_name_clicked():
