@@ -7,6 +7,7 @@ from PyQt6.QtGui import (
     QPainter,
     QPen,
     QColor,
+    QBrush,
     QPixmap,
     QIcon,
     QFont,
@@ -461,8 +462,47 @@ class LayerLockButton(QPushButton):
         painter.end()
 
 
+def draw_palette_icon(painter: QPainter, rect: QRectF, is_active: bool):
+    """
+    주어진 사각형(rect) 영역 중앙에 맞춰 팔레트 아이콘을 그립니다.
+    그리기 모드 ON: 활성(녹색), OFF: 비활성(회색).
+    """
+    painter.save()
+    painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+
+    cx, cy = rect.center().x(), rect.center().y()
+    size = min(rect.width(), rect.height()) * 0.8
+    painter.translate(cx, cy)
+    painter.scale(size / 24.0, size / 24.0)
+
+    fill_color = QColor("#4CAF50") if is_active else QColor("#555555")
+    dot_color = QColor("#FFFFFF") if is_active else QColor("#222222")
+
+    body_path = QPainterPath()
+    body_path.moveTo(0, -9)
+    body_path.cubicTo(8, -9, 11, -3, 10, 4)
+    body_path.cubicTo(9, 11, 2, 11, -3, 9)
+    body_path.cubicTo(-8, 7, -11, 0, -9, -5)
+    body_path.cubicTo(-7, -10, -5, -9, 0, -9)
+
+    hole_path = QPainterPath()
+    hole_path.addEllipse(QPointF(4.0, 4.0), 2.5, 2.5)
+    final_path = body_path.subtracted(hole_path)
+
+    painter.setPen(Qt.PenStyle.NoPen)
+    painter.setBrush(QBrush(fill_color))
+    painter.drawPath(final_path)
+
+    painter.setBrush(QBrush(dot_color))
+    painter.drawEllipse(QPointF(-4.0, -4.0), 1.5, 1.5)
+    painter.drawEllipse(QPointF(-5.0, 1.5), 1.5, 1.5)
+    painter.drawEllipse(QPointF(-0.5, 5.0), 1.5, 1.5)
+
+    painter.restore()
+
+
 class ToolStatusIndicator(QFrame):
-    """눈금자 / 라벨 이동 / 설정 잠금 상태 인디케이터. QPainter로 아이콘을 그립니다."""
+    """눈금자 / 팔레트(그리기) / 라벨 이동 / 설정 잠금 상태 인디케이터. QPainter로 아이콘을 그립니다."""
 
     def __init__(
         self, parent=None, ui_font_name: str = "Malgun Gothic", show_lock: bool = True
@@ -472,6 +512,7 @@ class ToolStatusIndicator(QFrame):
         self.setFrameShape(QFrame.Shape.NoFrame)
         self.setAttribute(Qt.WidgetAttribute.WA_TransparentForMouseEvents, True)
         self._ruler_on = False
+        self._draw_mode_on = False
         self._move_on = False
         self._lock_on = False
         self._show_lock = show_lock
@@ -484,13 +525,19 @@ class ToolStatusIndicator(QFrame):
         self._update_width()
 
     def _update_width(self):
+        # ruler | palette | move | (lock): 고정 폭으로 캔버스/창 크기 변화 방지
         if self._show_lock:
-            self.setMinimumWidth(114)
+            self.setFixedWidth(152)
         else:
-            self.setMinimumWidth(76)
+            self.setFixedWidth(114)
 
     def sizeHint(self) -> QSize:
-        return QSize(114 if self._show_lock else 76, 30)
+        return QSize(152 if self._show_lock else 114, 30)
+
+    def set_draw_mode_on(self, is_on: bool):
+        if self._draw_mode_on != is_on:
+            self._draw_mode_on = is_on
+            self.update()
 
     def set_ruler_on(self, is_on: bool):
         if self._ruler_on != is_on:
@@ -519,22 +566,17 @@ class ToolStatusIndicator(QFrame):
             radius = rect.height() / 2.0
             painter.drawRoundedRect(rect, radius, radius)
 
+            n_seg = 4 if self._show_lock else 3
+            seg_w = rect.width() / float(n_seg)
+            left_rect = QRectF(rect.left(), rect.top(), seg_w, rect.height())
+            palette_rect = QRectF(left_rect.right(), rect.top(), seg_w, rect.height())
+            move_rect = QRectF(palette_rect.right(), rect.top(), seg_w, rect.height())
+            self._draw_ruler_icon(painter, left_rect, self._ruler_on)
+            draw_palette_icon(painter, palette_rect, self._draw_mode_on)
+            self._draw_move_icon(painter, move_rect, self._move_on)
             if self._show_lock:
-                seg_w = rect.width() / 3.0
-                left_rect = QRectF(rect.left(), rect.top(), seg_w, rect.height())
-                mid_rect = QRectF(left_rect.right(), rect.top(), seg_w, rect.height())
-                right_rect = QRectF(mid_rect.right(), rect.top(), seg_w, rect.height())
-                self._draw_ruler_icon(painter, left_rect, self._ruler_on)
-                self._draw_move_icon(painter, mid_rect, self._move_on)
-                self._draw_lock_icon(painter, right_rect, self._lock_on)
-            else:
-                w_half = rect.width() / 2.0
-                left_rect = QRectF(rect.left(), rect.top(), w_half, rect.height())
-                right_rect = QRectF(
-                    left_rect.right(), rect.top(), w_half, rect.height()
-                )
-                self._draw_ruler_icon(painter, left_rect, self._ruler_on)
-                self._draw_move_icon(painter, right_rect, self._move_on)
+                lock_rect = QRectF(move_rect.right(), rect.top(), seg_w, rect.height())
+                self._draw_lock_icon(painter, lock_rect, self._lock_on)
         finally:
             painter.end()
 

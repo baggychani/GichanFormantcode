@@ -8,7 +8,7 @@ from typing import Callable
 
 import numpy as np
 
-from .draw_common import snap_query, PolygonObject, polygon_area
+from .draw_common import snap_query, PolygonObject
 
 _log = logging.getLogger(__name__)
 
@@ -251,9 +251,8 @@ class DrawPolygonTool:
         if len(self._points) < 3:
             self._clear_current()
             return
-        # 닫힌 점 리스트 (마지막 = 시작점 복사는 이미 포함됨)
+        # 닫힌 점 리스트 (마지막 = 시작점 복사는 이미 포함됨). 넓이 계산은 popup_plot에서 AreaLabelObject 생성 시 수행.
         points = self._points.copy()
-        polygon_area(points)
         obj = PolygonObject(
             points=points,
             point_labels=self._point_labels.copy(),

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+import uuid
 
 # 기획: 기존 눈금자 툴에서 스냅·호버·툴팁 로직 import 재사용
 from tools.ruler import snap_query
@@ -38,13 +39,15 @@ class LineObject:
     points: list[tuple[float, float]] = field(default_factory=list)
     point_labels: list[str] = field(default_factory=list)
     axis_units: str = "Hz"
+    id: str = field(default_factory=lambda: uuid.uuid4().hex[:8])
     locked: bool = False
     semi: bool = False
 
 
 @dataclass
 class PolygonObject:
-    """영역(폴리곤) 객체. id: 자식 넓이 텍스트(AreaLabelObject)와의 매핑용."""
+    """영역(폴리곤) 객체. id: 자식 넓이 텍스트(AreaLabelObject)와의 매핑용.
+    show_area_label: 넓이 텍스트 레이어 표시 여부. True면 AreaLabelObject 생성/유지, False면 제거. 저장/불러오기 시 직렬화."""
 
     type: str = "polygon"
     name: str = ""
@@ -53,9 +56,13 @@ class PolygonObject:
     points: list[tuple[float, float]] = field(default_factory=list)
     point_labels: list[str] = field(default_factory=list)
     axis_units: str = "Hz"
-    id: str = ""
+    id: str = field(default_factory=lambda: uuid.uuid4().hex[:8])
     locked: bool = False
     semi: bool = False
+    show_area_label: bool = False
+    border_style: str = "-"
+    border_color: str = "#000000"
+    fill_color: str | None = "#3366CC"
 
 
 @dataclass
@@ -71,6 +78,7 @@ class ReferenceLineObject:
     axis_units: str = "Hz"
     axis_name: str = ""
     axis_scale: str = "linear"
+    id: str = field(default_factory=lambda: uuid.uuid4().hex[:8])
     locked: bool = False
     semi: bool = False
 

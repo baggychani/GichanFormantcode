@@ -55,6 +55,7 @@ from draw.draw_common import polygon_area, AreaLabelObject
 from . import layout_constants as layout
 from .display_utils import format_file_label
 from utils.math_utils import hz_to_bark, bark_to_hz
+import matplotlib.colors as mcolors
 
 
 class ClickClearFocusFilter(QObject):
@@ -646,6 +647,9 @@ class PlotPopup(QMainWindow):
         self.design_settings = self.design_tab.get_current_settings()
         self.design_tab.settings_changed.connect(self._on_design_settings_changed)
         self.design_tab.btn_lock.toggled.connect(self._log_design_lock)
+        # 설정 유지 기본 ON과 인디케이터 동기화: 처음부터 자물쇠 불 켜진 상태
+        if hasattr(self, "tool_indicator") and self.tool_indicator is not None:
+            self.tool_indicator.set_lock_on(self.design_tab.btn_lock.isChecked())
 
         # --- [수정된 부분] 시그널 실행 순서 강제 재배치 ---
         try:
@@ -1263,6 +1267,19 @@ class PlotPopup(QMainWindow):
         QShortcut(
             QKeySequence(Qt.Key.Key_P), self, context=Qt.ShortcutContext.WindowShortcut
         ).activated.connect(self._safe_toggle_draw)
+        # 그리기 모드에서 도구 선택: 1=선, 2=영역, 3=수평 참조선, 4=수직 참조선
+        QShortcut(
+            QKeySequence(Qt.Key.Key_1), self, context=Qt.ShortcutContext.WindowShortcut
+        ).activated.connect(lambda: self._safe_set_draw_mode(DrawMode.LINE))
+        QShortcut(
+            QKeySequence(Qt.Key.Key_2), self, context=Qt.ShortcutContext.WindowShortcut
+        ).activated.connect(lambda: self._safe_set_draw_mode(DrawMode.POLYGON))
+        QShortcut(
+            QKeySequence(Qt.Key.Key_3), self, context=Qt.ShortcutContext.WindowShortcut
+        ).activated.connect(lambda: self._safe_set_draw_mode(DrawMode.REF_H))
+        QShortcut(
+            QKeySequence(Qt.Key.Key_4), self, context=Qt.ShortcutContext.WindowShortcut
+        ).activated.connect(lambda: self._safe_set_draw_mode(DrawMode.REF_V))
         # L: 설정 유지 토글
         QShortcut(
             QKeySequence(Qt.Key.Key_L), self, context=Qt.ShortcutContext.WindowShortcut
@@ -1308,10 +1325,31 @@ class PlotPopup(QMainWindow):
         ):
             self._draw_tool.rollback()
 
+    def _safe_set_draw_mode(self, mode):
+        """숫자 키(1~4)로 그리기 도구를 선택. 그리기 모드가 꺼져 있으면 무시."""
+        if self._is_input_focused():
+            return
+        if not (getattr(self, "btn_draw", None) and self.btn_draw.isChecked()):
+            return
+        if hasattr(self, "draw_indicator") and self.draw_indicator is not None:
+            # 인디케이터 버튼 체크 상태를 바꾸고, 실제 도구도 즉시 교체
+            self.draw_indicator.set_mode(mode)
+        # DrawModeIndicator.set_mode는 mode_changed를 emit하지 않으므로, 직접 도구를 교체해 준다.
+        self._on_draw_mode_changed(mode)
+
     def _safe_toggle_draw(self):
         if self._is_input_focused():
             return
         if getattr(self, "btn_draw", None):
+            # 눈금자 또는 라벨 이동 모드가 켜져 있으면 그리기 모드를 켤 수 없다 (배타 모드)
+            if not self.btn_draw.isChecked() and (
+                getattr(self, "btn_ruler", None)
+                and self.btn_ruler.isChecked()
+                or hasattr(self, "design_tab")
+                and hasattr(self.design_tab, "btn_label_move")
+                and self.design_tab.btn_label_move.isChecked()
+            ):
+                return
             self.btn_draw.setChecked(not self.btn_draw.isChecked())
             self._on_toggle_draw()
 
@@ -1580,10 +1618,16 @@ class PlotPopup(QMainWindow):
     def _safe_toggle_ruler(self):
         if self._is_input_focused():
             return
+        # 그리기 모드가 켜져 있을 때는 눈금자 토글을 막는다 (엄격 배타 모드)
+        if getattr(self, "btn_draw", None) and self.btn_draw.isChecked():
+            return
         self.btn_ruler.setChecked(not self.btn_ruler.isChecked())
         self.on_toggle_ruler()
 
     def on_toggle_ruler(self):
+        # 그리기 모드가 켜져 있을 때는 눈금자 토글을 막는다 (버튼 클릭 직접 호출 대비)
+        if getattr(self, "btn_draw", None) and self.btn_draw.isChecked():
+            return
         self.setFocus()
         self.controller.toggle_ruler(self)
         self.btn_ruler.setChecked(self.controller.ruler_tool.active)
@@ -1591,12 +1635,18 @@ class PlotPopup(QMainWindow):
     def _safe_toggle_label_move(self):
         if self._is_input_focused():
             return
+        # 그리기 모드가 켜져 있을 때는 라벨 이동 토글을 막는다 (엄격 배타 모드)
+        if getattr(self, "btn_draw", None) and self.btn_draw.isChecked():
+            return
         self.design_tab.btn_label_move.setChecked(
             not self.design_tab.btn_label_move.isChecked()
         )
         self.on_toggle_label_move()
 
     def on_toggle_label_move(self):
+        # 그리기 모드가 켜져 있을 때는 라벨 이동 토글을 막는다 (버튼 클릭 직접 호출 대비)
+        if getattr(self, "btn_draw", None) and self.btn_draw.isChecked():
+            return
         self.setFocus()
         self.controller.toggle_label_move(self)
         if self.controller.label_move_tool:
@@ -1612,11 +1662,6 @@ class PlotPopup(QMainWindow):
         )
         if hasattr(self, "tool_indicator") and self.tool_indicator is not None:
             self.tool_indicator.set_label_move_on(is_on)
-        if is_on and getattr(self, "btn_draw", None) and self.btn_draw.isChecked():
-            self.btn_draw.setChecked(False)
-            if hasattr(self, "draw_indicator") and self.draw_indicator is not None:
-                self.draw_indicator.hide()
-            self._draw_tool_deactivate()
 
     def _draw_tool_deactivate(self):
         if getattr(self, "_draw_tool", None) is not None:
@@ -1629,6 +1674,8 @@ class PlotPopup(QMainWindow):
             self.canvas.setFocusPolicy(Qt.FocusPolicy.NoFocus)
 
     def _on_toggle_draw(self):
+        if hasattr(self, "tool_indicator") and self.tool_indicator is not None:
+            self.tool_indicator.set_draw_mode_on(self.btn_draw.isChecked())
         if self.btn_draw.isChecked():
             self.draw_indicator.show()
             self.draw_indicator.set_mode(None)
@@ -1679,6 +1726,7 @@ class PlotPopup(QMainWindow):
             and getattr(obj, "points", None)
             and len(obj.points) >= 3
             and getattr(obj, "id", "")
+            and getattr(obj, "show_area_label", False)
         ):
             area = polygon_area(obj.points)
             xs = [p[0] for p in obj.points]
@@ -1719,143 +1767,198 @@ class PlotPopup(QMainWindow):
                 pass
         self._draw_layer_artists = []
         self._draw_layer_area_label_refs = []
+
+        def _line_style_to_mpl(s):
+            """'-' | '---' | '--' -> matplotlib linestyle.
+
+            신뢰타원(engine.plot_engine._to_mpl_linestyle)과 동일한 철학:
+            - '---' : 긴 대시 (6pt dash, 3pt gap)
+            - '--'  : Matplotlib 기본 dashed
+            - '-'   : 실선
+            """
+            if s == "---":
+                # 긴 점선: 신뢰타원과 동일하게 커스텀 긴 대시 패턴
+                return (0, (6.0, 3.0))
+            # 나머지는 Matplotlib 표준 스타일에 그대로 위임
+            if s in ("-", "--", ":"):
+                return s
+            # 알 수 없는 값이면 짧은 점선과 동일하게 처리
+            return "--"
+
         for obj in self._get_current_draw_objects():
             if not getattr(obj, "visible", True):
                 continue
             # semi: 확정 객체도 반투명 표시 (선/외곽선만 알파 조정)
             is_semi = getattr(obj, "semi", False)
             line_alpha = 0.5 if is_semi else 0.9
-            if getattr(obj, "type", None) == "line" and hasattr(obj, "points"):
-                xs = [p[0] for p in obj.points]
-                ys = [p[1] for p in obj.points]
-                (line,) = ax.plot(
-                    xs,
-                    ys,
-                    "k-",
-                    linewidth=1.5,
-                    alpha=line_alpha,
-                    zorder=1,
-                    clip_on=False,
-                )
-                self._draw_layer_artists.append(line)
-            elif getattr(obj, "type", None) == "polygon" and hasattr(obj, "points"):
-                from matplotlib.patches import Polygon as MplPolygon
-
-                # semi: 내부·테두리 모두 반투명, 확정 외곽선은 진하게
-                face_alpha = 0.06 if is_semi else 0.15
-                edge_alpha = 0.5 if is_semi else 1.0
-                poly = MplPolygon(
-                    obj.points,
-                    facecolor=(0.2, 0.4, 0.8, face_alpha),
-                    edgecolor=(0, 0, 0, edge_alpha),
-                    linewidth=1.5,
-                    zorder=1,
-                )
-                ax.add_patch(poly)
-                self._draw_layer_artists.append(poly)
-            elif getattr(obj, "type", None) == "reference" and hasattr(obj, "mode"):
-                from draw.draw_reference import (
-                    REF_LINE_COLOR,
-                    REF_LINE_ALPHA,
-                    format_ref_label,
-                )
-
-                xlim, ylim = ax.get_xlim(), ax.get_ylim()
-                v = obj.value  # 단위(Unit) 기준 순수 데이터 값 (Hz 등)
-                axis_units = getattr(obj, "axis_units", "") or "Hz"
-                axis_scale = getattr(obj, "axis_scale", "linear")
-                if axis_scale == "bark" and (axis_units or "").strip().lower() == "hz":
-                    plot_v = float(hz_to_bark(v))
-                else:
-                    plot_v = v
-                lbl = format_ref_label(v, axis_units)
-                font_family = ["DejaVu Sans", "Malgun Gothic"]
-                if (
-                    getattr(self, "design_settings", None)
-                    and self.design_settings.get("font_style") == "serif"
-                ):
-                    font_family = ["Times New Roman", "Noto Serif KR", "DejaVu Serif"]
-                ref_alpha = 0.3 if getattr(obj, "semi", False) else REF_LINE_ALPHA
-                text_alpha = 0.3 if getattr(obj, "semi", False) else 1.0
-                if obj.mode == "horizontal":
-                    (ref_line,) = ax.plot(
-                        xlim,
-                        [plot_v, plot_v],
-                        color=REF_LINE_COLOR,
-                        linewidth=1,
-                        alpha=ref_alpha,
-                        zorder=1.5,
-                        clip_on=True,
+            try:
+                if getattr(obj, "type", None) == "line" and hasattr(obj, "points"):
+                    xs = [p[0] for p in obj.points]
+                    ys = [p[1] for p in obj.points]
+                    style = getattr(obj, "line_style", "-") or "-"
+                    color_hex = getattr(obj, "line_color", "#000000") or "#000000"
+                    rgba_color = mcolors.to_rgba(color_hex, float(line_alpha))
+                    (line,) = ax.plot(
+                        xs,
+                        ys,
+                        linestyle=_line_style_to_mpl(style),
+                        color=rgba_color,
+                        linewidth=1.0,
+                        zorder=1,
+                        clip_on=False,
                     )
-                    ref_txt = ax.text(
-                        xlim[0],
-                        plot_v,
-                        lbl,
-                        fontsize=12,
+                    self._draw_layer_artists.append(line)
+                elif getattr(obj, "type", None) == "polygon" and hasattr(obj, "points"):
+                    from matplotlib.patches import Polygon as MplPolygon
+
+                    # semi: 내부·테두리 모두 반투명, 확정 외곽선은 진하게
+                    face_alpha = 0.15 if not is_semi else 0.06
+                    edge_alpha = 1.0 if not is_semi else 0.4
+
+                    border_style = getattr(obj, "border_style", "-") or "-"
+                    border_hex = getattr(obj, "border_color", "#000000") or "#000000"
+                    fill_hex = getattr(obj, "fill_color", "#3366CC") or "#3366CC"
+
+                    if str(fill_hex).lower() == "transparent":
+                        face_rgba = (0.0, 0.0, 0.0, 0.0)
+                    else:
+                        face_rgba = mcolors.to_rgba(fill_hex, float(face_alpha))
+                    edge_rgba = mcolors.to_rgba(border_hex, float(edge_alpha))
+
+                    poly = MplPolygon(
+                        obj.points,
+                        facecolor=face_rgba,
+                        edgecolor=edge_rgba,
+                        linestyle=_line_style_to_mpl(border_style),
+                        linewidth=1.0,
+                        zorder=1,
+                    )
+                    ax.add_patch(poly)
+                    self._draw_layer_artists.append(poly)
+                elif getattr(obj, "type", None) == "reference" and hasattr(obj, "mode"):
+                    # 참조선은 아래 별도 루프에서 그림
+                    pass
+                elif getattr(obj, "type", None) == "area_label":
+                    # 넓이 텍스트: 값/좌표가 잘못되어도 전체 루프가 죽지 않도록 try 블록 안에서 처리
+                    v = getattr(obj, "value", 0)
+                    u = (getattr(obj, "axis_units", "Hz") or "Hz").strip().lower()
+                    if u == "norm" or "norm" in u:
+                        txt = f"{v:.2f}"
+                    else:
+                        txt = str(int(round(v)))
+                    font_family = ["DejaVu Sans", "Malgun Gothic"]
+                    if (
+                        getattr(self, "design_settings", None)
+                        and self.design_settings.get("font_style") == "serif"
+                    ):
+                        font_family = [
+                            "Times New Roman",
+                            "Noto Serif KR",
+                            "DejaVu Serif",
+                        ]
+                    text_alpha = 0.3 if getattr(obj, "semi", False) else 1.0
+                    txt_artist = ax.text(
+                        getattr(obj, "x", 0),
+                        getattr(obj, "y", 0),
+                        txt,
+                        fontsize=10,
                         fontfamily=font_family,
                         color="#303133",
                         alpha=text_alpha,
                         va="center",
-                        zorder=2,
-                        clip_on=True,
-                    )
-                    self._draw_layer_artists.append(ref_line)
-                    self._draw_layer_artists.append(ref_txt)
-                else:
-                    (ref_line,) = ax.plot(
-                        [plot_v, plot_v],
-                        ylim,
-                        color=REF_LINE_COLOR,
-                        linewidth=1,
-                        alpha=ref_alpha,
-                        zorder=1.5,
-                        clip_on=True,
-                    )
-                    ref_txt = ax.text(
-                        plot_v,
-                        ylim[0],
-                        lbl,
-                        fontsize=12,
-                        fontfamily=font_family,
-                        color="#303133",
-                        alpha=text_alpha,
-                        va="bottom",
                         ha="center",
                         zorder=2,
                         clip_on=True,
                     )
-                    self._draw_layer_artists.append(ref_line)
-                    self._draw_layer_artists.append(ref_txt)
-            elif getattr(obj, "type", None) == "area_label":
-                v = getattr(obj, "value", 0)
-                u = (getattr(obj, "axis_units", "Hz") or "Hz").strip().lower()
-                if u == "norm" or "norm" in u:
-                    txt = f"{v:.2f}"
-                else:
-                    txt = str(int(round(v)))
-                font_family = ["DejaVu Sans", "Malgun Gothic"]
-                if (
-                    getattr(self, "design_settings", None)
-                    and self.design_settings.get("font_style") == "serif"
-                ):
-                    font_family = ["Times New Roman", "Noto Serif KR", "DejaVu Serif"]
-                # 라벨 레이어와 동일: semi 시 text_alpha 0.3
-                text_alpha = 0.3 if getattr(obj, "semi", False) else 1.0
-                txt_artist = ax.text(
-                    getattr(obj, "x", 0),
-                    getattr(obj, "y", 0),
-                    txt,
-                    fontsize=10,
+                    self._draw_layer_artists.append(txt_artist)
+                    self._draw_layer_area_label_refs.append((txt_artist, obj))
+            except Exception:
+                # 한 객체에서 에러가 나더라도 나머지 객체는 계속 그리도록 방어
+                continue
+
+        # 참조선은 별도 루프에서 기존 로직 유지 (가독성을 위해 위 try/except에서 분리)
+        for obj in self._get_current_draw_objects():
+            if not getattr(obj, "visible", True):
+                continue
+            if getattr(obj, "type", None) != "reference" or not hasattr(obj, "mode"):
+                continue
+
+            from draw.draw_reference import (
+                REF_LINE_COLOR,
+                REF_LINE_ALPHA,
+                format_ref_label,
+            )
+
+            xlim, ylim = ax.get_xlim(), ax.get_ylim()
+            v = obj.value  # 단위(Unit) 기준 순수 데이터 값 (Hz 등)
+            axis_units = getattr(obj, "axis_units", "") or "Hz"
+            axis_scale = getattr(obj, "axis_scale", "linear")
+            if axis_scale == "bark" and (axis_units or "").strip().lower() == "hz":
+                plot_v = float(hz_to_bark(v))
+            else:
+                plot_v = v
+            lbl = format_ref_label(v, axis_units)
+            font_family = ["DejaVu Sans", "Malgun Gothic"]
+            if (
+                getattr(self, "design_settings", None)
+                and self.design_settings.get("font_style") == "serif"
+            ):
+                font_family = ["Times New Roman", "Noto Serif KR", "DejaVu Serif"]
+            style = getattr(obj, "line_style", "-") or "-"
+            color_override = getattr(obj, "line_color", None)
+            base_color = color_override or REF_LINE_COLOR
+            ref_alpha = 0.3 if getattr(obj, "semi", False) else REF_LINE_ALPHA
+            rgba_line = mcolors.to_rgba(base_color, float(ref_alpha))
+            text_alpha = 0.3 if getattr(obj, "semi", False) else 1.0
+            if obj.mode == "horizontal":
+                (ref_line,) = ax.plot(
+                    xlim,
+                    [plot_v, plot_v],
+                    color=rgba_line,
+                    linestyle=_line_style_to_mpl(style),
+                    linewidth=1,
+                    zorder=1.5,
+                    clip_on=True,
+                )
+                ref_txt = ax.text(
+                    xlim[0],
+                    plot_v,
+                    lbl,
+                    fontsize=12,
                     fontfamily=font_family,
                     color="#303133",
                     alpha=text_alpha,
                     va="center",
+                    zorder=2,
+                    clip_on=True,
+                )
+                self._draw_layer_artists.append(ref_line)
+                self._draw_layer_artists.append(ref_txt)
+            else:
+                (ref_line,) = ax.plot(
+                    [plot_v, plot_v],
+                    ylim,
+                    color=rgba_line,
+                    linestyle=_line_style_to_mpl(style),
+                    linewidth=1,
+                    zorder=1.5,
+                    clip_on=True,
+                )
+                ref_txt = ax.text(
+                    plot_v,
+                    ylim[0],
+                    lbl,
+                    fontsize=12,
+                    fontfamily=font_family,
+                    color="#303133",
+                    alpha=text_alpha,
+                    va="bottom",
                     ha="center",
                     zorder=2,
                     clip_on=True,
                 )
-                self._draw_layer_artists.append(txt_artist)
-                self._draw_layer_area_label_refs.append((txt_artist, obj))
+                self._draw_layer_artists.append(ref_line)
+                self._draw_layer_artists.append(ref_txt)
         if self.canvas:
             self._ensure_area_label_drag_connected()
             self.canvas.draw_idle()
@@ -1927,7 +2030,10 @@ class PlotPopup(QMainWindow):
                 break
         if self.canvas:
             self.canvas.draw_idle()
-        if hasattr(self, "_layer_dock_content") and self._layer_dock_content is not None:
+        if (
+            hasattr(self, "_layer_dock_content")
+            and self._layer_dock_content is not None
+        ):
             self._layer_dock_content.update_draw_layer_list(objs)
 
     def _area_label_hit_at_px(self, x_px, y_px, pad_px=14):

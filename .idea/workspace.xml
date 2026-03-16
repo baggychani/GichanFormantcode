@@ -2,16 +2,10 @@
 <project version="4">
   <component name="ChangeListManager">
     <list default="true" id="82b2c6ac-789d-4c74-9ccb-b31084457704" name="변경" comment="랩신두야 힘내라">
-      <change afterPath="$PROJECT_DIR$/config.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/data_processor.py" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/main.py" beforeDir="false" afterPath="$PROJECT_DIR$/main.py" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/math_utils.py" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/plot_engine.py" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/preview_engine.py" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/tool_ruler.py" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/ui_main.py" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/ui_popup.py" beforeDir="false" />
-      <change beforePath="$PROJECT_DIR$/현재사용X/screen.py" beforeDir="false" />
+      <change beforePath="$PROJECT_DIR$/ui/design_panel.py" beforeDir="false" afterPath="$PROJECT_DIR$/ui/design_panel.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/ui/layer_dock.py" beforeDir="false" afterPath="$PROJECT_DIR$/ui/layer_dock.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/ui/layer_logic.py" beforeDir="false" afterPath="$PROJECT_DIR$/ui/layer_logic.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/ui/popup_plot.py" beforeDir="false" afterPath="$PROJECT_DIR$/ui/popup_plot.py" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -58,8 +52,8 @@
     "RunOnceActivity.ShowReadmeOnStart": "true",
     "RunOnceActivity.TerminalTabsStorage.copyFrom.TerminalArrangementManager.252": "true",
     "RunOnceActivity.git.unshallow": "true",
-    "com.google.cloudcode.ide_session_index": "20260305_0001",
-    "git-widget-placeholder": "master",
+    "com.google.cloudcode.ide_session_index": "20260317_0001",
+    "git-widget-placeholder": "main",
     "ignore.virus.scanning.warn.message": "true",
     "settings.editor.selected.configurable": "com.android.studio.ml.bot.mainConfigurable"
   }

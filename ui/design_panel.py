@@ -134,13 +134,6 @@ class ColorPalette(QWidget):
         palette_row.setSpacing(4)
         btn_list = []
 
-        if self.allow_transparent:
-            btn_none = ColorCircleButton(
-                "transparent", is_transparent=True, tooltip="Transparent"
-            )
-            btn_none.clicked.connect(lambda: self.set_color("transparent"))
-            btn_list.append(btn_none)
-
         preset_colors = [
             "#E64A19",
             "#F57C00",
@@ -157,11 +150,22 @@ class ColorPalette(QWidget):
             "#009688",
             "#FF9800",
         ]
-        for c in preset_colors:
+        # [기본색] + [투명(옵션)] + [프리셋]: default_color가 프리셋에 없어도 0번, allow_transparent면 기본색 바로 뒤에 투명 버튼
+        if self.current_color and self.current_color not in ("transparent", "custom"):
+            if self.current_color in preset_colors:
+                preset_colors = [c for c in preset_colors if c != self.current_color]
+            preset_colors = [self.current_color] + preset_colors
+        for i, c in enumerate(preset_colors):
             c_name = self.color_names.get(c, "Color")
             btn = ColorCircleButton(c, tooltip=f"{c_name} ({c})")
             btn.clicked.connect(lambda checked, col=c: self.set_color(col))
             btn_list.append(btn)
+            if i == 0 and self.allow_transparent:
+                btn_none = ColorCircleButton(
+                    "transparent", is_transparent=True, tooltip="Transparent"
+                )
+                btn_none.clicked.connect(lambda: self.set_color("transparent"))
+                btn_list.append(btn_none)
 
         self.btn_custom = ColorCircleButton("custom", tooltip="Custom Color")
         self.btn_custom.clicked.connect(self.open_color_dialog)
@@ -638,6 +642,8 @@ class DesignSettingsPanel(QWidget):
 
         self.btn_lock = QPushButton("🔒 설정 유지")
         self.btn_lock.setCheckable(True)
+        # 기본값: 설정 유지 ON (전역 디자인 설정 기본값을 유지하도록)
+        self.btn_lock.setChecked(True)
         self.btn_lock.setFixedHeight(35)
         self.btn_lock.setFont(font_bold)
         self.btn_lock.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))

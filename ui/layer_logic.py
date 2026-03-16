@@ -81,7 +81,11 @@ def compute_order_after_drop(
     if drop_target in dragged_list:
         target_pos = ordered_list.index(drop_target)
         insert_idx = len(
-            [v for v in ordered_list[: target_pos + (1 if after else 0)] if v not in dragged_list]
+            [
+                v
+                for v in ordered_list[: target_pos + (1 if after else 0)]
+                if v not in dragged_list
+            ]
         )
     else:
         target_idx = new_order.index(drop_target)

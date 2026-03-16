@@ -46,6 +46,7 @@ from .layer_logic import (
     sync_parent_lock_to_children,
 )
 from .design_panel import ColorPalette
+from .draw_design_panel import DrawDesignPanel
 from .display_utils import strip_gichan_prefix
 from .icon_widgets import (
     LinePreviewButton,
@@ -54,6 +55,7 @@ from .icon_widgets import (
     LayerLockButton,
 )
 from . import layout_constants as lc
+from draw.draw_common import polygon_area
 
 
 # design_panel과 동일 매핑
@@ -526,6 +528,7 @@ class LayerDockWidget(QWidget):
         self._layer_rows = {}
         self._updating = False
         self._semi_memory = {}
+        self._draw_design_settings = {}
         self._setup_ui()
 
     def _setup_ui(self):
@@ -627,7 +630,29 @@ class LayerDockWidget(QWidget):
         top_layout.addLayout(ell_fill_layout)
 
         top_layout.addStretch()
-        top_scroll.setWidget(self.vowel_design_container)
+
+        # 상단 디자인 래퍼: 라벨/그리기 두 패널을 모두 포함
+        self.top_design_wrapper = QWidget()
+        self.top_design_wrapper.setStyleSheet("background-color: #FFFFFF;")
+        top_wrapper_layout = QVBoxLayout(self.top_design_wrapper)
+        top_wrapper_layout.setContentsMargins(0, 0, 0, 0)
+        top_wrapper_layout.setSpacing(0)
+
+        # 래퍼에 라벨 디자인 패널 추가
+        top_wrapper_layout.addWidget(self.vowel_design_container)
+
+        # 래퍼에 그리기 디자인 패널 추가 (초기에는 숨김)
+        self._draw_design_panel = DrawDesignPanel(
+            parent=self, ui_font_name=self.ui_font_name
+        )
+        self._draw_design_panel.settings_changed.connect(
+            self._on_draw_design_settings_changed
+        )
+        self._draw_design_panel.clear_selection()
+        self._draw_design_panel.hide()
+        top_wrapper_layout.addWidget(self._draw_design_panel)
+
+        top_scroll.setWidget(self.top_design_wrapper)
         top_scroll.setMinimumHeight(80)
 
         self.tab_widget = QTabWidget()
@@ -1089,12 +1114,16 @@ class LayerDockWidget(QWidget):
         def on_eye():
             rows = getattr(self, "_draw_layer_rows", None) or []
             objs = self.popup._get_current_draw_objects()
-            if not rows or len(objs) != len(rows):
+            if not rows or not objs:
                 return
-            all_off = all(not getattr(o, "visible", True) for o in objs)
-            for i, o in enumerate(objs):
-                o.visible = not all_off
-            for i, r in enumerate(rows):
+            n = min(len(objs), len(rows))
+            all_off = all(not getattr(objs[i], "visible", True) for i in range(n))
+            # all_off == True  → 모두 꺼져 있었으므로 이번엔 모두 켜기(True)
+            # all_off == False → 하나라도 켜져 있었으므로 이번엔 모두 끄기(False)
+            for i in range(n):
+                objs[i].visible = all_off
+            for i in range(n):
+                r = rows[i]
                 if hasattr(r, "eye_btn"):
                     r.eye_btn.blockSignals(True)
                     r.eye_btn.setChecked(objs[i].visible)
@@ -1106,12 +1135,14 @@ class LayerDockWidget(QWidget):
         def on_semi():
             rows = getattr(self, "_draw_layer_rows", None) or []
             objs = self.popup._get_current_draw_objects()
-            if not rows or len(objs) != len(rows):
+            if not rows or not objs:
                 return
-            all_semi = all(getattr(o, "semi", False) for o in objs)
-            for i, o in enumerate(objs):
-                o.semi = not all_semi
-            for i, r in enumerate(rows):
+            n = min(len(objs), len(rows))
+            all_semi = all(getattr(objs[i], "semi", False) for i in range(n))
+            for i in range(n):
+                objs[i].semi = not all_semi
+            for i in range(n):
+                r = rows[i]
                 if hasattr(r, "semi_btn"):
                     r.semi_btn.blockSignals(True)
                     r.semi_btn.setChecked(objs[i].semi)
@@ -1127,7 +1158,8 @@ class LayerDockWidget(QWidget):
         return row
 
     def _build_draw_layer_row(self, draw_index, obj, draw_objects):
-        """그리기 레이어 한 행. 라벨 행과 동일 구조: 눈(32), 반투명(54), 이름, X(삭제)(32), 잠금(32)."""
+        """그리기 레이어 한 행. 라벨 행과 동일 구조: 눈(32), 반투명(54), 이름, X(삭제)(32), 잠금(32).
+        draw_index: draw_objects 상의 인덱스. area_label도 행으로 만들고, 이름에 ↳를 붙이고 expand_btn을 숨김."""
         row = _DrawLayerRowFrame(self, draw_index)
         row.setProperty("drawRow", True)
         row.setProperty("drawIndex", draw_index)
@@ -1187,7 +1219,6 @@ class LayerDockWidget(QWidget):
         name_layout.setSpacing(4)
         font_name = QFont(self.ui_font_name)
         font_name.setPointSizeF(8)
-        font_name.setBold(True)
         full_name = _draw_object_display_name(draw_objects, draw_index)
         name_btn = QPushButton()
         name_btn.setFont(font_name)
@@ -1199,8 +1230,9 @@ class LayerDockWidget(QWidget):
         )
         name_btn.setToolTip("")
         name_btn.setSizePolicy(
-            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred
+            QSizePolicy.Policy.MinimumExpanding, QSizePolicy.Policy.Fixed
         )
+        name_btn.setMinimumWidth(30)
         name_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         name_btn.setStyleSheet(
             "QPushButton { border: none; background: transparent; text-align: left; color: #303133; }"
@@ -1209,7 +1241,19 @@ class LayerDockWidget(QWidget):
         name_btn.setChecked(
             draw_index in getattr(self, "_selected_draw_indices", set())
         )
+
+        expand_btn = QPushButton("▼")
+        expand_btn.setFixedSize(22, 22)
+        expand_btn.setCheckable(True)
+        expand_btn.setChecked(True)
+        expand_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        expand_btn.setStyleSheet(
+            "QPushButton { border: none; background: transparent; color: #909399; font-size: 10px; } "
+            "QPushButton:hover { color: #409EFF; }"
+        )
+
         name_layout.addWidget(name_btn, 1)
+        name_layout.addWidget(expand_btn)
         main_h.addWidget(col_name, 1)
 
         col_x = QFrame()
@@ -1237,11 +1281,20 @@ class LayerDockWidget(QWidget):
         lock_layout = QVBoxLayout(col_lock)
         lock_layout.setContentsMargins(0, 0, 0, 0)
         lock_btn = LayerLockButton()
+        lock_btn.setToolTip("")
         lock_btn.setChecked(getattr(obj, "locked", False))
+        lock_btn.setToolTip("")
         lock_layout.addWidget(lock_btn)
         main_h.addWidget(col_lock)
 
         row_vbox.addLayout(main_h)
+
+        effects_container = QWidget()
+        effects_container.setStyleSheet("background-color: transparent;")
+        effects_layout = QVBoxLayout(effects_container)
+        effects_layout.setContentsMargins(40, 2, 8, 2)
+        effects_layout.setSpacing(0)
+        row_vbox.addWidget(effects_container)
 
         idx = draw_index
         popup = self.popup
@@ -1288,6 +1341,7 @@ class LayerDockWidget(QWidget):
                 r.style().unpolish(r)
                 r.style().polish(r)
             self._toggle_select_draw_index(draw_index, name_btn)
+            self._sync_draw_design_panel_to_selection()
 
         def on_x_clicked():
             self._selected_draw_indices = {idx}
@@ -1298,13 +1352,18 @@ class LayerDockWidget(QWidget):
             if 0 <= idx < len(objs):
                 objs[idx].locked = checked
                 sync_parent_lock_to_children(objs, idx, checked)
-                for child_idx in get_children_indices(objs, idx):
-                    if 0 <= child_idx < len(getattr(self, "_draw_layer_rows", [])):
-                        r = self._draw_layer_rows[child_idx]
-                        if hasattr(r, "lock_btn"):
+                # 자식 인덱스를 objs 기준으로 받은 뒤, draw_index를 통해 행을 찾아 잠금 상태를 동기화
+                children_indices = get_children_indices(objs, idx)
+                rows = getattr(self, "_draw_layer_rows", None) or []
+                for child_idx in children_indices:
+                    for r in rows:
+                        if getattr(r, "draw_index", None) == child_idx and hasattr(
+                            r, "lock_btn"
+                        ):
                             r.lock_btn.blockSignals(True)
                             r.lock_btn.setChecked(checked)
                             r.lock_btn.blockSignals(False)
+                            break
 
         row._click_forwarder = _RowClickForwarder(on_name_clicked, col_name)
         col_name.installEventFilter(row._click_forwarder)
@@ -1315,11 +1374,19 @@ class LayerDockWidget(QWidget):
         x_btn.clicked.connect(on_x_clicked)
         lock_btn.toggled.connect(on_lock_toggled)
 
+        def on_expand_toggled(checked):
+            effects_container.setVisible(checked)
+            expand_btn.setText("▼" if checked else "▶")
+
+        expand_btn.toggled.connect(on_expand_toggled)
+
         row.register_drag_child(row)
         row.register_drag_child(col_name)
+        row.register_drag_child(effects_container)
         row.register_drag_child(eye_btn)
         row.register_drag_child(semi_btn)
         row.register_drag_child(name_btn)
+        row.register_drag_child(expand_btn)
         row.register_drag_child(x_btn)
         row.register_drag_child(lock_btn)
 
@@ -1328,6 +1395,9 @@ class LayerDockWidget(QWidget):
         row.name_btn = name_btn
         row.x_btn = x_btn
         row.lock_btn = lock_btn
+        row.expand_btn = expand_btn
+        row.effects_container = effects_container
+        row.effects_layout = effects_layout
         row.draw_index = draw_index
         return row
 
@@ -1436,13 +1506,17 @@ class LayerDockWidget(QWidget):
         rows = getattr(self, "_draw_layer_rows", None) or []
         if not rows:
             return (None, False)
-        for i, row in enumerate(rows):
+        for row in rows:
             geom = row.geometry()
             if geom.contains(pos):
-                return (i, pos.y() > geom.center().y())
+                idx = getattr(row, "draw_index", None)
+                if idx is None:
+                    continue
+                return (idx, pos.y() > geom.center().y())
         if pos.y() < rows[0].geometry().top():
             return (0, False)
-        return (len(rows) - 1, True)
+        last_idx = getattr(rows[-1], "draw_index", len(rows) - 1)
+        return (last_idx, True)
 
     def _on_draw_reorder(self, dragged_indices, target_index, after=False):
         objs = self.popup._get_current_draw_objects()
@@ -1453,17 +1527,41 @@ class LayerDockWidget(QWidget):
         new_order = compute_order_after_drop(objs, dragged_list, drop_target, after)
         if new_order is None:
             return
-        self.popup._set_current_draw_objects(new_order)
+
+        # 부모-자식(PolygonObject - AreaLabelObject) 인접 유지: 부모 이동 시 자식도 바로 뒤에 붙여서 함께 이동
+        # 1) 부모 폴리곤 id → [자식 area_label 리스트] 맵 구성
+        polygon_ids = {
+            getattr(o, "id", None)
+            for o in new_order
+            if getattr(o, "type", "") == "polygon"
+        }
+        child_by_parent = {}
+        for o in new_order:
+            if getattr(o, "type", "") == "area_label":
+                pid = getattr(o, "parent_id", None)
+                if pid in polygon_ids:
+                    child_by_parent.setdefault(pid, []).append(o)
+        # 2) 부모를 순회하면서 부모 바로 뒤에 자식을 붙이는 새 리스트 구성
+        reordered: list = []
+        for o in new_order:
+            if getattr(o, "type", "") == "area_label":
+                # 부모에서 이미 붙일 것이므로 여기서는 건너뜀
+                continue
+            reordered.append(o)
+            if getattr(o, "type", "") == "polygon":
+                pid = getattr(o, "id", None)
+                if pid in child_by_parent:
+                    reordered.extend(child_by_parent[pid])
+
+        self.popup._set_current_draw_objects(reordered)
         self._hide_draw_drop_indicator()
         self._selected_draw_indices = set()
         if hasattr(self.popup, "_redraw_draw_layer"):
             self.popup._redraw_draw_layer()
-        self.update_draw_layer_list(new_order)
+        self.update_draw_layer_list(reordered)
 
     def _toggle_select_draw_index(self, draw_index, name_btn):
         mod = getattr(self, "_last_modifier", None)
-        objs = self.popup._get_current_draw_objects()
-        n = len(objs)
         if mod == Qt.KeyboardModifier.ControlModifier:
             if draw_index in self._selected_draw_indices:
                 self._selected_draw_indices.discard(draw_index)
@@ -1483,13 +1581,21 @@ class LayerDockWidget(QWidget):
                 self._anchor_draw_index = draw_index
         self._last_modifier = None
         rows = getattr(self, "_draw_layer_rows", None) or []
-        for i, r in enumerate(rows):
-            sel = i in self._selected_draw_indices
+        for r in rows:
+            idx = getattr(r, "draw_index", None)
+            sel = idx in self._selected_draw_indices if idx is not None else False
             r.setProperty("selected", sel)
             if hasattr(r, "name_btn"):
                 r.name_btn.setChecked(sel)
             r.style().unpolish(r)
             r.style().polish(r)
+
+        # 타입이 달라져서 디자인 패널 내용이 바뀔 수 있으므로, 항상 스크롤을 맨 위로 올린 뒤 동기화
+        if hasattr(self, "_design_scroll") and getattr(self, "_design_scroll", None):
+            vbar = self._design_scroll.verticalScrollBar()
+            if vbar is not None:
+                vbar.setValue(0)
+        self._sync_draw_design_panel_to_selection()
 
     def _on_draw_delete(self):
         objs = self.popup._get_current_draw_objects()
@@ -1664,10 +1770,10 @@ class LayerDockWidget(QWidget):
         font_name = QFont(self.ui_font_name, 10, QFont.Weight.Bold)
         name_btn = QPushButton(vowel)
         name_btn.setFont(font_name)
-        # 줄 전체에서 최대한 넓게 클릭 가능한 영역을 확보하기 위해 가로 방향으로 확장
         name_btn.setSizePolicy(
-            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred
+            QSizePolicy.Policy.MinimumExpanding, QSizePolicy.Policy.Fixed
         )
+        name_btn.setMinimumWidth(30)
         name_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         name_btn.setStyleSheet(
             "QPushButton { border: none; background: transparent; text-align: left; color: #303133; }"
@@ -1855,7 +1961,6 @@ class LayerDockWidget(QWidget):
                 r.name_btn.setChecked(False)
             r.style().unpolish(r)
             r.style().polish(r)
-        self._sync_design_controls_to_selection()
         if index == 1:
             self.btn_reset_order.hide()
             self.btn_reset_layers.hide()
@@ -1868,32 +1973,418 @@ class LayerDockWidget(QWidget):
                     r.name_btn.setChecked(False)
                 r.style().unpolish(r)
                 r.style().polish(r)
+            # 상단 디자인 영역: 라벨 패널 숨기고 그리기 패널 표시
             self.vowel_design_container.hide()
+            self._draw_design_panel.show()
+            self._sync_draw_design_panel_to_selection()
         else:
             self.btn_reset_order.show()
             self.btn_reset_layers.show()
             self.btn_batch_delete_draw.hide()
+            # 상단 디자인 영역: 그리기 패널 숨기고 라벨 패널 표시
+            self._draw_design_panel.hide()
             self.vowel_design_container.show()
+            self._draw_design_panel.clear_selection()
+            self._sync_design_controls_to_selection()
 
     def update_draw_layer_list(self, draw_objects):
-        """그리기 탭 목록을 현재 파일의 그리기 객체와 동기화. 라벨과 동일 구조(눈/반투명/이름/X/잠금)."""
+        """그리기 탭 목록을 현재 파일의 그리기 객체와 동기화. 라벨과 동일 구조(눈/반투명/이름/X/잠금).
+        각 행의 draw_index는 draw_objects(objs) 리스트 내 인덱스이며, D&D/선택/락 전파에서 objs 기준으로 사용한다."""
         self._draw_layer_rows = []
         while self._draw_list_layout.count():
             child = self._draw_list_layout.takeAt(0)
             if child.widget():
                 child.widget().deleteLater()
         draw_objects = draw_objects or []
+        # 폴리곤 행을 parent_id로 찾기 위한 맵
+        polygon_row_by_id = {}
+        prev_row_added = False
         for i, obj in enumerate(draw_objects):
+            t = getattr(obj, "type", "")
+
             row = self._build_draw_layer_row(i, obj, draw_objects)
+            if t == "area_label":
+                # 넓이 텍스트 레이어: 이름 앞에 들여쓰기 화살표를 붙이고, effect 영역은 숨긴다.
+                full_name = _draw_object_display_name(draw_objects, i)
+                row.name_btn.setText(
+                    QFontMetrics(row.name_btn.font()).elidedText(
+                        "  ↳ " + full_name,
+                        Qt.TextElideMode.ElideRight,
+                        200,
+                    )
+                )
+                if hasattr(row, "expand_btn"):
+                    row.expand_btn.setVisible(False)
+
             self._draw_list_layout.addWidget(row)
             self._draw_layer_rows.append(row)
-            if i < len(draw_objects) - 1:
+
+            if t == "polygon":
+                pid = getattr(obj, "id", None)
+                if not pid:
+                    pid = str(i)
+                polygon_row_by_id[pid] = row
+
+            if prev_row_added:
                 sep = QFrame()
                 sep.setFrameShape(QFrame.Shape.HLine)
                 sep.setFixedHeight(1)
                 sep.setStyleSheet("background-color: #EBEEF5; margin: 0; border: none;")
                 self._draw_list_layout.addWidget(sep)
+            prev_row_added = True
         self._update_draw_global_row_state()
+        self._sync_draw_design_panel_to_selection()
+        self._rebuild_draw_effects()
+
+    def _sync_draw_design_panel_to_selection(self):
+        """현재 그리기 탭에서 선택된 객체에 맞춰 그리기 디자인 패널을 갱신."""
+        if not hasattr(self, "_draw_design_panel"):
+            return
+        if self.tab_widget.currentIndex() != 1:
+            self._draw_design_panel.clear_selection()
+            return
+
+        # 다중 플롯(compare) 팝업 등, 아직 그리기 모드를 지원하지 않는 경우는 조용히 무시
+        if not hasattr(self.popup, "_get_current_draw_objects"):
+            self._draw_design_panel.clear_selection()
+            return
+
+        objs = self.popup._get_current_draw_objects()
+        if not objs:
+            self._draw_design_panel.clear_selection()
+            return
+
+        sel_set = getattr(self, "_selected_draw_indices", set())
+        if not sel_set:
+            self._draw_design_panel.clear_selection()
+            return
+
+        # 기준이 되는 인덱스: 앵커(Shift 기준) 또는 가장 마지막 클릭, 없으면 첫 번째
+        anchor = getattr(self, "_anchor_draw_index", None)
+        idx = None
+        if anchor is not None and anchor in sel_set:
+            idx = anchor
+        else:
+            idx = sorted(sel_set)[0]
+
+        if idx < 0 or idx >= len(objs):
+            self._draw_design_panel.clear_selection()
+            return
+
+        obj = objs[idx]
+        t = getattr(obj, "type", "")
+        if t == "line":
+            layer_type = "line"
+        elif t == "polygon":
+            layer_type = "area"
+        elif t == "reference":
+            layer_type = "reference"
+        else:
+            self._draw_design_panel.clear_selection()
+            return
+
+        layer_id = getattr(obj, "id", None)
+        if not layer_id:
+            # UUID 기반 ID 정책: id가 비어 있으면 디자인 패널과의 연동을 건너뛴다.
+            self._draw_design_panel.clear_selection()
+            return
+
+        # 실제 객체의 속성에서 직접 settings를 구성한다.
+        settings: dict[str, object] = {}
+        if layer_type == "line":
+            settings["line_style"] = getattr(obj, "line_style", "-") or "-"
+            settings["line_color"] = getattr(obj, "line_color", "#000000") or "#000000"
+        elif layer_type == "area":
+            if getattr(obj, "points", None):
+                try:
+                    settings["area_value"] = polygon_area(obj.points)
+                except Exception:
+                    pass
+            settings["area_label_visible"] = getattr(obj, "show_area_label", False)
+            settings["border_style"] = getattr(obj, "border_style", "-") or "-"
+            settings["border_color"] = (
+                getattr(obj, "border_color", "#000000") or "#000000"
+            )
+            settings["fill_color"] = getattr(obj, "fill_color", "#3366CC")
+        elif layer_type == "reference":
+            settings["line_style"] = getattr(obj, "line_style", "-") or "-"
+            settings["line_color"] = getattr(obj, "line_color", "#606060") or "#606060"
+
+        # UI 갱신 중 역참조 방지
+        self._draw_design_panel.blockSignals(True)
+        try:
+            self._draw_design_panel.set_current_layer(layer_id, layer_type, settings)
+        finally:
+            self._draw_design_panel.blockSignals(False)
+
+    def _apply_draw_settings_to_objects(
+        self, layer_id: str, settings_for_apply: dict
+    ) -> tuple[str, dict, list[str]]:
+        """settings_for_apply를 실제 Draw Object들에 적용하고,
+        base_type, summary용 settings, 실제로 변경된 레이어 ID 목록을 반환."""
+        popup = self.popup
+        objs = popup._get_current_draw_objects()
+        if not objs:
+            return "", {}, []
+
+        # 기준 객체(type)를 찾는다.
+        base_idx = None
+        base_obj = None
+        for i, o in enumerate(objs):
+            base_layer_id = getattr(o, "id", None)
+            if (
+                getattr(o, "type", "") in ("line", "polygon", "reference")
+                and base_layer_id == layer_id
+            ):
+                base_idx = i
+                base_obj = o
+                break
+        if base_obj is None:
+            return "", {}, []
+        base_type = getattr(base_obj, "type", "")
+
+        # 효과 요약 줄에 사용할 설정은 넓이 텍스트 토글 등을 제외
+        settings_for_summary = dict(settings_for_apply)
+        settings_for_summary.pop("area_label_visible", None)
+
+        # 다중 선택 시: 기준 타입과 동일한 객체에만 일괄 적용
+        selected = getattr(self, "_selected_draw_indices", set()) or {base_idx}
+        target_indices = [
+            i
+            for i in selected
+            if 0 <= i < len(objs) and getattr(objs[i], "type", "") == base_type
+        ]
+        if not target_indices:
+            target_indices = [base_idx]
+
+        # 실제 변경 대상 레이어 ID 목록 (요약/override에도 동일하게 반영하기 위함)
+        target_layer_ids: list[str] = []
+        for i in target_indices:
+            lid = getattr(objs[i], "id", None)
+            if lid:
+                target_layer_ids.append(lid)
+
+        def _apply_line(o, cfg):
+            # cfg에 있는 키만 객체에 반영. 없으면 기존 값 유지 (부분 설정 시 transparent 등으로 덮어쓰기 방지)
+            if "line_style" in cfg:
+                setattr(o, "line_style", (cfg.get("line_style") or "-"))
+            if "line_color" in cfg:
+                setattr(o, "line_color", cfg.get("line_color") or "#000000")
+
+        def _apply_polygon(o, cfg):
+            # cfg에 있는 키만 객체에 반영. 없으면 기존 값 유지 (외곽선만 리셋 시 fill_color가 None으로 덮어쓰이지 않도록)
+            if "border_style" in cfg:
+                setattr(o, "border_style", (cfg.get("border_style") or "-"))
+            if "border_color" in cfg:
+                setattr(o, "border_color", (cfg.get("border_color") or "#000000"))
+            if "fill_color" in cfg:
+                setattr(o, "fill_color", cfg.get("fill_color"))
+
+            # 넓이 텍스트 레이어 on/off: 데이터 모델(PolygonObject.show_area_label)에만 반영.
+            # AreaLabelObject 생성/제거는 모든 폴리곤을 한 번에 훑는 별도 단계에서 처리한다.
+            if "area_label_visible" in cfg:
+                setattr(o, "show_area_label", cfg.get("area_label_visible", False))
+
+        def _apply_reference(o, cfg):
+            if "line_style" in cfg:
+                setattr(o, "line_style", (cfg.get("line_style") or "-"))
+            if "line_color" in cfg:
+                color = cfg.get("line_color")
+                setattr(o, "line_color", (color or "#606060"))
+
+        def _rebuild_area_labels_for_all_polygons(all_objs: list[object]):
+            """모든 폴리곤의 show_area_label 상태를 기준으로 AreaLabelObject 목록을 일괄 재구성한다."""
+            if not all_objs:
+                return
+
+            # parent_id -> 기존 area_label 리스트 매핑
+            labels_by_parent: dict[str, list[object]] = {}
+            for obj in all_objs:
+                if getattr(obj, "type", "") == "area_label":
+                    pid = getattr(obj, "parent_id", None)
+                    if pid:
+                        labels_by_parent.setdefault(pid, []).append(obj)
+
+            from draw.draw_common import AreaLabelObject
+
+            desired_labels_by_parent: dict[str, list[object]] = {}
+            # 폴리곤 기준으로, 각 부모에 대해 유지/생성할 자식 목록 결정
+            for obj in all_objs:
+                if getattr(obj, "type", "") != "polygon":
+                    continue
+                pid = getattr(obj, "id", None)
+                if not pid:
+                    continue
+                if not getattr(obj, "show_area_label", False):
+                    desired_labels_by_parent[pid] = []
+                    continue
+
+                existing = labels_by_parent.get(pid, [])
+                if existing:
+                    desired_labels_by_parent[pid] = list(existing)
+                    continue
+
+                pts = getattr(obj, "points", None) or []
+                if len(pts) < 3:
+                    desired_labels_by_parent[pid] = []
+                    continue
+                xs = [p[0] for p in pts]
+                ys = [p[1] for p in pts]
+                cx = sum(xs) / len(xs)
+                cy = sum(ys) / len(ys)
+                try:
+                    val = polygon_area(pts)
+                except Exception:
+                    val = 0.0
+                lbl = AreaLabelObject(
+                    parent_id=pid,
+                    value=val,
+                    x=cx,
+                    y=cy,
+                    axis_units=getattr(obj, "axis_units", "Hz"),
+                    visible=getattr(obj, "visible", True),
+                    locked=getattr(obj, "locked", False),
+                    semi=getattr(obj, "semi", False),
+                )
+                desired_labels_by_parent[pid] = [lbl]
+
+            # 새 객체 리스트 구성: area_label은 모두 제거하고, 각 폴리곤 뒤에 desired_labels를 붙인다.
+            new_list: list[object] = []
+            for obj in all_objs:
+                if getattr(obj, "type", "") == "area_label":
+                    continue
+                new_list.append(obj)
+                if getattr(obj, "type", "") == "polygon":
+                    pid = getattr(obj, "id", None)
+                    if pid and pid in desired_labels_by_parent:
+                        new_list.extend(desired_labels_by_parent[pid])
+
+            all_objs.clear()
+            all_objs.extend(new_list)
+
+        for i in target_indices:
+            o = objs[i]
+            t = getattr(o, "type", "")
+            if t == "line":
+                _apply_line(o, settings_for_apply)
+            elif t == "polygon":
+                _apply_polygon(o, settings_for_apply)
+            elif t == "reference":
+                _apply_reference(o, settings_for_apply)
+
+        # 폴리곤의 넓이 텍스트 레이어는 모든 폴리곤을 한 번에 훑으면서 AreaLabelObject를 재구성한다.
+        if base_type == "polygon":
+            _rebuild_area_labels_for_all_polygons(objs)
+
+        popup._set_current_draw_objects(objs)
+        popup._redraw_draw_layer()
+        self.update_draw_layer_list(objs)
+        return base_type, settings_for_summary, target_layer_ids
+
+    def _update_draw_overrides_for_summary(
+        self,
+        layer_id: str,
+        base_type: str,
+        settings_for_summary: dict,
+        target_layer_ids: list[str] | None = None,
+    ):
+        """기본값과 비교하여 override dict를 갱신하고 효과 요약 줄을 재구성한다.
+        다중 선택 시 기준 레이어와 동일 타입인 모든 대상 레이어에 동일한 요약을 반영한다."""
+        popup = self.popup
+        # 기본 디자인 값과 동일한 항목을 제거한 뒤 효과 요약에 사용할 설정을 저장
+        if (
+            hasattr(self, "_get_default_design")
+            and self._get_default_design is not None
+        ):
+            defaults = self._get_default_design() or {}
+        else:
+            defaults = getattr(popup, "design_settings", {}) or {}
+
+        clean_cfg: dict[str, object] = {}
+        if base_type == "line":
+            # 선 레이어: line_style, line_color만 비교
+            base_style = defaults.get("draw_line_style", "-") or "-"
+            base_color = defaults.get("draw_line_color", "#000000") or "#000000"
+            for k, v in settings_for_summary.items():
+                if k == "line_style" and (v or "-") == base_style:
+                    continue
+                if (
+                    k == "line_color"
+                    and (v or "#000000").lower() == str(base_color).lower()
+                ):
+                    continue
+                clean_cfg[k] = v
+        elif base_type == "polygon":
+            # 영역 레이어: border_style, border_color, fill_color 비교. 넓이 텍스트 ON/OFF는 데이터 모델에서 관리해 여기엔 넣지 않음
+            base_border_style = defaults.get("draw_area_border_style", "-") or "-"
+            base_border_color = (
+                defaults.get("draw_area_border_color", "#000000") or "#000000"
+            )
+            # 영역 내부 색 기본값은 항상 파랑(#3366CC)로 고정. None/transparent는 기본값으로 보지 않는다.
+            raw_fill = defaults.get("draw_area_fill_color", "#3366CC")
+            if not raw_fill or str(raw_fill).lower() == "transparent":
+                base_fill = "#3366CC"
+            else:
+                base_fill = raw_fill
+            for k, v in settings_for_summary.items():
+                if k == "area_label_visible":
+                    continue
+                if k == "border_style" and (v or "-") == base_border_style:
+                    continue
+                if (
+                    k == "border_color"
+                    and (v or "#000000").lower() == str(base_border_color).lower()
+                ):
+                    continue
+                if k == "fill_color":
+                    if str(v or "#3366CC").lower() == str(base_fill).lower():
+                        continue
+                clean_cfg[k] = v
+        elif base_type == "reference":
+            # 참조선: 스타일은 기본값과 비교, 색상은 패널 기본값(#606060)과 비교하여 필터링
+            base_style = defaults.get("draw_ref_line_style", "-") or "-"
+            base_color = defaults.get("draw_ref_line_color", "#606060") or "#606060"
+            for k, v in settings_for_summary.items():
+                if k == "line_style" and (v or "-") == base_style:
+                    continue
+                if k == "line_color":
+                    if str(v or "#606060").lower() == str(base_color).lower():
+                        continue
+                clean_cfg[k] = v
+        else:
+            clean_cfg = settings_for_summary
+
+        if target_layer_ids is None or not target_layer_ids:
+            target_layer_ids = [layer_id]
+
+        for lid in target_layer_ids:
+            if clean_cfg:
+                self._draw_design_settings[lid] = dict(clean_cfg)
+            elif lid in self._draw_design_settings:
+                # 모든 항목이 기본값이면 오버라이드를 삭제해 효과 요약 줄을 숨김
+                self._draw_design_settings.pop(lid, None)
+
+        self._rebuild_draw_effects()
+
+    def _on_draw_design_settings_changed(self, layer_id: str, settings: dict):
+        """그리기 디자인 패널에서 설정이 변경됐을 때 내부 상태를 저장하고 객체에 반영한다."""
+        if not layer_id or not isinstance(settings, dict):
+            return
+
+        # 1단계: 실제 Draw Object에 설정 적용
+        settings_for_apply = dict(settings)
+        (
+            base_type,
+            settings_for_summary,
+            target_layer_ids,
+        ) = self._apply_draw_settings_to_objects(layer_id, settings_for_apply)
+        if not base_type:
+            return
+
+        # 2단계: override/요약 정보 갱신 (다중 선택 시에도 모든 대상 레이어에 적용)
+        self._update_draw_overrides_for_summary(
+            layer_id, base_type, settings_for_summary, target_layer_ids
+        )
 
     def _sync_design_controls_to_selection(self):
         if self.tab_widget.currentIndex() != 0:
@@ -2067,6 +2558,100 @@ class LayerDockWidget(QWidget):
 
                 x_btn.clicked.connect(remove_key)
                 eff_row.addWidget(x_btn)
+                w = QWidget()
+                w.setFixedHeight(24)
+                w.setLayout(eff_row)
+                row.effects_layout.addWidget(w)
+
+    def _rebuild_draw_effects(self):
+        """그리기 레이어용 효과 요약 줄 (선/영역/참조선 디자인 설정)."""
+        rows = getattr(self, "_draw_layer_rows", None) or []
+        if not rows:
+            return
+        objs = self.popup._get_current_draw_objects()
+        if not objs:
+            return
+        font_effect = QFont(self.ui_font_name, 8)
+
+        def effect_label(key):
+            labels = {
+                "line_style": "선 타입",
+                "line_color": "선 색",
+                "border_style": "외곽선 타입",
+                "border_color": "외곽선 색",
+                "fill_color": "내부 색",
+            }
+            return labels.get(key, key)
+
+        def effect_text(key, value):
+            if value is None:
+                return ""
+            if key in ("line_color", "border_color", "fill_color"):
+                return _format_color_display(value)
+            if key == "line_style" or key == "border_style":
+                return STYLE_LABELS.get(value, str(value))
+            return str(value)[:20]
+
+        for row in rows:
+            idx = getattr(row, "draw_index", None)
+            if idx is None or idx < 0 or idx >= len(objs):
+                continue
+            while row.effects_layout.count():
+                item = row.effects_layout.takeAt(0)
+                if item.widget():
+                    item.widget().deleteLater()
+            obj = objs[idx]
+            t = getattr(obj, "type", "")
+            layer_id = getattr(obj, "id", None)
+            if not layer_id:
+                # UUID 기반 ID가 없는 객체는 디자인 요약에서 제외
+                continue
+            cfg = self._draw_design_settings.get(layer_id, {}) or {}
+
+            # 타입별로 의미 있는 키만 표시
+            if t == "line":
+                keys = ["line_style", "line_color"]
+            elif t == "polygon":
+                keys = ["border_style", "border_color", "fill_color"]
+            elif t == "reference":
+                keys = ["line_style", "line_color"]
+            else:
+                keys = []
+
+            # 저장된 설정 중 이 타입에 해당하는 키만 남긴다.
+            keys = [k for k in keys if k in cfg]
+            if not keys:
+                if hasattr(row, "expand_btn"):
+                    row.expand_btn.setVisible(False)
+                continue
+
+            if hasattr(row, "expand_btn"):
+                row.expand_btn.setVisible(True)
+
+            first = True
+            for key in keys:
+                if not first:
+                    sep = QFrame()
+                    sep.setFrameShape(QFrame.Shape.HLine)
+                    sep.setStyleSheet(
+                        "color: #F0F2F5; margin-left: 4px; margin-right: 4px; margin-top: 1px; margin-bottom: 1px;"
+                    )
+                    row.effects_layout.addWidget(sep)
+                first = False
+
+                eff_row = QHBoxLayout()
+                eff_row.setContentsMargins(0, 0, 0, 0)
+                eff_row.setSpacing(4)
+                lbl = QLabel(
+                    f"  {effect_label(key)}: {effect_text(key, cfg[key])}",
+                    font=font_effect,
+                )
+                lbl.setStyleSheet("color: #606266;")
+                eff_row.addWidget(lbl, alignment=Qt.AlignmentFlag.AlignVCenter)
+                eff_row.addStretch()
+
+                # 그리기 레이어의 세부 레이어(요약 줄)는 레이어 목록에서 X 버튼으로 직접 삭제할 수 없게 한다.
+                # (디폴트 디자인 초기화나 상단 패널에서만 기본값 복원이 가능)
                 w = QWidget()
                 w.setFixedHeight(24)
                 w.setLayout(eff_row)
