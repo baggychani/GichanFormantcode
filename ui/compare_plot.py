@@ -379,6 +379,9 @@ class ComparePlotPopup(QMainWindow):
         self.layer_locked_vowels_red = set()
         self.filter_panel = None
         self.design_settings = {}
+        # 다중 플롯 draw는 파일별이 아닌 공통 리스트를 사용할 계획.
+        # (도구 이식 전 준비 단계: layer_dock/draw_manager 연동용 저장소)
+        self._draw_objects_shared = []
 
         # 범례 위젯들을 저장하여 실시간 렌더링에 사용
         self.legend_refs = {"blue": {}, "red": {}}
@@ -1073,22 +1076,26 @@ class ComparePlotPopup(QMainWindow):
         self.btn_ruler.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self.btn_ruler.setStyleSheet("""
             QPushButton#BtnRuler { background-color: #F0F2F5; border: 1px solid #DCDFE6; border-radius: 4px; color: #333;}
+            QPushButton#BtnRuler:hover:!checked { background-color: #E4E7ED; border: 1px solid #C0C4CC; }
             QPushButton#BtnRuler:checked { background-color: #67C23A; color: white; font-weight: bold; border: none; }
         """)
         self.btn_ruler.clicked.connect(self.on_toggle_ruler)
         tool_group.addWidget(self.btn_ruler)
 
-        self.btn_draw = QPushButton("그리기")
-        self.btn_draw.setToolTip("추후 업데이트로 추가될 기능입니다.")
+        self.btn_draw = QPushButton("그리기 (P)")
+        self.btn_draw.setCheckable(True)
+        self.btn_draw.setToolTip("")
         self.btn_draw.setFixedHeight(35)
         self.btn_draw.setFont(font_normal)
         self.btn_draw.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self.btn_draw.setEnabled(False)
         self.btn_draw.setStyleSheet("""
             QPushButton { background-color: #F0F2F5; border: 1px solid #DCDFE6; border-radius: 4px; color: #606266; }
-            QPushButton:hover { background-color: #E4E7ED; }
+            QPushButton:hover:!checked { background-color: #E4E7ED; }
+            QPushButton:checked { background-color: #409EFF; color: white; font-weight: bold; border: none; }
             QPushButton:disabled { background-color: #F5F7FA; color: #C0C4CC; border: 1px solid #E4E7ED; }
         """)
+        self.btn_draw.clicked.connect(self._on_toggle_draw)
         tool_group.addWidget(self.btn_draw)
 
         layout.addLayout(tool_group)
@@ -1261,6 +1268,9 @@ class ComparePlotPopup(QMainWindow):
         QShortcut(
             QKeySequence(Qt.Key.Key_R), self, context=Qt.ShortcutContext.WindowShortcut
         ).activated.connect(self._safe_toggle_ruler)
+        QShortcut(
+            QKeySequence(Qt.Key.Key_P), self, context=Qt.ShortcutContext.WindowShortcut
+        ).activated.connect(self._safe_toggle_draw)
         QShortcut(QKeySequence("Ctrl+S"), self).activated.connect(self._safe_save_jpg)
         QShortcut(
             QKeySequence("Esc"), self, context=Qt.ShortcutContext.WindowShortcut
@@ -1396,13 +1406,57 @@ class ComparePlotPopup(QMainWindow):
     def _safe_toggle_ruler(self):
         if self._is_input_focused():
             return
-        self.btn_ruler.setChecked(not self.btn_ruler.isChecked())
+        next_state = not self.btn_ruler.isChecked()
+        # 배타 모드: ruler를 켜려면 draw/label_move가 모두 꺼져 있어야 함
+        if next_state and (
+            self._is_draw_active() or self._is_compare_label_move_active()
+        ):
+            return
+        self.btn_ruler.setChecked(next_state)
         self.on_toggle_ruler()
 
     def on_toggle_ruler(self):
+        # 버튼 직접 클릭 경로에서도 배타 모드 강제
+        if self.btn_ruler.isChecked() and (
+            self._is_draw_active() or self._is_compare_label_move_active()
+        ):
+            self.btn_ruler.setChecked(False)
+            self.update_ruler_style(False)
+            return
         self.setFocus()
         self.controller.toggle_ruler(self)
         self.update_ruler_style(self.controller.ruler_tool.active)
+
+    def _safe_toggle_draw(self):
+        if self._is_input_focused():
+            return
+        if not getattr(self, "btn_draw", None):
+            return
+        # 현재 compare 모드의 draw는 이식 전이라 비활성화. 키맵은 준비만 해두고 무시.
+        if not self.btn_draw.isEnabled():
+            return
+        next_state = not self.btn_draw.isChecked()
+        if next_state and (
+            self._is_ruler_active() or self._is_compare_label_move_active()
+        ):
+            return
+        self.btn_draw.setChecked(next_state)
+        self._on_toggle_draw()
+
+    def _on_toggle_draw(self):
+        # 버튼 직접 클릭 경로에서도 배타 모드 강제
+        if self.btn_draw.isChecked() and (
+            self._is_ruler_active() or self._is_compare_label_move_active()
+        ):
+            self.btn_draw.setChecked(False)
+            if hasattr(self, "tool_indicator") and self.tool_indicator is not None:
+                self.tool_indicator.set_draw_mode_on(False)
+            return
+        # compare 모드 draw 이식 전: UI 표시만 OFF 유지
+        if not self.btn_draw.isEnabled():
+            self.btn_draw.setChecked(False)
+        if hasattr(self, "tool_indicator") and self.tool_indicator is not None:
+            self.tool_indicator.set_draw_mode_on(self.btn_draw.isChecked())
 
     def keyPressEvent(self, event):
         """T 키: 현재 디자인 서브 탭(Blue/Red)에 해당하는 라벨 위치 이동 툴만 토글."""
@@ -1414,11 +1468,27 @@ class ComparePlotPopup(QMainWindow):
             ):
                 idx = self.design_tab.sub_tabs.currentIndex()
                 series = "blue" if idx == 0 else "red"
-                self.controller.toggle_compare_label_move(self, series)
+                self._safe_toggle_compare_label_move(series)
             return
         super().keyPressEvent(event)
 
     def _on_compare_label_move_clicked(self, series):
+        self._safe_toggle_compare_label_move(series)
+
+    def _safe_toggle_compare_label_move(self, series):
+        if self._is_input_focused():
+            return
+        active = self._is_compare_label_move_active()
+        current_series = getattr(self, "_label_move_series", None)
+        wants_on = (not active) or (current_series != series)
+        # 배타 모드: label_move를 켜려면 draw/ruler가 모두 꺼져 있어야 함
+        if wants_on and (self._is_draw_active() or self._is_ruler_active()):
+            # 클릭으로 체크 상태가 흔들렸을 수 있으니 실제 툴 상태로 UI 재동기화
+            sync_series = (
+                current_series if current_series in ("blue", "red") else series
+            )
+            self.update_compare_label_move_style(sync_series, active)
+            return
         self.setFocus()
         self.controller.toggle_compare_label_move(self, series)
 
@@ -1429,6 +1499,21 @@ class ComparePlotPopup(QMainWindow):
         self.design_tab.ctrl_red["btn_label_move"].setChecked(is_on and series == "red")
         if hasattr(self, "tool_indicator") and self.tool_indicator is not None:
             self.tool_indicator.set_label_move_on(is_on)
+
+    def _is_ruler_active(self):
+        return bool(
+            getattr(self.controller, "ruler_tool", None)
+            and self.controller.ruler_tool.active
+        )
+
+    def _is_compare_label_move_active(self):
+        return bool(
+            getattr(self.controller, "label_move_tool", None)
+            and self.controller.label_move_tool.active
+        )
+
+    def _is_draw_active(self):
+        return bool(getattr(self, "btn_draw", None) and self.btn_draw.isChecked())
 
     def _safe_open_filter(self):
         if self._is_input_focused():
@@ -1593,17 +1678,30 @@ class ComparePlotPopup(QMainWindow):
     def get_sigma(self):
         return self.cb_sigma.currentText()
 
+    def _get_current_draw_objects(self):
+        """다중 플롯용 공통 draw 객체 리스트 반환 (이식 준비용)."""
+        return self._draw_objects_shared
+
+    def _set_current_draw_objects(self, lst):
+        """다중 플롯용 공통 draw 객체 리스트 교체 (이식 준비용)."""
+        self._draw_objects_shared = list(lst or [])
+
+    def _redraw_draw_layer(self):
+        """draw 렌더러 이식 전 no-op. 레이어 도크 호출 경로만 준비."""
+        if getattr(self, "canvas", None) is not None:
+            self.canvas.draw_idle()
+
     def update_ruler_style(self, is_on):
         self.btn_ruler.setChecked(is_on)
         self.btn_ruler.setStyleSheet(
-            f"background-color: {'#67C23A' if is_on else '#F0F2F5'}; color: {'white' if is_on else '#333'}; font-weight: {'bold' if is_on else 'normal'}; border-radius: 4px; border: {'none' if is_on else '1px solid #DCDFE6'};"
+            """
+            QPushButton#BtnRuler { background-color: #F0F2F5; border: 1px solid #DCDFE6; border-radius: 4px; color: #333; }
+            QPushButton#BtnRuler:hover:!checked { background-color: #E4E7ED; border: 1px solid #C0C4CC; }
+            QPushButton#BtnRuler:checked { background-color: #67C23A; color: white; font-weight: bold; border: none; }
+            """
         )
         if hasattr(self, "tool_indicator") and self.tool_indicator is not None:
             self.tool_indicator.set_ruler_on(is_on)
-        if (
-            is_on
-            and hasattr(self, "draw_indicator")
-            and self.draw_indicator is not None
-        ):
-            self.draw_indicator.turn_off()
-            self._draw_tool_deactivate()
+            # compare draw는 아직 미이식 상태이므로 indicator는 항상 OFF를 유지
+            if not self.btn_draw.isEnabled():
+                self.tool_indicator.set_draw_mode_on(False)

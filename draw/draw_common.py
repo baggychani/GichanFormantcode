@@ -42,6 +42,8 @@ class LineObject:
     id: str = field(default_factory=lambda: uuid.uuid4().hex[:8])
     locked: bool = False
     semi: bool = False
+    arrow_mode: str = "none"  # "none" | "end" | "all"
+    arrow_head: str = "stealth"  # "stealth" | "open" | "latex"
 
 
 @dataclass

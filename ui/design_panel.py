@@ -376,7 +376,7 @@ class DesignSettingsPanel(QWidget):
         dp_shape_row.addWidget(lbl_dp)
         self.group_raw_marker = QButtonGroup(self)
         for i, (key, tip) in enumerate(
-            [("o", "빈 원"), ("x", "x 모양"), ("a", "라벨 문자(모음 기호)")]
+            [("o", "빈 원"), ("x", "X 모양"), ("a", "라벨 문자(모음 기호)")]
         ):
             btn = QPushButton("")
             btn.setCheckable(True)
@@ -436,7 +436,7 @@ class DesignSettingsPanel(QWidget):
         color_layout.setSpacing(6)
         color_layout.addWidget(QLabel("라벨 텍스트 색상:", font=font_normal))
         self.lbl_color_picker = ColorPalette(
-            default_color="#000000", allow_transparent=True, parent=self
+            default_color="#E64A19", allow_transparent=True, parent=self
         )
         color_layout.addWidget(self.lbl_color_picker)
         label_group.addLayout(color_layout)
@@ -501,11 +501,11 @@ class DesignSettingsPanel(QWidget):
         self.group_centroid_marker = QButtonGroup(self)
         for i, (mk, tip) in enumerate(
             [
-                ("o", "동그라미"),
+                ("o", "원"),
                 ("s", "사각형"),
                 ("^", "삼각형"),
                 ("D", "다이아몬드"),
-                ("wo", "동그라미(흰색)"),
+                ("wo", "원(흰색)"),
                 ("ws", "사각형(흰색)"),
                 ("w^", "삼각형(흰색)"),
                 ("wD", "다이아몬드(흰색)"),
@@ -786,7 +786,7 @@ class DesignSettingsPanel(QWidget):
         self.sw_show_centroid.setChecked(True)
         self.sw_show_axis_units.setChecked(False)
 
-        self.lbl_color_picker.set_color("#000000")
+        self.lbl_color_picker.set_color("#E64A19")
         self.combo_lbl_size.setCurrentText("20")
         self.btn_bold.setChecked(True)
         self.btn_italic.setChecked(False)
@@ -1042,11 +1042,11 @@ class CompareDesignSettingsPanel(QWidget):
         group_centroid_marker = QButtonGroup(self)
         for i, (mk, tip) in enumerate(
             [
-                ("o", "동그라미"),
+                ("o", "원"),
                 ("s", "사각형"),
                 ("^", "삼각형"),
                 ("D", "다이아몬드"),
-                ("wo", "동그라미(흰색)"),
+                ("wo", "원(흰색)"),
                 ("ws", "사각형(흰색)"),
                 ("w^", "삼각형(흰색)"),
                 ("wD", "다이아몬드(흰색)"),
@@ -1236,7 +1236,7 @@ class CompareDesignSettingsPanel(QWidget):
         dp_shape_row.addWidget(lbl_dp_c)
         self.group_raw_marker_common = QButtonGroup(self)
         for i, (key, tip) in enumerate(
-            [("o", "빈 원"), ("x", "x 모양"), ("a", "라벨 문자(모음 기호)")]
+            [("o", "빈 원"), ("x", "X 모양"), ("a", "라벨 문자(모음 기호)")]
         ):
             btn = QPushButton("")
             btn.setCheckable(True)

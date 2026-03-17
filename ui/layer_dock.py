@@ -65,11 +65,11 @@ from draw.draw_common import polygon_area
 MARKER_IDS = {"o": 0, "s": 1, "^": 2, "D": 3, "wo": 4, "ws": 5, "w^": 6, "wD": 7}
 MARKER_VALS = ["o", "s", "^", "D", "wo", "ws", "w^", "wD"]
 MARKER_LABELS = {
-    "o": "동그라미",
+    "o": "원",
     "s": "사각형",
     "^": "삼각형",
     "D": "다이아몬드",
-    "wo": "동그라미(흰색)",
+    "wo": "원(흰색)",
     "ws": "사각형(흰색)",
     "w^": "삼각형(흰색)",
     "wD": "다이아몬드(흰색)",
@@ -253,7 +253,7 @@ class LayerDockWidget(QWidget):
         color_layout.setSpacing(6)
         color_layout.addWidget(QLabel("라벨 텍스트 색상:", font=font_normal))
         self.lbl_color_picker = ColorPalette(
-            default_color="#000000",
+            default_color="#E64A19",
             allow_transparent=True,
             parent=self.vowel_design_container,
         )
@@ -270,11 +270,11 @@ class LayerDockWidget(QWidget):
         self.group_centroid_marker = QButtonGroup(self.vowel_design_container)
         for i, (mk, tip) in enumerate(
             [
-                ("o", "동그라미"),
+                ("o", "원"),
                 ("s", "사각형"),
                 ("^", "삼각형"),
                 ("D", "다이아몬드"),
-                ("wo", "동그라미(흰색)"),
+                ("wo", "원(흰색)"),
                 ("ws", "사각형(흰색)"),
                 ("w^", "삼각형(흰색)"),
                 ("wD", "다이아몬드(흰색)"),
@@ -1667,6 +1667,8 @@ class LayerDockWidget(QWidget):
         if layer_type == "line":
             settings["line_style"] = getattr(obj, "line_style", "-") or "-"
             settings["line_color"] = getattr(obj, "line_color", "#000000") or "#000000"
+            settings["arrow_mode"] = getattr(obj, "arrow_mode", "none") or "none"
+            settings["arrow_head"] = getattr(obj, "arrow_head", "stealth") or "stealth"
         elif layer_type == "area":
             if getattr(obj, "points", None):
                 try:
@@ -1781,6 +1783,8 @@ class LayerDockWidget(QWidget):
             # 선 레이어: line_style, line_color만 비교
             base_style = defaults.get("draw_line_style", "-") or "-"
             base_color = defaults.get("draw_line_color", "#000000") or "#000000"
+            base_arrow_mode = "none"
+            base_arrow_head = "stealth"
             for k, v in settings_for_summary.items():
                 if k == "line_style" and (v or "-") == base_style:
                     continue
@@ -1789,7 +1793,14 @@ class LayerDockWidget(QWidget):
                     and (v or "#000000").lower() == str(base_color).lower()
                 ):
                     continue
+                if k == "arrow_mode" and (v or "none") == base_arrow_mode:
+                    continue
+                if k == "arrow_head" and (v or "stealth") == base_arrow_head:
+                    continue
                 clean_cfg[k] = v
+            # mode가 none이면 요약/오버라이드에서 arrow_head는 항상 제거
+            if str(clean_cfg.get("arrow_mode", "none")) == "none":
+                clean_cfg.pop("arrow_head", None)
         elif base_type == "polygon":
             # 영역 레이어: border_style, border_color, fill_color 비교. 넓이 텍스트 ON/OFF는 데이터 모델에서 관리해 여기엔 넣지 않음
             base_border_style = defaults.get("draw_area_border_style", "-") or "-"
@@ -1876,7 +1887,7 @@ class LayerDockWidget(QWidget):
                 v = next(iter(self._selected_vowels))
                 o = overrides.get(v, {})
                 self.lbl_color_picker.set_color(
-                    o.get("lbl_color", ds.get("lbl_color", "#000000"))
+                    o.get("lbl_color", ds.get("lbl_color", "#E64A19"))
                 )
                 idx = MARKER_IDS.get(
                     o.get("centroid_marker", ds.get("centroid_marker", "o")), 0
@@ -1907,7 +1918,7 @@ class LayerDockWidget(QWidget):
                     o.get("ell_fill_color") or ds.get("ell_fill_color") or "transparent"
                 )
             else:
-                self.lbl_color_picker.set_color(ds.get("lbl_color", "#000000"))
+                self.lbl_color_picker.set_color(ds.get("lbl_color", "#E64A19"))
                 self.group_centroid_marker.button(0).setChecked(True)
                 self.group_ell_thick.button(1).setChecked(True)
                 self.group_ell_style.button(2).setChecked(True)
@@ -2042,6 +2053,8 @@ class LayerDockWidget(QWidget):
             labels = {
                 "line_style": "선 타입",
                 "line_color": "선 색",
+                "arrow_mode": "화살표 타입",
+                "arrow_head": "화살표 모양",
                 "border_style": "외곽선 타입",
                 "border_color": "외곽선 색",
                 "fill_color": "내부 색",
@@ -2055,6 +2068,14 @@ class LayerDockWidget(QWidget):
                 return _format_color_display(value)
             if key == "line_style" or key == "border_style":
                 return STYLE_LABELS.get(value, str(value))
+            if key == "arrow_mode":
+                return {"none": "없음", "end": "끝점", "all": "점마다"}.get(
+                    str(value), str(value)
+                )
+            if key == "arrow_head":
+                return {"stealth": "stealth", "open": "open", "latex": "latex"}.get(
+                    str(value), str(value)
+                )
             return str(value)[:20]
 
         for row in rows:
@@ -2072,10 +2093,16 @@ class LayerDockWidget(QWidget):
                 # UUID 기반 ID가 없는 객체는 디자인 요약에서 제외
                 continue
             cfg = self._draw_design_settings.get(layer_id, {}) or {}
+            display_cfg = dict(cfg)
 
             # 타입별로 의미 있는 키만 표시
             if t == "line":
-                keys = ["line_style", "line_color"]
+                keys = ["line_style", "line_color", "arrow_mode", "arrow_head"]
+                # 화살표 타입이 end/all로 설정됐고 head가 미지정이면,
+                # 기본값(stealth)을 세부 레이어에만 표시한다.
+                mode_val = str(display_cfg.get("arrow_mode", "none"))
+                if mode_val in ("end", "all") and "arrow_head" not in display_cfg:
+                    display_cfg["arrow_head"] = "stealth"
             elif t == "polygon":
                 keys = ["border_style", "border_color", "fill_color"]
             elif t == "reference":
@@ -2084,7 +2111,13 @@ class LayerDockWidget(QWidget):
                 keys = []
 
             # 저장된 설정 중 이 타입에 해당하는 키만 남긴다.
-            keys = [k for k in keys if k in cfg]
+            keys = [k for k in keys if k in display_cfg]
+            # 화살표가 none이면 화살표 모양 줄은 요약에서 숨긴다.
+            if (
+                "arrow_mode" in keys
+                and str(display_cfg.get("arrow_mode", "none")) == "none"
+            ):
+                keys = [k for k in keys if k != "arrow_head"]
             if not keys:
                 if hasattr(row, "expand_btn"):
                     row.expand_btn.setVisible(False)
@@ -2108,7 +2141,7 @@ class LayerDockWidget(QWidget):
                 eff_row.setContentsMargins(0, 0, 0, 0)
                 eff_row.setSpacing(4)
                 lbl = QLabel(
-                    f"  {effect_label(key)}: {effect_text(key, cfg[key])}",
+                    f"  {effect_label(key)}: {effect_text(key, display_cfg[key])}",
                     font=font_effect,
                 )
                 lbl.setStyleSheet("color: #606266;")

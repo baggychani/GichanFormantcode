@@ -6,12 +6,13 @@ from PyQt6.QtWidgets import (
     QFrame,
     QButtonGroup,
     QStackedWidget,
+    QPushButton,
 )
-from PyQt6.QtCore import Qt, pyqtSignal
+from PyQt6.QtCore import Qt, QSize, pyqtSignal
 from PyQt6.QtGui import QFont, QCursor
 
 from .design_panel import ToggleSwitch, ColorPalette
-from .icon_widgets import LinePreviewButton
+from .icon_widgets import LinePreviewButton, create_trajectory_icon
 
 
 # design_panel / layer_dock 과 동일한 선 스타일 매핑을 사용한다.
@@ -109,6 +110,66 @@ class DrawDesignPanel(QWidget):
         row_style.addWidget(frame)
         layout.addLayout(row_style)
 
+        # 화살표 타입 (2줄 구성: 1줄=none/end/all, 2줄=stealth/open/latex)
+        arrow_mode_layout = QVBoxLayout()
+        arrow_mode_layout.setSpacing(4)
+        arrow_mode_layout.addWidget(QLabel("화살표 타입:", font=font_normal))
+        arrow_mode_frame = QFrame()
+        arrow_mode_frame.setStyleSheet(
+            "QFrame { background-color: white; border: 1px solid #DCDFE6; border-radius: 4px; }"
+        )
+        arrow_mode_h = QHBoxLayout(arrow_mode_frame)
+        arrow_mode_h.setContentsMargins(2, 2, 2, 2)
+        arrow_mode_h.setSpacing(0)
+        group_arrow_mode = QButtonGroup(self)
+        # none / end / all 버튼
+        for i, mode in enumerate(["none", "end", "all"]):
+            btn = QPushButton()
+            btn.setIcon(create_trajectory_icon(arrow_mode=mode, head_style="stealth"))
+            btn.setIconSize(QSize(54, 24))
+            btn.setToolTip(
+                {"none": "화살표 없음", "end": "끝점", "all": "점마다"}[mode]
+            )
+            btn.setCheckable(True)
+            btn.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
+            btn.setStyleSheet(
+                "QPushButton { background-color: transparent; border: none; padding: 2px 4px; }"
+                "QPushButton:checked { background-color: #ECF5FF; border-radius: 3px; }"
+            )
+            group_arrow_mode.addButton(btn, i)
+            arrow_mode_h.addWidget(btn)
+        if group_arrow_mode.button(0) is not None:
+            group_arrow_mode.button(0).setChecked(True)
+        arrow_mode_layout.addWidget(arrow_mode_frame)
+
+        arrow_head_frame = QFrame()
+        arrow_head_frame.setStyleSheet(
+            "QFrame { background-color: white; border: 1px solid #DCDFE6; border-radius: 4px; }"
+        )
+        arrow_head_h = QHBoxLayout(arrow_head_frame)
+        arrow_head_h.setContentsMargins(2, 2, 2, 2)
+        arrow_head_h.setSpacing(0)
+        group_arrow_head = QButtonGroup(self)
+        for i, head in enumerate(["stealth", "open", "latex"]):
+            btn = QPushButton()
+            btn.setIcon(create_trajectory_icon(arrow_mode="end", head_style=head))
+            btn.setIconSize(QSize(54, 24))
+            btn.setToolTip(
+                {"stealth": "stealth", "open": "open", "latex": "latex"}[head]
+            )
+            btn.setCheckable(True)
+            btn.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
+            btn.setStyleSheet(
+                "QPushButton { background-color: transparent; border: none; padding: 2px 4px; }"
+                "QPushButton:checked { background-color: #ECF5FF; border-radius: 3px; }"
+            )
+            group_arrow_head.addButton(btn, i)
+            arrow_head_h.addWidget(btn)
+        if group_arrow_head.button(0) is not None:
+            group_arrow_head.button(0).setChecked(True)
+        arrow_mode_layout.addWidget(arrow_head_frame)
+        layout.addLayout(arrow_mode_layout)
+
         # 선 색상 (투명 불가)
         color_layout = QVBoxLayout()
         color_layout.setSpacing(6)
@@ -124,8 +185,27 @@ class DrawDesignPanel(QWidget):
         self._line_controls = {
             "group_style": group,
             "color_picker": color_picker,
+            "group_arrow_mode": group_arrow_mode,
+            "group_arrow_head": group_arrow_head,
+            "arrow_head_frame": arrow_head_frame,
         }
+        self._update_line_arrow_head_enabled()
         return page
+
+    def _update_line_arrow_head_enabled(self):
+        """arrow_mode가 none이면 화살표 모양 줄을 시각적으로 비활성화."""
+        if not hasattr(self, "_line_controls"):
+            return
+        g_mode = self._line_controls["group_arrow_mode"]
+        mode_idx = g_mode.checkedId()
+        if mode_idx < 0:
+            btn_mode = g_mode.checkedButton()
+            mode_idx = g_mode.id(btn_mode) if btn_mode else 0
+        mode_val = {0: "none", 1: "end", 2: "all"}.get(mode_idx, "none")
+        enabled = mode_val != "none"
+        self._line_controls["arrow_head_frame"].setEnabled(enabled)
+        # 요구사항: 화살표 X(none)면 모양 줄은 사라지고 클릭 불가
+        self._line_controls["arrow_head_frame"].setVisible(enabled)
 
     def _build_area_page(self):
         page = QWidget()
@@ -280,7 +360,11 @@ class DrawDesignPanel(QWidget):
 
     def _connect_signals(self):
         # 선/영역/참조선 선 타입: buttonClicked 사용 (buttonToggled는 해제+선택 두 번 발화해 _loading과 꼬임)
-        for ctrl in [self._line_controls["group_style"]]:
+        for ctrl in [
+            self._line_controls["group_style"],
+            self._line_controls["group_arrow_mode"],
+            self._line_controls["group_arrow_head"],
+        ]:
             ctrl.buttonClicked.connect(self._on_any_control_changed)
         self._line_controls["color_picker"].color_changed.connect(
             self._on_any_control_changed
@@ -362,6 +446,25 @@ class DrawDesignPanel(QWidget):
         if btn:
             btn.setChecked(True)
 
+        # 화살표 타입
+        mode_val = settings.get("arrow_mode", "none")
+        mode_idx = {"none": 0, "end": 1, "all": 2}.get(mode_val, 0)
+        g_mode = self._line_controls["group_arrow_mode"]
+        btn_mode = g_mode.button(mode_idx)
+        if btn_mode:
+            btn_mode.setChecked(True)
+
+        # 화살표 모양
+        head_val = settings.get("arrow_head", "stealth")
+        head_idx = {"stealth": 0, "open": 1, "latex": 2}.get(head_val, 0)
+        g_head = self._line_controls["group_arrow_head"]
+        btn_head = g_head.button(head_idx)
+        if btn_head:
+            btn_head.setChecked(True)
+
+        # mode가 none이면 모양 프레임 비활성화
+        self._line_controls["arrow_head_frame"].setEnabled(mode_val != "none")
+
         color = settings.get("line_color", "#000000") or "#000000"
         # 투명은 지원하지 않으므로 transparent가 들어오면 기본값으로 되돌린다.
         if str(color).lower() == "transparent":
@@ -426,10 +529,30 @@ class DrawDesignPanel(QWidget):
             style_id = group.id(btn) if btn else 0
         style_val = _STYLE_ID_TO_VALUE.get(style_id, "-")
         color = self._line_controls["color_picker"].current_color
-        return {
+        # 화살표 타입
+        g_mode = self._line_controls["group_arrow_mode"]
+        mode_idx = g_mode.checkedId()
+        if mode_idx < 0:
+            btn_mode = g_mode.checkedButton()
+            mode_idx = g_mode.id(btn_mode) if btn_mode else 0
+        mode_val = {0: "none", 1: "end", 2: "all"}.get(mode_idx, "none")
+        # 화살표 모양
+        g_head = self._line_controls["group_arrow_head"]
+        head_idx = g_head.checkedId()
+        if head_idx < 0:
+            btn_head = g_head.checkedButton()
+            head_idx = g_head.id(btn_head) if btn_head else 0
+        head_val = {0: "stealth", 1: "open", 2: "latex"}.get(head_idx, "stealth")
+
+        out = {
             "line_style": style_val,
             "line_color": color,
+            "arrow_mode": mode_val,
         }
+        # mode가 none이면 화살표 모양 설정을 보내지 않는다 (요약에서도 사라지게)
+        if mode_val != "none":
+            out["arrow_head"] = head_val
+        return out
 
     def _collect_area_settings(self) -> dict:
         group = self._area_controls["group_border_style"]
@@ -484,6 +607,8 @@ class DrawDesignPanel(QWidget):
             return
         if self._current_layer_type is None or not self._current_layer_id:
             return
+        if self._current_layer_type == "line":
+            self._update_line_arrow_head_enabled()
         self._emit_settings()
 
     def _emit_settings(self):

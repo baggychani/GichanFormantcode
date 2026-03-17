@@ -407,7 +407,8 @@ class LayerLockButton(QPushButton):
         self.setFixedSize(32, 32)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
         self.setStyleSheet("background: transparent; border: none;")
-        self.setToolTip("잠금: 레이어 설정 초기화 시 이 레이어는 제외됩니다.")
+        # 라벨/레이어 도크에서 불필요한 검은 툴팁을 없애기 위해 기본 툴팁은 비워 둔다.
+        self.setToolTip("")
 
     def paintEvent(self, event):
         painter = QPainter(self)
@@ -473,6 +474,91 @@ class LayerLockButton(QPushButton):
         painter.setBrush(icon_color)
         painter.drawEllipse(QPointF(cx, body_top + body_h / 2.0), 1.0, 1.0)
         painter.end()
+
+
+def create_trajectory_icon(
+    arrow_mode: str = "none", head_style: str = "stealth", color_hex: str = "#606266"
+) -> QIcon:
+    """점 3개를 잇는 방향성 아이콘 생성 (그리기 디자인 패널용)."""
+    w, h = 54, 24
+    pixmap = QPixmap(w, h)
+    pixmap.fill(Qt.GlobalColor.transparent)
+
+    painter = QPainter(pixmap)
+    painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+
+    try:
+        cy = h / 2.0
+        x_left, x_mid, x_right = 10.0, 27.0, 44.0
+
+        # 1. 선 그리기
+        pen = QPen(QColor(color_hex))
+        pen.setWidthF(1.7)
+        pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+        pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
+        painter.setPen(pen)
+        painter.drawLine(QPointF(x_left, cy), QPointF(x_right, cy))
+
+        # 화살표 촉 위치
+        arrow_x_positions: list[float] = []
+        if arrow_mode == "end":
+            arrow_x_positions = [x_right]
+        elif arrow_mode == "all":
+            arrow_x_positions = [x_mid, x_right]
+
+        # 화살표 촉 크기
+        length = 8.5
+        width = 4.6
+
+        for ax in arrow_x_positions:
+            if head_style == "open":
+                # 1. Open: 선으로만 그려진 꺾쇠 (>)
+                painter.setBrush(Qt.BrushStyle.NoBrush)
+                painter.drawLine(QPointF(ax - length, cy - width), QPointF(ax, cy))
+                painter.drawLine(QPointF(ax - length, cy + width), QPointF(ax, cy))
+
+            elif head_style == "latex":
+                # 2. Latex: 파인 곳 없는 평평한 뒷면을 가진 꽉 찬 삼각형 (▶)
+                painter.setBrush(QBrush(QColor(color_hex)))
+                painter.setPen(Qt.PenStyle.NoPen)
+                poly = QPolygonF(
+                    [
+                        QPointF(ax, cy),  # 뾰족한 끝점
+                        QPointF(ax - length, cy - width),  # 위쪽 꼬리
+                        QPointF(
+                            ax - length, cy + width
+                        ),  # 아래쪽 꼬리 (일직선으로 이어짐)
+                    ]
+                )
+                painter.drawPolygon(poly)
+                painter.setPen(pen)
+
+            elif head_style == "stealth":
+                # 3. Stealth: Latex 기반이지만 뒷면이 안쪽으로 파인 형태
+                painter.setBrush(QBrush(QColor(color_hex)))
+                painter.setPen(Qt.PenStyle.NoPen)
+                indent = 3.6  # 안쪽으로 파이는 정도
+                poly = QPolygonF(
+                    [
+                        QPointF(ax, cy),  # 뾰족한 끝점
+                        QPointF(ax - length, cy - width),  # 위쪽 꼬리
+                        QPointF(ax - length + indent, cy),  # 안쪽으로 쏙 파인 중간점
+                        QPointF(ax - length, cy + width),  # 아래쪽 꼬리
+                    ]
+                )
+                painter.drawPolygon(poly)
+                painter.setPen(pen)
+
+        # 3. 점(마커) 3개 그리기
+        painter.setBrush(QBrush(QColor(color_hex)))
+        painter.setPen(Qt.PenStyle.NoPen)
+        r = 2.0
+        for x in [x_left, x_mid, x_right]:
+            painter.drawEllipse(QRectF(x - r, cy - r, r * 2, r * 2))
+    finally:
+        painter.end()
+
+    return QIcon(pixmap)
 
 
 def draw_palette_icon(painter: QPainter, rect: QRectF, is_active: bool):

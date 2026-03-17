@@ -106,6 +106,10 @@ def apply_line_settings(obj: object, cfg: Dict[str, Any]) -> None:
         setattr(obj, "line_style", (cfg.get("line_style") or "-"))
     if "line_color" in cfg:
         setattr(obj, "line_color", cfg.get("line_color") or "#000000")
+    if "arrow_mode" in cfg:
+        setattr(obj, "arrow_mode", cfg.get("arrow_mode") or "none")
+    if "arrow_head" in cfg:
+        setattr(obj, "arrow_head", cfg.get("arrow_head") or "stealth")
 
 
 def apply_polygon_settings(obj: object, cfg: Dict[str, Any]) -> None:

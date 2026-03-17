@@ -53,7 +53,7 @@ class PlotEngine:
             "show_centroid": True,
             "raw_marker": "o",
             "centroid_marker": "o",
-            "lbl_color": "#FF0000",
+            "lbl_color": "#E64A19",
             "lbl_size": 16,
             "lbl_bold": True,
             "lbl_italic": False,

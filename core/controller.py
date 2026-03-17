@@ -438,7 +438,7 @@ class MainController:
         return {
             "show_raw": True,
             "show_centroid": True,
-            "lbl_color": "#FF0000",
+            "lbl_color": "#E64A19",
             "lbl_size": 16,
             "lbl_bold": True,
             "lbl_italic": False,
@@ -1192,6 +1192,10 @@ class MainController:
                 self.label_move_tool.detach()
                 if hasattr(popup_window, "update_label_move_style"):
                     popup_window.update_label_move_style(False)
+                elif hasattr(popup_window, "update_compare_label_move_style"):
+                    series = getattr(popup_window, "_label_move_series", None) or "blue"
+                    popup_window.update_compare_label_move_style(series, False)
+                    popup_window._label_move_series = None
                 app_logger.info(config.LOG_MSG["LABEL_MOVE_OFF"])
             self.ruler_tool.active = True
             if popup_window.figure.axes:

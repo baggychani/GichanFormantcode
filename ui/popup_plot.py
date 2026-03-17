@@ -1089,15 +1089,14 @@ class PlotPopup(QMainWindow):
         self.btn_ruler.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self.btn_ruler.setStyleSheet("""
             QPushButton#BtnRuler { background-color: #F0F2F5; border: 1px solid #DCDFE6; border-radius: 4px; color: #333;}
+            QPushButton#BtnRuler:hover:!checked { background-color: #E4E7ED; border: 1px solid #C0C4CC; }
             QPushButton#BtnRuler:checked { background-color: #67C23A; color: white; font-weight: bold; border: none; }
         """)
         self.btn_ruler.clicked.connect(self.on_toggle_ruler)
         tool_group.addWidget(self.btn_ruler)
 
         self.btn_draw = QPushButton("그리기 (P)")
-        self.btn_draw.setToolTip(
-            "선·영역·참조선 그리기. P로 켜기/끄기. 켜면 좌측 하단에서 도구 선택."
-        )
+        self.btn_draw.setToolTip("")
         self.btn_draw.setCheckable(True)
         self.btn_draw.setFixedHeight(35)
         self.btn_draw.setFont(font_normal)
@@ -1343,11 +1342,7 @@ class PlotPopup(QMainWindow):
         if getattr(self, "btn_draw", None):
             # 눈금자 또는 라벨 이동 모드가 켜져 있으면 그리기 모드를 켤 수 없다 (배타 모드)
             if not self.btn_draw.isChecked() and (
-                getattr(self, "btn_ruler", None)
-                and self.btn_ruler.isChecked()
-                or hasattr(self, "design_tab")
-                and hasattr(self.design_tab, "btn_label_move")
-                and self.design_tab.btn_label_move.isChecked()
+                self._is_ruler_active() or self._is_label_move_active()
             ):
                 return
             self.btn_draw.setChecked(not self.btn_draw.isChecked())
@@ -1618,15 +1613,24 @@ class PlotPopup(QMainWindow):
     def _safe_toggle_ruler(self):
         if self._is_input_focused():
             return
-        # 그리기 모드가 켜져 있을 때는 눈금자 토글을 막는다 (엄격 배타 모드)
-        if getattr(self, "btn_draw", None) and self.btn_draw.isChecked():
+        next_state = not self.btn_ruler.isChecked()
+        # 배타 모드: 눈금자를 켜려면 draw/label_move가 모두 꺼져 있어야 한다.
+        if next_state and (
+            (getattr(self, "btn_draw", None) and self.btn_draw.isChecked())
+            or self._is_label_move_active()
+        ):
             return
-        self.btn_ruler.setChecked(not self.btn_ruler.isChecked())
+        self.btn_ruler.setChecked(next_state)
         self.on_toggle_ruler()
 
     def on_toggle_ruler(self):
-        # 그리기 모드가 켜져 있을 때는 눈금자 토글을 막는다 (버튼 클릭 직접 호출 대비)
-        if getattr(self, "btn_draw", None) and self.btn_draw.isChecked():
+        # 버튼 직접 클릭으로 진입했을 때도 배타 모드를 강제한다.
+        if self.btn_ruler.isChecked() and (
+            (getattr(self, "btn_draw", None) and self.btn_draw.isChecked())
+            or self._is_label_move_active()
+        ):
+            self.btn_ruler.setChecked(False)
+            self.update_ruler_style(False)
             return
         self.setFocus()
         self.controller.toggle_ruler(self)
@@ -1635,17 +1639,24 @@ class PlotPopup(QMainWindow):
     def _safe_toggle_label_move(self):
         if self._is_input_focused():
             return
-        # 그리기 모드가 켜져 있을 때는 라벨 이동 토글을 막는다 (엄격 배타 모드)
-        if getattr(self, "btn_draw", None) and self.btn_draw.isChecked():
+        next_state = not self.design_tab.btn_label_move.isChecked()
+        # 배타 모드: 라벨 이동을 켜려면 draw/ruler가 모두 꺼져 있어야 한다.
+        if next_state and (
+            (getattr(self, "btn_draw", None) and self.btn_draw.isChecked())
+            or self._is_ruler_active()
+        ):
             return
-        self.design_tab.btn_label_move.setChecked(
-            not self.design_tab.btn_label_move.isChecked()
-        )
+        self.design_tab.btn_label_move.setChecked(next_state)
         self.on_toggle_label_move()
 
     def on_toggle_label_move(self):
-        # 그리기 모드가 켜져 있을 때는 라벨 이동 토글을 막는다 (버튼 클릭 직접 호출 대비)
-        if getattr(self, "btn_draw", None) and self.btn_draw.isChecked():
+        # 버튼 직접 클릭으로 진입했을 때도 배타 모드를 강제한다.
+        if self.design_tab.btn_label_move.isChecked() and (
+            (getattr(self, "btn_draw", None) and self.btn_draw.isChecked())
+            or self._is_ruler_active()
+        ):
+            self.design_tab.btn_label_move.setChecked(False)
+            self.update_label_move_style(False)
             return
         self.setFocus()
         self.controller.toggle_label_move(self)
@@ -1653,6 +1664,26 @@ class PlotPopup(QMainWindow):
             self.design_tab.btn_label_move.setChecked(
                 self.controller.label_move_tool.active
             )
+
+    def _is_ruler_active(self):
+        btn_on = bool(getattr(self, "btn_ruler", None) and self.btn_ruler.isChecked())
+        tool_on = bool(
+            getattr(getattr(self, "controller", None), "ruler_tool", None)
+            and self.controller.ruler_tool.active
+        )
+        return btn_on or tool_on
+
+    def _is_label_move_active(self):
+        btn_on = bool(
+            hasattr(self, "design_tab")
+            and hasattr(self.design_tab, "btn_label_move")
+            and self.design_tab.btn_label_move.isChecked()
+        )
+        tool_on = bool(
+            getattr(getattr(self, "controller", None), "label_move_tool", None)
+            and self.controller.label_move_tool.active
+        )
+        return btn_on or tool_on
 
     def update_label_move_style(self, is_on):
         self.design_tab.btn_label_move.setChecked(is_on)
@@ -1674,6 +1705,14 @@ class PlotPopup(QMainWindow):
             self.canvas.setFocusPolicy(Qt.FocusPolicy.NoFocus)
 
     def _on_toggle_draw(self):
+        # 버튼 직접 클릭으로 진입했을 때도 배타 모드를 강제한다.
+        if self.btn_draw.isChecked() and (
+            self._is_ruler_active() or self._is_label_move_active()
+        ):
+            self.btn_draw.setChecked(False)
+            if hasattr(self, "tool_indicator") and self.tool_indicator is not None:
+                self.tool_indicator.set_draw_mode_on(False)
+            return
         if hasattr(self, "tool_indicator") and self.tool_indicator is not None:
             self.tool_indicator.set_draw_mode_on(self.btn_draw.isChecked())
         if self.btn_draw.isChecked():
@@ -1798,16 +1837,116 @@ class PlotPopup(QMainWindow):
                     style = getattr(obj, "line_style", "-") or "-"
                     color_hex = getattr(obj, "line_color", "#000000") or "#000000"
                     rgba_color = mcolors.to_rgba(color_hex, float(line_alpha))
+                    linewidth = 1.0
                     (line,) = ax.plot(
                         xs,
                         ys,
                         linestyle=_line_style_to_mpl(style),
                         color=rgba_color,
-                        linewidth=1.0,
+                        linewidth=linewidth,
                         zorder=1,
                         clip_on=False,
                     )
                     self._draw_layer_artists.append(line)
+
+                    # 화살표 그리기 (arrow_mode, arrow_head에 따라)
+                    arrow_mode = getattr(obj, "arrow_mode", "none") or "none"
+                    arrow_head = getattr(obj, "arrow_head", "stealth") or "stealth"
+                    if arrow_mode != "none" and len(obj.points) >= 2:
+                        from matplotlib.patches import Polygon as MplPolygon
+
+                        arrow_z = 4.0  # 선(z=1)은 아래 유지, centroid(z=3) 위 / 라벨(z=100) 아래
+
+                        def _add_arrow(p_start, p_end):
+                            # 기존 선 스타일(실선/점선)을 보존하기 위해 shaft를 덧그리지 않고,
+                            # 끝점 근처에 head만 별도 렌더링한다.
+                            # 화살촉 왜곡을 막기 위해 화면(px) 좌표에서 head를 만든 뒤 data 좌표로 역변환한다.
+                            x0, y0 = float(p_start[0]), float(p_start[1])
+                            x1, y1 = float(p_end[0]), float(p_end[1])
+                            disp0 = ax.transData.transform((x0, y0))
+                            disp1 = ax.transData.transform((x1, y1))
+                            dx, dy = (
+                                float(disp1[0] - disp0[0]),
+                                float(disp1[1] - disp0[1]),
+                            )
+                            seg_len_px = (dx * dx + dy * dy) ** 0.5
+                            if seg_len_px <= 1e-6:
+                                return
+
+                            ux, uy = dx / seg_len_px, dy / seg_len_px
+                            px, py = -uy, ux  # 수직 단위벡터
+
+                            # px 단위 head 크기: 선 두께 비례 + 최소 보장
+                            head_len = max(12.0, 8.0 * max(linewidth, 1.0))
+                            head_len = min(head_len, seg_len_px * 0.7)
+                            head_w = head_len * 0.78
+
+                            tx, ty = float(disp1[0]), float(disp1[1])
+                            bx, by = tx - ux * head_len, ty - uy * head_len
+                            lx, ly = bx + px * head_w * 0.5, by + py * head_w * 0.5
+                            rx, ry = bx - px * head_w * 0.5, by - py * head_w * 0.5
+
+                            inv = ax.transData.inverted().transform
+                            tip_d = tuple(inv((tx, ty)))
+                            left_d = tuple(inv((lx, ly)))
+                            right_d = tuple(inv((rx, ry)))
+                            base_d = tuple(inv((bx, by)))
+
+                            if arrow_head == "open":
+                                # Open head: V자 head 두 선만 그림
+                                (l1,) = ax.plot(
+                                    [tip_d[0], left_d[0]],
+                                    [tip_d[1], left_d[1]],
+                                    color=rgba_color,
+                                    linewidth=max(0.9, linewidth * 0.9),
+                                    zorder=arrow_z,
+                                    clip_on=False,
+                                )
+                                (l2,) = ax.plot(
+                                    [tip_d[0], right_d[0]],
+                                    [tip_d[1], right_d[1]],
+                                    color=rgba_color,
+                                    linewidth=max(0.9, linewidth * 0.9),
+                                    zorder=arrow_z,
+                                    clip_on=False,
+                                )
+                                self._draw_layer_artists.extend([l1, l2])
+                            elif arrow_head == "latex":
+                                # Latex head: 꽉 찬 3점 이등변 삼각형
+                                poly = MplPolygon(
+                                    [tip_d, left_d, right_d],
+                                    closed=True,
+                                    facecolor=rgba_color,
+                                    edgecolor=rgba_color,
+                                    linewidth=max(0.5, linewidth * 0.5),
+                                    zorder=arrow_z,
+                                    clip_on=False,
+                                )
+                                ax.add_patch(poly)
+                                self._draw_layer_artists.append(poly)
+                            else:
+                                # Stealth head: latex 삼각형 기반 + 꼬리 중앙 안쪽 indent
+                                indent = head_len * (3.6 / 8.5)
+                                mx, my = bx + ux * indent, by + uy * indent
+                                mid_d = tuple(inv((mx, my)))
+                                poly = MplPolygon(
+                                    [tip_d, left_d, mid_d, right_d],
+                                    closed=True,
+                                    facecolor=rgba_color,
+                                    edgecolor=rgba_color,
+                                    linewidth=max(0.5, linewidth * 0.5),
+                                    zorder=arrow_z,
+                                    clip_on=False,
+                                )
+                                ax.add_patch(poly)
+                                self._draw_layer_artists.append(poly)
+
+                        pts = obj.points
+                        if arrow_mode == "end":
+                            _add_arrow(pts[-2], pts[-1])
+                        elif arrow_mode == "all":
+                            for j in range(len(pts) - 1):
+                                _add_arrow(pts[j], pts[j + 1])
                 elif getattr(obj, "type", None) == "polygon" and hasattr(obj, "points"):
                     from matplotlib.patches import Polygon as MplPolygon
 
@@ -1930,7 +2069,7 @@ class PlotPopup(QMainWindow):
                     alpha=text_alpha,
                     va="center",
                     zorder=2,
-                    clip_on=True,
+                    clip_on=False,
                 )
                 self._draw_layer_artists.append(ref_line)
                 self._draw_layer_artists.append(ref_txt)
@@ -1955,7 +2094,7 @@ class PlotPopup(QMainWindow):
                     va="bottom",
                     ha="center",
                     zorder=2,
-                    clip_on=True,
+                    clip_on=False,
                 )
                 self._draw_layer_artists.append(ref_line)
                 self._draw_layer_artists.append(ref_txt)
@@ -2382,7 +2521,11 @@ class PlotPopup(QMainWindow):
     def update_ruler_style(self, is_on):
         self.btn_ruler.setChecked(is_on)
         self.btn_ruler.setStyleSheet(
-            f"background-color: {'#67C23A' if is_on else '#F0F2F5'}; color: {'white' if is_on else '#333'}; font-weight: {'bold' if is_on else 'normal'}; border-radius: 4px;"
+            """
+            QPushButton#BtnRuler { background-color: #F0F2F5; border: 1px solid #DCDFE6; border-radius: 4px; color: #333; }
+            QPushButton#BtnRuler:hover:!checked { background-color: #E4E7ED; border: 1px solid #C0C4CC; }
+            QPushButton#BtnRuler:checked { background-color: #67C23A; color: white; font-weight: bold; border: none; }
+            """
         )
         if hasattr(self, "tool_indicator") and self.tool_indicator is not None:
             self.tool_indicator.set_ruler_on(is_on)
