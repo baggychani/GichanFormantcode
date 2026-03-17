@@ -58,10 +58,19 @@ from . import layout_constants as lc
 from draw.draw_common import polygon_area
 
 
-# design_panel과 동일 매핑
-MARKER_IDS = {"o": 0, "s": 1, "^": 2, "D": 3}
-MARKER_VALS = ["o", "s", "^", "D"]
-MARKER_LABELS = {"o": "동그라미", "s": "사각형", "^": "삼각형", "D": "다이아몬드"}
+# design_panel과 동일 매핑. 검은색 4종 + 흰색 채움·검은 외곽선 4종
+MARKER_IDS = {"o": 0, "s": 1, "^": 2, "D": 3, "wo": 4, "ws": 5, "w^": 6, "wD": 7}
+MARKER_VALS = ["o", "s", "^", "D", "wo", "ws", "w^", "wD"]
+MARKER_LABELS = {
+    "o": "동그라미",
+    "s": "사각형",
+    "^": "삼각형",
+    "D": "다이아몬드",
+    "wo": "동그라미(흰색)",
+    "ws": "사각형(흰색)",
+    "w^": "삼각형(흰색)",
+    "wD": "다이아몬드(흰색)",
+}
 # 디자인 설정과 동일: 얇게=0.5, 보통=1.0, 두껍게=2.0
 THICK_VALS = [0.5, 1.0, 2.0]
 THICK_LABELS = {0.5: "얇게", 1.0: "보통", 2.0: "두껍게"}
@@ -564,19 +573,32 @@ class LayerDockWidget(QWidget):
         )
         color_layout.addWidget(self.lbl_color_picker)
         top_layout.addLayout(color_layout)
-        centroid_layout = QHBoxLayout()
-        centroid_layout.setSpacing(0)
+        centroid_layout = QVBoxLayout()
+        centroid_layout.setSpacing(4)
         lbl_centroid = QLabel("모음 중심점 모양:", font=font_normal)
         lbl_centroid.setMinimumWidth(120)
         centroid_layout.addWidget(lbl_centroid)
-        centroid_layout.addStretch()
+        centroid_row = QHBoxLayout()
+        centroid_row.setSpacing(0)
+        centroid_row.addStretch()
         self.group_centroid_marker = QButtonGroup(self.vowel_design_container)
         for i, (mk, tip) in enumerate(
-            [("o", "동그라미"), ("s", "사각형"), ("^", "삼각형"), ("D", "다이아몬드")]
+            [
+                ("o", "동그라미"),
+                ("s", "사각형"),
+                ("^", "삼각형"),
+                ("D", "다이아몬드"),
+                ("wo", "동그라미(흰색)"),
+                ("ws", "사각형(흰색)"),
+                ("w^", "삼각형(흰색)"),
+                ("wD", "다이아몬드(흰색)"),
+            ]
         ):
             btn = MarkerShapeButton(mk, tooltip=tip)
             self.group_centroid_marker.addButton(btn, i)
-            centroid_layout.addWidget(btn)
+            centroid_row.addWidget(btn)
+        centroid_row.addStretch()
+        centroid_layout.addLayout(centroid_row)
         self.group_centroid_marker.button(0).setChecked(True)
         top_layout.addLayout(centroid_layout)
 
@@ -810,6 +832,8 @@ class LayerDockWidget(QWidget):
         draw_tab_layout.addWidget(self._draw_layer_scroll, 1)
         self._draw_layer_scroll.setWidget(self._draw_list_placeholder)
         self._draw_list_placeholder.installEventFilter(self)
+        # 그리기 탭 내 어느 위젯에 포커스가 있어도 Delete로 선택 항목 일괄 삭제되도록
+        draw_tab.installEventFilter(self)
         self.tab_widget.addTab(draw_tab, "그리기")
         self.tab_widget.currentChanged.connect(self._on_layer_tab_index_changed)
 
@@ -1943,13 +1967,17 @@ class LayerDockWidget(QWidget):
         super().keyPressEvent(event)
 
     def eventFilter(self, obj, event):
-        if (
-            obj == self._draw_list_placeholder
-            and event.type() == QEvent.Type.KeyPress
-            and event.key() == Qt.Key.Key_Delete
-        ):
-            self._on_draw_delete()
-            return True
+        if event.type() == QEvent.Type.KeyPress and event.key() == Qt.Key.Key_Delete:
+            if self.tab_widget.currentIndex() == 1:
+                w = obj
+                while w is not None:
+                    if w == self._draw_list_placeholder:
+                        self._on_draw_delete()
+                        return True
+                    try:
+                        w = w.parent()
+                    except Exception:
+                        break
         return super().eventFilter(obj, event)
 
     def _on_layer_tab_index_changed(self, index: int):

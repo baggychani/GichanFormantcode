@@ -109,12 +109,12 @@ def create_legend_icon_design(color_hex, line_style_str, marker_char="o"):
         painter.drawLine(32, 8, 48, 8)
         painter.setPen(Qt.PenStyle.NoPen)
         painter.setBrush(QColor(color_hex))
-        cx, cy = 25, 8
-        r = 4
+        cx, cy = 25.0, 8.0
+        r = 4.0
         if marker_char == "o":
-            painter.drawEllipse(int(cx - r), int(cy - r), 2 * r, 2 * r)
+            painter.drawEllipse(QRectF(cx - r, cy - r, 2 * r, 2 * r))
         elif marker_char == "s":
-            painter.drawRect(int(cx - r), int(cy - r), 2 * r, 2 * r)
+            painter.drawRect(QRectF(cx - r, cy - r, 2 * r, 2 * r))
         elif marker_char == "^":
             poly = QPolygonF(
                 [QPointF(cx, cy - r), QPointF(cx + r, cy + r), QPointF(cx - r, cy + r)]
@@ -131,7 +131,7 @@ def create_legend_icon_design(color_hex, line_style_str, marker_char="o"):
             )
             painter.drawPolygon(poly)
         else:
-            painter.drawEllipse(int(cx - r), int(cy - r), 2 * r, 2 * r)
+            painter.drawEllipse(QRectF(cx - r, cy - r, 2 * r, 2 * r))
     finally:
         painter.end()
     return pixmap
@@ -185,7 +185,7 @@ class LinePreviewButton(QPushButton):
 
 
 class MarkerShapeButton(QPushButton):
-    """모음 중심점 모양 선택용 버튼 (동그라미/사각형/삼각형/다이아몬드)."""
+    """모음 중심점 모양 선택용 버튼. 검은색 채움(o,s,^,D) 또는 흰색 채움+검은 외곽선(wo,ws,w^,wD)."""
 
     MARKER_MAP = {"o": "circle", "s": "square", "^": "triangle", "D": "diamond"}
 
@@ -211,15 +211,28 @@ class MarkerShapeButton(QPushButton):
             painter = QPainter(pixmap)
             try:
                 painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-                painter.setPen(Qt.PenStyle.NoPen)
-                painter.setBrush(QColor("#606266"))
-                cx, cy = 12, 12
-                r = 6
-                if marker == "o":
-                    painter.drawEllipse(int(cx - r), int(cy - r), 2 * r, 2 * r)
-                elif marker == "s":
-                    painter.drawRect(int(cx - r), int(cy - r), 2 * r, 2 * r)
-                elif marker == "^":
+                cx, cy = 12.0, 12.0
+
+                white_fill = marker.startswith("w") and len(marker) == 2
+                base = marker[1] if white_fill else marker
+
+                # 흰색 도형 테두리를 1.0px로 줄이고 inset 보정
+                pen_width = 1.0
+                inset = (pen_width / 2.0) if white_fill else 0.0
+                r = 6.0 - inset
+                if white_fill:
+                    painter.setPen(QPen(QColor("#000000"), pen_width))
+                    painter.setBrush(QBrush(QColor("#FFFFFF")))
+                else:
+                    painter.setPen(Qt.PenStyle.NoPen)
+                    painter.setBrush(QColor("#606266"))
+
+                # int() 변환을 제거하여 깔끔한 렌더링 보장 (다각형 형태는 기존과 완벽히 동일하게 유지)
+                if base == "o":
+                    painter.drawEllipse(QRectF(cx - r, cy - r, 2 * r, 2 * r))
+                elif base == "s":
+                    painter.drawRect(QRectF(cx - r, cy - r, 2 * r, 2 * r))
+                elif base == "^":
                     poly = QPolygonF(
                         [
                             QPointF(cx, cy - r),
@@ -228,7 +241,7 @@ class MarkerShapeButton(QPushButton):
                         ]
                     )
                     painter.drawPolygon(poly)
-                elif marker == "D":
+                elif base == "D":
                     poly = QPolygonF(
                         [
                             QPointF(cx, cy - r),

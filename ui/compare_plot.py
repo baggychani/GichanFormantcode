@@ -1157,8 +1157,13 @@ class ComparePlotPopup(QMainWindow):
 
                 ell_style = cfg.get("ell_style", "-" if ds_type == "blue" else "--")
                 centroid_marker = cfg.get("centroid_marker", "o")
-                if centroid_marker not in ("o", "s", "^", "D"):
+                if centroid_marker not in ("o", "s", "^", "D", "wo", "ws", "w^", "wD"):
                     centroid_marker = "o"
+                legend_marker = (
+                    centroid_marker[1]
+                    if centroid_marker in ("wo", "ws", "w^", "wD")
+                    else centroid_marker
+                )
 
                 lbl_color = cfg.get("lbl_color")
                 if not lbl_color or lbl_color == "transparent":
@@ -1166,7 +1171,7 @@ class ComparePlotPopup(QMainWindow):
 
                 # 범례 아이콘(선과 점) 새로 그리기 — 디자인 설정과 동일한 create_legend_icon_design 사용
                 new_pixmap = create_legend_icon_design(
-                    ell_color, ell_style, centroid_marker
+                    ell_color, ell_style, legend_marker
                 )
                 self.legend_refs[ds_type]["icon"].setPixmap(new_pixmap)
 

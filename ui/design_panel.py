@@ -387,11 +387,26 @@ class DesignSettingsPanel(QWidget):
         self._add_separator(layout)
 
         # ==========================================
-        # 2. 라벨과 중심점 (Inline Font Toolbar)
+        # 2. 라벨과 중심점 (그래프 배경과 동일: 클릭 가능 헤더 + 접기)
         # ==========================================
         label_group = QVBoxLayout()
         label_group.setSpacing(14)
-        label_group.addWidget(QLabel("라벨과 중심점", font=font_bold))
+        label_header_row = QWidget()
+        label_header_row.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
+        label_header_layout = QHBoxLayout(label_header_row)
+        label_header_layout.setContentsMargins(0, 0, 0, 0)
+        label_header_layout.setSpacing(4)
+        label_header_layout.addWidget(QLabel("라벨과 중심점", font=font_bold))
+        self.label_toggle_btn = QPushButton("▼")
+        self.label_toggle_btn.setFixedSize(28, 24)
+        self.label_toggle_btn.setFlat(True)
+        self.label_toggle_btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self.label_toggle_btn.setStyleSheet(
+            "QPushButton { color: #606266; font-size: 11px; }"
+        )
+        label_header_layout.addWidget(self.label_toggle_btn)
+        label_header_layout.addStretch()
+        label_group.addWidget(label_header_row)
 
         self.btn_label_move = QPushButton("라벨 위치 이동 (T)")
         self.btn_label_move.setObjectName("BtnLabelMove")
@@ -465,21 +480,66 @@ class DesignSettingsPanel(QWidget):
 
         label_group.addLayout(font_style_layout)
 
-        centroid_marker_layout = QHBoxLayout()
-        centroid_marker_layout.setSpacing(0)
+        centroid_marker_layout = QVBoxLayout()
+        centroid_marker_layout.setSpacing(4)
         lbl_centroid = QLabel("모음 중심점 모양:", font=font_normal)
         lbl_centroid.setMinimumWidth(140)
         centroid_marker_layout.addWidget(lbl_centroid)
-        centroid_marker_layout.addStretch()
+        centroid_row = QHBoxLayout()
+        centroid_row.setSpacing(0)
+        centroid_row.addStretch()
         self.group_centroid_marker = QButtonGroup(self)
         for i, (mk, tip) in enumerate(
-            [("o", "동그라미"), ("s", "사각형"), ("^", "삼각형"), ("D", "다이아몬드")]
+            [
+                ("o", "동그라미"),
+                ("s", "사각형"),
+                ("^", "삼각형"),
+                ("D", "다이아몬드"),
+                ("wo", "동그라미(흰색)"),
+                ("ws", "사각형(흰색)"),
+                ("w^", "삼각형(흰색)"),
+                ("wD", "다이아몬드(흰색)"),
+            ]
         ):
             btn = MarkerShapeButton(mk, tooltip=tip)
             self.group_centroid_marker.addButton(btn, i)
-            centroid_marker_layout.addWidget(btn)
+            centroid_row.addWidget(btn)
+        centroid_row.addStretch()
+        centroid_marker_layout.addLayout(centroid_row)
         self.group_centroid_marker.button(0).setChecked(True)
         label_group.addLayout(centroid_marker_layout)
+
+        # 접었을 때 숨겨지는 영역: // 기호 씌우기
+        label_collapse_content = QWidget()
+        label_collapse_content_layout = QVBoxLayout(label_collapse_content)
+        label_collapse_content_layout.setContentsMargins(0, 0, 0, 0)
+        label_collapse_content_layout.setSpacing(4)
+
+        # 구분선을 content 안으로 삽입하여 불필요한 위아래 이중 여백 제거
+        label_collapse_line = QFrame()
+        label_collapse_line.setFrameShape(QFrame.Shape.HLine)
+        label_collapse_line.setStyleSheet("color: #EBEEF5;")
+        label_collapse_line.setFixedHeight(1)
+        label_collapse_content_layout.addWidget(label_collapse_line)
+        self.label_collapse_line = label_collapse_line
+
+        row_slash, self.sw_label_slash_wrap = self._create_toggle_row(
+            "// 기호 씌우기", default_checked=False
+        )
+        self.sw_label_slash_wrap.setToolTip("ON이면 라벨을 /a/ 형태로 표시합니다.")
+        label_collapse_content_layout.addLayout(row_slash)
+        self.label_collapse_content = label_collapse_content
+
+        def toggle_label():
+            visible = not self.label_collapse_content.isVisible()
+            self.label_collapse_content.setVisible(visible)
+            self.label_toggle_btn.setText("▶" if not visible else "▼")
+
+        self.label_toggle_btn.clicked.connect(toggle_label)
+        label_header_row.mousePressEvent = lambda e: toggle_label()
+        self.label_collapse_content.setVisible(False)
+        self.label_toggle_btn.setText("▶")
+        label_group.addWidget(label_collapse_content)
 
         layout.addLayout(label_group)
         self._add_separator(layout)
@@ -692,6 +752,7 @@ class DesignSettingsPanel(QWidget):
             self.sw_box_spines,
             self.sw_show_grid,
             self.sw_show_minor_ticks,
+            self.sw_label_slash_wrap,
         ]:
             sw.toggled.connect(self._on_setting_changed)
 
@@ -733,6 +794,7 @@ class DesignSettingsPanel(QWidget):
         self.group_centroid_marker.button(0).setChecked(True)
         self.group_font_style.button(0).setChecked(True)  # serif(명조) 기본
         self.group_raw_marker.button(0).setChecked(True)
+        self.sw_label_slash_wrap.setChecked(False)
 
         self.ell_line_picker.set_color("#606060")
         self.ell_fill_picker.set_color("transparent")
@@ -754,7 +816,16 @@ class DesignSettingsPanel(QWidget):
     def get_current_settings(self):
         thick_map = {0: 0.5, 1: 1.0, 2: 2.0}
         style_map = {0: "-", 1: "---", 2: "--"}  # 실선, 긴 점선, 짧은 점선
-        marker_map = {0: "o", 1: "s", 2: "^", 3: "D"}
+        marker_map = {
+            0: "o",
+            1: "s",
+            2: "^",
+            3: "D",
+            4: "wo",
+            5: "ws",
+            6: "w^",
+            7: "wD",
+        }
 
         line_color = self.ell_line_picker.current_color
         fill_color = self.ell_fill_picker.current_color
@@ -784,6 +855,7 @@ class DesignSettingsPanel(QWidget):
             "box_spines": self.sw_box_spines.isChecked(),
             "show_grid": self.sw_show_grid.isChecked(),
             "show_minor_ticks": self.sw_show_minor_ticks.isChecked(),
+            "label_slash_wrap": self.sw_label_slash_wrap.isChecked(),
             "is_locked": self.btn_lock.isChecked(),
         }
 
@@ -957,19 +1029,32 @@ class CompareDesignSettingsPanel(QWidget):
 
         lbl_group.addLayout(font_style_layout)
 
-        centroid_marker_layout = QHBoxLayout()
-        centroid_marker_layout.setSpacing(0)
+        centroid_marker_layout = QVBoxLayout()
+        centroid_marker_layout.setSpacing(4)
         lbl_centroid = QLabel("모음 중심점 모양:", font=font_normal)
         lbl_centroid.setMinimumWidth(140)
         centroid_marker_layout.addWidget(lbl_centroid)
-        centroid_marker_layout.addStretch()
+        centroid_row = QHBoxLayout()
+        centroid_row.setSpacing(0)
+        centroid_row.addStretch()
         group_centroid_marker = QButtonGroup(self)
         for i, (mk, tip) in enumerate(
-            [("o", "동그라미"), ("s", "사각형"), ("^", "삼각형"), ("D", "다이아몬드")]
+            [
+                ("o", "동그라미"),
+                ("s", "사각형"),
+                ("^", "삼각형"),
+                ("D", "다이아몬드"),
+                ("wo", "동그라미(흰색)"),
+                ("ws", "사각형(흰색)"),
+                ("w^", "삼각형(흰색)"),
+                ("wD", "다이아몬드(흰색)"),
+            ]
         ):
             btn = MarkerShapeButton(mk, tooltip=tip)
             group_centroid_marker.addButton(btn, i)
-            centroid_marker_layout.addWidget(btn)
+            centroid_row.addWidget(btn)
+        centroid_row.addStretch()
+        centroid_marker_layout.addLayout(centroid_row)
         group_centroid_marker.button(0).setChecked(True)
         lbl_group.addLayout(centroid_marker_layout)
 
@@ -1051,7 +1136,7 @@ class CompareDesignSettingsPanel(QWidget):
         """디자인 설정 변경 시 각 탭(Blue/Red) 상단 범례 아이콘·텍스트 색상을 실시간 반영. 점 모양은 모음 중심점 모양을 따름."""
         if not settings:
             return
-        marker_map = ["o", "s", "^", "D"]
+        marker_map = ["o", "s", "^", "D", "wo", "ws", "w^", "wD"]
         for series, ctrl in [("blue", self.ctrl_blue), ("red", self.ctrl_red)]:
             cfg = settings.get(series, {})
             ell_color = cfg.get("ell_color") or (
@@ -1063,9 +1148,15 @@ class CompareDesignSettingsPanel(QWidget):
             centroid_marker = cfg.get("centroid_marker", "o")
             if centroid_marker not in marker_map:
                 centroid_marker = "o"
+            # 범례 아이콘용: 흰색 세트(wo,ws,w^,wD)는 같은 형태의 검은 버전으로 표시
+            legend_marker = (
+                centroid_marker[1]
+                if centroid_marker in ("wo", "ws", "w^", "wD")
+                else centroid_marker
+            )
             if "legend_icon" in ctrl:
                 ctrl["legend_icon"].setPixmap(
-                    create_legend_icon_design(ell_color, ell_style, centroid_marker)
+                    create_legend_icon_design(ell_color, ell_style, legend_marker)
                 )
             lbl_color = cfg.get("lbl_color") or ell_color
             if lbl_color == "transparent":
@@ -1080,8 +1171,13 @@ class CompareDesignSettingsPanel(QWidget):
         data_group.addWidget(QLabel("데이터 표시", font=font_bold))
         row1, self.sw_show_raw = self._create_toggle_row("데이터 포인트")
         row2, self.sw_show_centroid = self._create_toggle_row("모음 중심점(Centroid)")
+        row3, self.sw_label_slash_wrap_cmp = self._create_toggle_row(
+            "라벨에 // 기호 씌우기", default_checked=False
+        )
+        self.sw_label_slash_wrap_cmp.setToolTip("ON이면 라벨을 /a/ 형태로 표시합니다.")
         data_group.addLayout(row1)
         data_group.addLayout(row2)
+        data_group.addLayout(row3)
         layout.addLayout(data_group)
         line1 = QFrame()
         line1.setFrameShape(QFrame.Shape.HLine)
@@ -1367,6 +1463,7 @@ class CompareDesignSettingsPanel(QWidget):
         for sw in [
             self.sw_show_raw,
             self.sw_show_centroid,
+            self.sw_label_slash_wrap_cmp,
             self.sw_show_axis_units,
             self.sw_axis_position_swap,
             self.sw_y_label_rotation,
@@ -1439,6 +1536,7 @@ class CompareDesignSettingsPanel(QWidget):
             self.sw_box_spines.setChecked(False)
             self.sw_show_grid.setChecked(False)
         self.sw_show_minor_ticks.setChecked(True)
+        self.sw_label_slash_wrap_cmp.setChecked(False)
 
         self.group_font_style_common.button(0).setChecked(True)  # serif(명조) 기본
         self.group_raw_marker_common.button(0).setChecked(True)
@@ -1471,7 +1569,16 @@ class CompareDesignSettingsPanel(QWidget):
     def _parse_individual_settings(self, ctrl):
         thick_map = {0: 0.5, 1: 1.0, 2: 2.0}
         style_map = {0: "-", 1: "---", 2: "--"}  # 실선, 긴 점선, 짧은 점선
-        marker_map = {0: "o", 1: "s", 2: "^", 3: "D"}
+        marker_map = {
+            0: "o",
+            1: "s",
+            2: "^",
+            3: "D",
+            4: "wo",
+            5: "ws",
+            6: "w^",
+            7: "wD",
+        }
 
         line_color = ctrl["ell_line_picker"].current_color
         fill_color = ctrl["ell_fill_picker"].current_color
@@ -1509,6 +1616,7 @@ class CompareDesignSettingsPanel(QWidget):
                 "show_raw": self.sw_show_raw.isChecked(),
                 "show_centroid": self.sw_show_centroid.isChecked(),
                 "raw_marker": raw_marker,
+                "label_slash_wrap": self.sw_label_slash_wrap_cmp.isChecked(),
                 "show_axis_units": self.sw_show_axis_units.isChecked()
                 if not self._is_normalized
                 else False,

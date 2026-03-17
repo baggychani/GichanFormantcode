@@ -67,6 +67,7 @@ class PlotEngine:
             "show_axis_units": False,
             "show_minor_ticks": True,
             "font_style": "serif",
+            "label_slash_wrap": False,
         }
 
     def _to_mpl_linestyle(self, ell_style):
@@ -74,6 +75,15 @@ class PlotEngine:
         if ell_style == "---":
             return (0, (6.0, 3.0))  # 6pt dash, 3pt gap
         return ell_style if ell_style in ("-", "--", ":") else "--"
+
+    @staticmethod
+    def _resolve_centroid_marker(marker, default_face="black", base_size=70):
+        """centroid_marker를 (mpl_marker, facecolor, edgecolor, linewidth, marker_size)로 반환. 흰색 테두리 도형은 면적 30% 축소."""
+        if marker in ("wo", "ws", "w^", "wD"):
+            # 외곽선 때문에 커지는 현상 방지: s값을 약 30% 줄임
+            return (marker[1], "white", "black", 1.0, base_size * 0.7)
+        mpl = marker if marker in ("o", "s", "^", "D") else "o"
+        return (mpl, default_face, "white", 0.5, base_size)
 
     @staticmethod
     def _get_axis_font_list(font_style):
@@ -389,14 +399,17 @@ class PlotEngine:
             # 모음 중심점 표시 및 스냅 동기화
             if show_centroid:
                 mean_alpha = 0.2 if is_semi else 1.0
+                mpl_marker, face_c, edge_c, lw, m_size = self._resolve_centroid_marker(
+                    v_centroid_marker, default_face="black"
+                )
                 ax.scatter(
                     [mean_x],
                     [mean_y],
-                    s=70,
-                    c="black",
-                    marker=v_centroid_marker,
-                    edgecolors="white",
-                    linewidth=0.5,
+                    s=m_size,
+                    c=face_c,
+                    marker=mpl_marker,
+                    edgecolors=edge_c,
+                    linewidths=lw,
                     alpha=mean_alpha,
                     zorder=3 + z_offset,
                     clip_on=False,
@@ -437,6 +450,9 @@ class PlotEngine:
 
             if v_lbl_color != "transparent":
                 text_alpha = 0.3 if is_semi else 1.0
+                display_vowel = (
+                    f"/{vowel}/" if design_settings.get("label_slash_wrap") else vowel
+                )
                 font_family, serif_use_medium = self._label_font_family(
                     vowel, design_settings.get("font_style", "serif")
                 )
@@ -447,7 +463,7 @@ class PlotEngine:
                 )
                 if use_custom:
                     ann = ax.annotate(
-                        vowel,
+                        display_vowel,
                         xy=(mean_x, mean_y),
                         xytext=(label_x, label_y),
                         textcoords="data",
@@ -465,7 +481,7 @@ class PlotEngine:
                     final_dx_pt = final_dx if show_centroid else 0
                     final_dy_pt = final_dy if show_centroid else 0
                     ann = ax.annotate(
-                        vowel,
+                        display_vowel,
                         xy=(mean_x, mean_y),
                         xytext=(final_dx_pt, final_dy_pt),
                         textcoords="offset points",
@@ -910,14 +926,19 @@ class PlotEngine:
                 if show_centroid:
                     mean_alpha = 0.2 if is_semi else 1.0
                     z_offset = -10 if is_semi else 0
+                    mpl_marker, face_c, edge_c, lw, m_size = (
+                        self._resolve_centroid_marker(
+                            centroid_marker, default_face=point_color
+                        )
+                    )
                     ax.scatter(
                         [mean_x],
                         [mean_y],
-                        s=70,
-                        c=point_color,
-                        marker=centroid_marker,
-                        edgecolors="white",
-                        linewidth=0.5,
+                        s=m_size,
+                        c=face_c,
+                        marker=mpl_marker,
+                        edgecolors=edge_c,
+                        linewidths=lw,
                         alpha=mean_alpha,
                         zorder=3 + z_offset,
                         clip_on=False,
@@ -963,6 +984,9 @@ class PlotEngine:
 
                 if not hide_text:
                     text_alpha = 0.3 if is_semi else 1.0
+                    display_vowel = (
+                        f"/{vowel}/" if common.get("label_slash_wrap") else vowel
+                    )
                     z_offset = -10 if is_semi else 0
                     font_family, serif_use_medium = self._label_font_family(
                         vowel, common.get("font_style", "serif")
@@ -974,7 +998,7 @@ class PlotEngine:
                     )
                     if use_custom:
                         ann = ax.annotate(
-                            vowel,
+                            display_vowel,
                             xy=(mean_x, mean_y),
                             xytext=(label_x, label_y),
                             textcoords="data",
@@ -990,7 +1014,7 @@ class PlotEngine:
                         )
                     else:
                         ann = ax.annotate(
-                            vowel,
+                            display_vowel,
                             xy=(mean_x, mean_y),
                             xytext=(final_dx, final_dy),
                             textcoords="offset points",
@@ -1474,14 +1498,19 @@ class PlotEngine:
                 mean_x, mean_y = x.mean(), y.mean()
                 if show_centroid:
                     z_offset = -10 if is_semi else 0
+                    mpl_marker, face_c, edge_c, lw, m_size = (
+                        self._resolve_centroid_marker(
+                            centroid_marker, default_face=ell_color or "#606060"
+                        )
+                    )
                     ax.scatter(
                         [mean_x],
                         [mean_y],
-                        s=70,
-                        c=ell_color,
-                        marker=centroid_marker,
-                        edgecolors="white",
-                        linewidth=0.5,
+                        s=m_size,
+                        c=face_c,
+                        marker=mpl_marker,
+                        edgecolors=edge_c,
+                        linewidths=lw,
                         zorder=3 + z_offset,
                         clip_on=False,
                     )
@@ -1523,6 +1552,9 @@ class PlotEngine:
                     continue
 
                 text_alpha = 0.3 if is_semi else 1.0
+                display_vowel = (
+                    f"/{vowel}/" if common.get("label_slash_wrap") else vowel
+                )
                 z_offset = -10 if is_semi else 0
                 font_family, serif_use_medium = self._label_font_family(
                     vowel, common.get("font_style", "serif")
@@ -1534,7 +1566,7 @@ class PlotEngine:
                 )
                 if use_custom:
                     ann = ax.annotate(
-                        vowel,
+                        display_vowel,
                         xy=(mean_x, mean_y),
                         xytext=(label_x, label_y),
                         textcoords="data",
@@ -1550,7 +1582,7 @@ class PlotEngine:
                     )
                 else:
                     ann = ax.annotate(
-                        vowel,
+                        display_vowel,
                         xy=(mean_x, mean_y),
                         xytext=(final_dx, final_dy),
                         textcoords="offset points",
