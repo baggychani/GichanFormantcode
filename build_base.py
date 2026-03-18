@@ -1,4 +1,6 @@
-import os
+from pathlib import Path
+
+repo_root = Path(__file__).resolve().parent
 
 base_code = """import os
 import platform
@@ -31,28 +33,10 @@ class BasePlotWindow(QMainWindow):
 
 """
 
-with open("c:/Users/woori/Desktop/GichanFormant/ui/windows/extracted_methods.py", "r", encoding="utf-8") as f:
-    methods_code = f.read()
-
-fixed_methods = []
-for line in methods_code.splitlines():
-    if line.startswith("def "):
-        fixed_methods.append("    " + line)
-    elif line.strip() == "":
-        fixed_methods.append("")
-    else:
-        # The body lines in extracted_methods.py already have 8 spaces because they were 8 spaces in popup_plot.py. Wait, if `def ` had 4 spaces, then body had 8. The ast removed 4 spaces from the first line? Let's assume ast.get_source_segment stripped leading whitespace from the first line ONLY.
-        if line.startswith("        ") or line.startswith("    "):
-            fixed_methods.append("    " + line)  # This might add 4 spaces, so body gets 12. Let's look at line 2: "        try:"
-            # If line 2 is "        try:", then it has 8 spaces. If we add 4, it becomes 12. That's wrong.
-            # Alternatively, let's just use Python's textwrap.indent
-            pass
-
-import textwrap
 # Let's read the AST again and generate the file properly to avoid indentation issues.
 import ast
 
-file_path = "c:/Users/woori/Desktop/GichanFormant/ui/windows/popup_plot.py"
+file_path = repo_root / "ui" / "windows" / "popup_plot.py"
 methods_to_extract = [
     "_apply_pyqt6_icon",
     "_is_ruler_active",
@@ -108,7 +92,7 @@ for node in ast.walk(tree):
                 
                 out_code.append("\n".join(lines))
 
-with open("c:/Users/woori/Desktop/GichanFormant/ui/windows/base_plot_window.py", "w", encoding="utf-8") as f:
+with open(repo_root / "ui" / "windows" / "base_plot_window.py", "w", encoding="utf-8") as f:
     f.write(base_code)
     f.write("\n\n".join(out_code))
     f.write("\n")

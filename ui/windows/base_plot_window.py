@@ -1,5 +1,3 @@
-import os
-import platform
 from PyQt6.QtWidgets import QMainWindow, QApplication, QLineEdit, QMessageBox, QFileDialog
 from PyQt6.QtGui import QIcon, QShortcut, QKeySequence
 from PyQt6.QtCore import Qt
@@ -10,7 +8,7 @@ import app_logger
 from utils import icon_utils
 from draw import DrawMode
 from draw.draw_common import polygon_area, AreaLabelObject
-from utils.math_utils import hz_to_bark, bark_to_hz
+from utils.math_utils import hz_to_bark
 from draw import draw_line, draw_polygon, draw_reference
 
 class BasePlotWindow(QMainWindow):

@@ -1,6 +1,6 @@
 [project]
 name = "gichan-formant"
-version = "2.3.1.2"
+version = "2.3.2.2"
 description = "A formant picture generator"
 readme = "README.md"
 requires-python = ">=3.10"

@@ -1,3 +1,5 @@
+# ruff: noqa: F821
+
 def _apply_pyqt6_icon(self):
         try:
             icon_path = icon_utils.get_icon_path()

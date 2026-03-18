@@ -1,6 +1,5 @@
 # ui_popup.py
 
-import inspect
 import platform
 from ui.windows.base_plot_window import BasePlotWindow
 from ui.dialogs.batch_save_dialog import BatchSaveDialog
@@ -12,17 +11,12 @@ from PyQt6.QtWidgets import (
     QLabel,
     QPushButton,
     QLineEdit,
-    QDialog,
-    QButtonGroup,
     QMessageBox,
     QDockWidget,
     QApplication,
     QFrame,
     QSizePolicy,
-    QFormLayout,
     QTabWidget,
-    QFileDialog,
-    QProgressDialog,
 )
 from PyQt6.QtCore import Qt, QObject, QEvent
 
@@ -38,15 +32,11 @@ class TabBarWheelBlocker(QObject):
 
 from PyQt6.QtGui import (
     QFont,
-    QIcon,
     QShortcut,
     QKeySequence,
-    QRegularExpressionValidator,
 )
-from PyQt6.QtCore import QRegularExpression
 from ui.widgets.canvas_fixed import FixedFigureCanvas
 
-from utils import icon_utils
 import config
 import app_logger
 from ui.widgets.filter_panel import LiveVowelFilterPanel
@@ -54,12 +44,10 @@ from ui.widgets.design_panel import DesignSettingsPanel, NoWheelComboBox
 from ui.widgets.icon_widgets import BidirectionalArrowButton
 from ui.widgets.tool_indicator import ToolStatusIndicator
 from ui.widgets.layer_dock import LayerDockWidget
-from draw import DrawModeIndicator, DrawMode, draw_line, draw_polygon, draw_reference
-from draw.draw_common import polygon_area, AreaLabelObject
+from draw import DrawModeIndicator
 import ui.widgets.layout_constants as layout
 from ui.widgets.display_utils import format_file_label
 from utils.math_utils import hz_to_bark, bark_to_hz
-import matplotlib.colors as mcolors
 
 
 class ClickClearFocusFilter(QObject):

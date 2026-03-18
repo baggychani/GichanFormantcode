@@ -24,7 +24,6 @@ from PyQt6.QtWidgets import (
     QApplication,
     QSizePolicy,
     QStackedWidget,
-    QFileDialog,
 )
 from PyQt6.QtCore import Qt, QObject, QEvent
 
@@ -61,9 +60,8 @@ from ui.widgets.display_utils import truncate_display_name, MAX_DISPLAY_NAME_LEN
 from utils.math_utils import hz_to_bark, bark_to_hz
 from ui.widgets.layer_dock import LayerDockWidget
 import ui.widgets.layout_constants as layout
-from draw import DrawModeIndicator, DrawMode, draw_line, draw_polygon, draw_reference
+from draw import DrawModeIndicator
 from draw.draw_common import polygon_area, AreaLabelObject
-from ui.windows.popup_plot import PlotPopup
 
 
 class ClickClearFocusFilter(QObject):

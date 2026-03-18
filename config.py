@@ -11,7 +11,7 @@ GichanFormant 전역 설정 (Configuration)
 # =============================================================================
 # 1. 프로그램 기본 정보 (App Info)
 # =============================================================================
-APP_VERSION = "2.3.2.1"
+APP_VERSION = "2.3.2.2"
 APP_TITLE = f"GichanFormant v{APP_VERSION}"
 AUTHOR = "Bae Gichan"
 COPYRIGHT_TEXT = f"Copyright © 2026 {AUTHOR}. All rights reserved."

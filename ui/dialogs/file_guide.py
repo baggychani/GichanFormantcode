@@ -108,8 +108,9 @@ class DataGuidePopup(QDialog):
         # 2. 열 구성 및 예외 처리
         sec2_lbl1 = make_lbl("• 1열 (A열): <b>F1</b>")
         sec2_lbl2 = make_lbl("• 2열 (B열): <b>F2</b>")
-        sec2_lbl3 = make_lbl(
-            "• 3열 (C열): <b>F3</b> (선택), 그 다음 열: <b>라벨</b>. F1~F3까지만 포먼트로 인식하며 F4부터는 지원하지 않습니다."
+        sec2_lbl3 = make_lbl("• 3열 (C열): <b>F3</b> (선택), 그 다음 열: <b>라벨</b>.")
+        sec2_lbl3_sub = make_lbl(
+            "  F1~F3까지만 포먼트 데이터로 인식하며 F4부터는 지원하지 않습니다."
         )
         sec2_lbl4 = make_lbl(
             '- 첫 번째 줄(1행)에 헤더(예: "F1", "F2" 등)가 있어도 자동으로 무시됩니다.',
@@ -142,6 +143,7 @@ class DataGuidePopup(QDialog):
                     sec2_lbl1,
                     sec2_lbl2,
                     sec2_lbl3,
+                    sec2_lbl3_sub,
                     sec2_lbl4,
                     sec2_table,
                     sec2_lbl5,

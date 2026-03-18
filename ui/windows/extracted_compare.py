@@ -1,3 +1,5 @@
+# ruff: noqa: F821
+
 def closeEvent(self, event):
         if self.controller.ruler_tool.active:
             self.controller.toggle_ruler(self)
