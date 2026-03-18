@@ -521,7 +521,7 @@ class MainUI(QMainWindow):
             "초기화",
             "모든 데이터와 설정을 초기화하시겠습니까?",
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
-            QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.Yes,
         )
         if reply == QMessageBox.StandardButton.Yes:
             self.controller.reset_data()

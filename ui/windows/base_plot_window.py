@@ -227,6 +227,22 @@ class BasePlotWindow(QMainWindow):
         )
         return btn_on or tool_on
 
+    def _is_draw_active(self):
+        return bool(getattr(self, "btn_draw", None) and self.btn_draw.isChecked())
+
+    def on_toggle_ruler(self):
+        # 버튼 직접 클릭 시에도 진입 가능하므로 배타 모드 강제
+        if self.btn_ruler.isChecked() and (
+            self._is_draw_active() or self._is_label_move_active()
+        ):
+            self.btn_ruler.setChecked(False)
+            self.update_ruler_style(False)
+            return
+
+        self.setFocus()
+        self.controller.toggle_ruler(self)
+        self.update_ruler_style(self.controller.ruler_tool.active)
+
     def update_label_move_style(self, is_on):
         self.design_tab.btn_label_move.setChecked(is_on)
         self.design_tab.btn_label_move.setStyleSheet(
@@ -235,6 +251,75 @@ class BasePlotWindow(QMainWindow):
         )
         if hasattr(self, "tool_indicator") and self.tool_indicator is not None:
             self.tool_indicator.set_label_move_on(is_on)
+
+    def _safe_cancel_ruler_or_draw(self):
+        """ESC 키: 눈금자 측정 중단 또는 그리기 도구 취소"""
+        if self._is_input_focused():
+            return
+        if getattr(self, "btn_draw", None) and self.btn_draw.isChecked():
+            if getattr(self, "_draw_tool", None) is not None:
+                self._draw_tool.cancel()
+            return
+        if hasattr(self.controller, "ruler_tool") and self.controller.ruler_tool.active:
+            self.controller.ruler_tool._cancel_current_drawing()
+
+    def _safe_toggle_design_lock(self):
+        """L 키: 디자인 설정 유지 토글"""
+        if self._is_input_focused():
+            return
+        if hasattr(self, "design_tab") and hasattr(self.design_tab, "btn_lock"):
+            self.design_tab.btn_lock.setChecked(not self.design_tab.btn_lock.isChecked())
+
+    def _safe_switch_to_tab(self, index):
+        """A/D 키: 탭 전환"""
+        if self._is_input_focused():
+            return
+        if hasattr(self, "tab_widget") and self.tab_widget.currentIndex() != index:
+            self.tab_widget.setCurrentIndex(index)
+
+    def _safe_toggle_bold(self):
+        """Ctrl+B: 굵게 토글"""
+        if self._is_input_focused():
+            return
+        if hasattr(self, "design_tab") and hasattr(self.design_tab, "btn_bold"):
+            # PlotPopup 방식 (단일 버튼)
+            self.design_tab.btn_bold.setChecked(not self.design_tab.btn_bold.isChecked())
+
+    def _safe_toggle_italic(self):
+        """Ctrl+I: 기울임 토글"""
+        if self._is_input_focused():
+            return
+        if hasattr(self, "design_tab") and hasattr(self.design_tab, "btn_italic"):
+            # PlotPopup 방식 (단일 버튼)
+            self.design_tab.btn_italic.setChecked(not self.design_tab.btn_italic.isChecked())
+
+    def _toggle_panels_visibility(self):
+        """Tab 키: 패널 가시성 토글 (자식 개별 구현)"""
+        pass
+
+    def _safe_nav_prev(self):
+        """Left 키 (PlotPopup 전용)"""
+        pass
+
+    def _safe_nav_next(self):
+        """Right 키 (PlotPopup 전용)"""
+        pass
+
+    def _safe_batch_save(self):
+        """Ctrl+Shift+S (PlotPopup 전용)"""
+        pass
+
+    def _safe_compare_click(self):
+        """M 키 (PlotPopup 전용)"""
+        pass
+
+    def _safe_toggle_label_move(self):
+        """T 키: 라벨 이동 모드 토글"""
+        if self._is_input_focused():
+            return
+        if hasattr(self, "design_tab") and hasattr(self.design_tab, "btn_label_move"):
+            self.design_tab.btn_label_move.setChecked(not self.design_tab.btn_label_move.isChecked())
+            self.controller.toggle_label_move(self)
 
     def _draw_tool_deactivate(self):
         if getattr(self, "_draw_tool", None) is not None:
@@ -656,9 +741,9 @@ class BasePlotWindow(QMainWindow):
         if mode is None:
             self._draw_tool_deactivate()
             return
-        if self.btn_ruler.isChecked():
+        if self._is_ruler_active():
             self.controller.toggle_ruler(self)
-        if self.design_tab.btn_label_move.isChecked():
+        if self._is_label_move_active():
             self.controller.toggle_label_move(self)
         ax = self.figure.axes[0] if self.figure.axes else None
         snapping_data = getattr(self, "snapping_data", None) or []
@@ -676,11 +761,14 @@ class BasePlotWindow(QMainWindow):
         if ax is None:
             return
         self._draw_tool_deactivate()
+        # font_style 읽기: popup_plot은 flat dict, compare_plot은 nested {"common": {...}, ...}
         font_family = ["DejaVu Sans", "Malgun Gothic"]
-        if (
-            getattr(self, "design_settings", None)
-            and self.design_settings.get("font_style") == "serif"
-        ):
+        ds = getattr(self, "design_settings", None) or {}
+        font_style = (
+            ds.get("font_style")                            # popup_plot: flat
+            or (ds.get("common") or {}).get("font_style")  # compare_plot: nested
+        )
+        if font_style == "serif":
             font_family = ["Times New Roman", "Noto Serif KR", "DejaVu Serif"]
 
         def _on_draw_cancel():

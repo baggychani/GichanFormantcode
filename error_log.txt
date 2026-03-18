@@ -1,0 +1,8 @@
+Traceback (most recent call last):
+  File "c:\Users\woori\Desktop\GichanFormant\test_popup_import.py", line 8, in <module>
+    from ui.windows.popup_plot import PlotPopup
+  File "c:\Users\woori\Desktop\GichanFormant\ui\windows\popup_plot.py", line 6, in <module>
+    from ui.dialogs.batch_save_dialog import BatchSaveDialog
+  File "c:\Users\woori\Desktop\GichanFormant\ui\dialogs\batch_save_dialog.py", line 12, in <module>
+    from utils.logger import app_logger
+ModuleNotFoundError: No module named 'utils.logger'

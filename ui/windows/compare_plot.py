@@ -384,13 +384,12 @@ class ComparePlotPopup(BasePlotWindow):
         self.layer_locked_vowels_red = set()
         self.filter_panel = None
         self.design_settings = {}
-        # 다중 플롯 draw는 파일별이 아닌 공통 리스트를 사용할 계획.
-        # (도구 이식 전 준비 단계: layer_dock/draw_manager 연동용 저장소)
-        self._draw_objects_shared = []
+        # 다중 플롯 draw는 파일별이 아닌 공통 리스트를 사용
+        self._draw_objects_shared = []  # 공통 draw 객체 저장소 (비교 모드 전용)
         self._draw_layer_artists = []
         self._draw_layer_area_label_refs = []
         self._draw_tool = None
-        self._active_draw_series = "blue"
+        self.snapping_data = []  # draw tool 활성화에 필요; refresh_compare_plot에서 주입됨
 
         # 범례 위젯들을 저장하여 실시간 렌더링에 사용
         self.legend_refs = {"blue": {}, "red": {}}
@@ -1034,6 +1033,8 @@ class ComparePlotPopup(BasePlotWindow):
             btn.setFixedHeight(28)
             btn.setFont(font_normal)
             btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+            btn.setAutoDefault(False)
+            btn.setDefault(False)
 
         btn_apply.setStyleSheet(
             "background-color: #E6A23C; color: white; font-weight: bold; border-radius: 4px;"
@@ -1270,68 +1271,12 @@ class ComparePlotPopup(BasePlotWindow):
             pass
 
         event.accept()
-
-
+    # ── 단축키 ────────────────────────────────────────────────────────────────
     def _bind_shortcuts(self):
-        QShortcut(
-            QKeySequence(Qt.Key.Key_A), self, context=Qt.ShortcutContext.WindowShortcut
-        ).activated.connect(lambda: self._safe_switch_to_tab(0))
-        QShortcut(
-            QKeySequence(Qt.Key.Key_D), self, context=Qt.ShortcutContext.WindowShortcut
-        ).activated.connect(lambda: self._safe_switch_to_tab(1))
+        """BasePlotWindow의 공통 단축키를 상속한다. Compare만의 추가 단축키는 여기에."""
+        super()._bind_shortcuts()
 
-        QShortcut(QKeySequence(Qt.Key.Key_Tab), self).activated.connect(
-            self._toggle_panels_visibility
-        )
-        QShortcut(
-            QKeySequence(Qt.Key.Key_R), self, context=Qt.ShortcutContext.WindowShortcut
-        ).activated.connect(self._safe_toggle_ruler)
-        QShortcut(
-            QKeySequence(Qt.Key.Key_P), self, context=Qt.ShortcutContext.WindowShortcut
-        ).activated.connect(self._safe_toggle_draw)
-        QShortcut(
-            QKeySequence(Qt.Key.Key_1), self, context=Qt.ShortcutContext.WindowShortcut
-        ).activated.connect(lambda: self._safe_set_draw_mode(DrawMode.LINE))
-        QShortcut(
-            QKeySequence(Qt.Key.Key_2), self, context=Qt.ShortcutContext.WindowShortcut
-        ).activated.connect(lambda: self._safe_set_draw_mode(DrawMode.POLYGON))
-        QShortcut(
-            QKeySequence(Qt.Key.Key_3), self, context=Qt.ShortcutContext.WindowShortcut
-        ).activated.connect(lambda: self._safe_set_draw_mode(DrawMode.REF_H))
-        QShortcut(
-            QKeySequence(Qt.Key.Key_4), self, context=Qt.ShortcutContext.WindowShortcut
-        ).activated.connect(lambda: self._safe_set_draw_mode(DrawMode.REF_V))
-        QShortcut(QKeySequence("Ctrl+S"), self).activated.connect(
-            lambda: self._on_download_plot(False, "jpg")
-        )
-        QShortcut(
-            QKeySequence("Esc"), self, context=Qt.ShortcutContext.WindowShortcut
-        ).activated.connect(self._safe_cancel_ruler_point)
-        QShortcut(
-            QKeySequence(Qt.Key.Key_Return),
-            self,
-            context=Qt.ShortcutContext.WindowShortcut,
-        ).activated.connect(self._safe_draw_complete)
-        QShortcut(
-            QKeySequence(Qt.Key.Key_Enter),
-            self,
-            context=Qt.ShortcutContext.WindowShortcut,
-        ).activated.connect(self._safe_draw_complete)
-        QShortcut(
-            QKeySequence(QKeySequence.StandardKey.Undo),
-            self,
-            context=Qt.ShortcutContext.WindowShortcut,
-        ).activated.connect(self._safe_draw_rollback)
-        QShortcut(
-            QKeySequence("Ctrl+B"), self, context=Qt.ShortcutContext.WindowShortcut
-        ).activated.connect(self._safe_toggle_bold)
-        QShortcut(
-            QKeySequence("Ctrl+I"), self, context=Qt.ShortcutContext.WindowShortcut
-        ).activated.connect(self._safe_toggle_italic)
-
-
-
-
+    # ── 디자인 설정 (Ctrl+B / Ctrl+I) ────────────────────────────────────────
     def _safe_toggle_bold(self):
         if self._is_input_focused():
             return
@@ -1457,30 +1402,21 @@ class ComparePlotPopup(BasePlotWindow):
         if self.on_apply():
             app_logger.info(config.LOG_MSG["PLOT_RANGE_APPLIED"])
 
-
-
-    def on_toggle_ruler(self):
-        # 버튼 직접 클릭 경로에서도 배타 모드 강제
-        if self.btn_ruler.isChecked() and (
-            self._is_draw_active() or self._is_compare_label_move_active()
-        ):
-            self.btn_ruler.setChecked(False)
-            self.update_ruler_style(False)
-            return
-        self.setFocus()
-        self.controller.toggle_ruler(self)
-        self.update_ruler_style(self.controller.ruler_tool.active)
-
-
-
-
-
     def _current_draw_series(self):
         if hasattr(self, "_layer_stack") and self._layer_stack is not None:
             return "blue" if self._layer_stack.currentIndex() == 0 else "red"
         if hasattr(self, "design_tab") and self.design_tab is not None:
             return "blue" if self.design_tab.sub_tabs.currentIndex() == 0 else "red"
         return "blue"
+
+    # ── 그리기 객체 저장소 (공유 리스트 사용, base class의 파일별 dict를 대체) ──────
+    def _get_current_draw_objects(self):
+        """ComparePlotPopup은 파일별 분리 없이 공통 리스트를 사용합니다."""
+        return self._draw_objects_shared
+
+    def _set_current_draw_objects(self, lst):
+        """ComparePlotPopup 전용 공통 draw 객체 리스트 교체."""
+        self._draw_objects_shared = list(lst)
 
     def _snapping_data_for_series(self, series: str):
         # 요구사항: 다중 플롯 그리기에서는 두 파일 점 모두 스냅 대상이어야 한다.
@@ -1508,7 +1444,8 @@ class ComparePlotPopup(BasePlotWindow):
         return out
 
     def _on_draw_object_complete(self, obj):
-        setattr(obj, "series", self._active_draw_series)
+        series = self._current_draw_series()
+        setattr(obj, "series", series)
         if hasattr(obj, "point_labels"):
             obj.point_labels = self._normalize_compare_point_labels(
                 getattr(obj, "point_labels", None) or []
@@ -1537,7 +1474,7 @@ class ComparePlotPopup(BasePlotWindow):
                 locked=obj.locked,
                 semi=obj.semi,
             )
-            setattr(area_label, "series", self._active_draw_series)
+            setattr(area_label, "series", series)
             objs.append(area_label)
 
         self._redraw_draw_layer()
@@ -1574,7 +1511,7 @@ class ComparePlotPopup(BasePlotWindow):
     def _safe_toggle_compare_label_move(self, series):
         if self._is_input_focused():
             return
-        active = self._is_compare_label_move_active()
+        active = self._is_label_move_active()
         current_series = getattr(self, "_label_move_series", None)
         wants_on = (not active) or (current_series != series)
         # 배타 모드: label_move를 켜려면 draw/ruler가 모두 꺼져 있어야 함
@@ -1597,7 +1534,7 @@ class ComparePlotPopup(BasePlotWindow):
             self.tool_indicator.set_label_move_on(is_on)
 
 
-    def _is_compare_label_move_active(self):
+    def _is_label_move_active(self):
         return bool(
             getattr(self.controller, "label_move_tool", None)
             and self.controller.label_move_tool.active

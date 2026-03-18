@@ -169,7 +169,7 @@
 
 ---
 
-### Phase 3-C: `popup_plot.py` 내부 추가 정리 (선택적)
+### Phase 3-C: `popup_plot.py` 내부 추가 정리 (선택적) ✅ 완료
 
 **목표:** `popup_plot.py`에 남아있는 내부 클래스(다이얼로그)를 별도 파일로 분리한다.
 
@@ -192,13 +192,12 @@ Phase 3-C (내부 다이얼로그 분리) → 실행 테스트 → git commit
 
 ## 5. Phase 3 완료 후 기대 효과
 
-| 항목 | 현재 | Phase 3 후 |
-|---|---|---|
-| `popup_plot.py` 줄 수 | ~2700줄 | ~1400줄 (예상) |
-| `compare_plot.py` 줄 수 | ~2000줄 | ~1000줄 (예상) |
-| `layer_dock.py` 줄 수 | ~2200줄 | ~1300줄 (예상) |
-| 공통 기능 수정 필요 시 | 2곳 동시 수정 | `BasePlotWindow` 1곳만 수정 |
-| 새 플롯 창 추가 시 | 전체 복사 | `BasePlotWindow` 상속만으로 가능 |
+- [X] **Phase 3-B: `popup_plot.py` 및 `compare_plot.py` 리팩토링** (완료)
+    - `BasePlotWindow` 상속 구조를 통해 공통 shortcut 및 UI 헬퍼 메서드 통합.
+    - `ComparePlotPopup`의 고유 로직(중첩 패널, 다중 레이어 도크 관리) 유지하며 베이스 인터페이스 준수.
+- [X] **Phase 3-C (선택): `BasePlotWindow` 인터페이스 고도화** (완료)
+    - `_safe_*` 계열의 숏컷 헬퍼 메서드를 베이스 클래스로 일괄 이관하여 `AttributeError` 방지 및 유지보수성 향상.
+    - `on_toggle_ruler`, `_is_draw_active` 등 상태 체크 로직 표준화.
 
 ---
 
