@@ -42,6 +42,7 @@ from ui.widgets.layer_logic import (
 )
 from ui.widgets.design_panel import ColorPalette
 from ui.widgets.draw_design_panel import DrawDesignPanel
+from ui.widgets.layer_data_model import LayerDataModel
 from ui.widgets.label_manager import LabelManager
 from ui.widgets.draw_manager import DrawManager
 from ui.widgets.layer_row_widgets import (
@@ -243,6 +244,12 @@ class LayerDockWidget(QWidget):
         self._get_default_design = get_default_design  # callable() -> dict | None
         self.label_manager = LabelManager(self.popup, state_key=self._state_key)
         self.draw_manager = DrawManager(self.popup)
+        self.data_model = LayerDataModel(self.label_manager, self.draw_manager, self)
+        
+        # Connect internal signal to data_model (for backward compatibility if needed)
+        self.data_model.filter_state_changed.connect(self.filter_state_changed.emit)
+        self.data_model.layer_overrides_changed.connect(self.overrides_changed.emit)
+        self.data_model.layer_order_changed.connect(self.order_changed.emit)
         self._selected_vowels = set()
         self._layer_rows = {}
         self._updating = False
@@ -561,18 +568,17 @@ class LayerDockWidget(QWidget):
         self.group_ell_style.buttonToggled.connect(on_ell_style_toggled)
 
     def _get_current_filter_state(self):
-        return self.label_manager.get_filter_state()
+        return self.data_model.get_filter_state()
 
     def _set_filter_state(self, state):
-        self.label_manager.set_filter_state(state)
-        self.filter_state_changed.emit(state)
+        self.data_model.set_filter_state(state)
         self._update_global_row_state()
 
     def _get_layer_overrides(self):
-        return self.label_manager.get_layer_overrides()
+        return self.data_model.get_layer_overrides()
 
     def _set_layer_overrides(self, overrides):
-        self.label_manager.set_layer_overrides(overrides)
+        self.data_model.set_layer_overrides(overrides)
 
     def _on_label_filter_item_changed(self, vowel: str, new_state: str):
         """라벨 필터 델타 갱신: 단일 row 상태만 변경."""

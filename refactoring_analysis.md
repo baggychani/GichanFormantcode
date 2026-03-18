@@ -66,7 +66,7 @@
 
 ---
 
-### Phase 3-A: `BasePlotWindow` 부모 클래스 추출
+### Phase 3-A: `BasePlotWindow` 부모 클래스 추출 ✅ 완료
 
 **목표:** `popup_plot.py`와 `compare_plot.py`에서 중복된 로직을 새 파일 `ui/windows/base_plot_window.py`로 분리한다.
 
@@ -133,7 +133,7 @@
 
 ---
 
-### Phase 3-B: `layer_dock.py` 분리 (Model / View 분리)
+### Phase 3-B: `layer_dock.py` 분리 (Model / View 분리) ✅ 완료
 
 **목표:** `ui/widgets/layer_dock.py` (2200줄 / 96KB)를 두 개의 파일로 분리한다.
 
