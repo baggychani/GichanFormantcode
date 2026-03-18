@@ -1110,7 +1110,7 @@ class ComparePlotPopup(BasePlotWindow):
         self.btn_draw.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self.btn_draw.setEnabled(True)
         self.btn_draw.setStyleSheet("""
-            QPushButton { background-color: #F0F2F5; border: 1px solid #DCDFE6; border-radius: 4px; color: #606266; }
+            QPushButton { background-color: #F0F2F5; border: 1px solid #DCDFE6; border-radius: 4px; color: #333; }
             QPushButton:hover:!checked { background-color: #E4E7ED; }
             QPushButton:checked { background-color: #409EFF; color: white; font-weight: bold; border: none; }
             QPushButton:disabled { background-color: #F5F7FA; color: #C0C4CC; border: 1px solid #E4E7ED; }
@@ -1275,6 +1275,14 @@ class ComparePlotPopup(BasePlotWindow):
     def _bind_shortcuts(self):
         """BasePlotWindow의 공통 단축키를 상속한다. Compare만의 추가 단축키는 여기에."""
         super()._bind_shortcuts()
+        # Base의 T 매핑은 단일 플롯용(_safe_toggle_label_move)이라 compare에서는 별도 매핑을 강제한다.
+        QShortcut(
+            QKeySequence(Qt.Key.Key_T), self, context=Qt.ShortcutContext.WindowShortcut
+        ).activated.connect(
+            lambda: self._safe_toggle_compare_label_move(
+                "blue" if self.design_tab.sub_tabs.currentIndex() == 0 else "red"
+            )
+        )
 
     # ── 디자인 설정 (Ctrl+B / Ctrl+I) ────────────────────────────────────────
     def _safe_toggle_bold(self):
@@ -1492,18 +1500,13 @@ class ComparePlotPopup(BasePlotWindow):
 
 
     def keyPressEvent(self, event):
-        # T 키: 현재 디자인 서브 탭(Blue/Red)에 해당하는 라벨 위치 이동 툴만 토글.
-        if event.key() == Qt.Key.Key_T:
-            if (
-                not self._is_input_focused()
-                and hasattr(self, "design_tab")
-                and self.design_tab is not None
-            ):
-                idx = self.design_tab.sub_tabs.currentIndex()
-                series = "blue" if idx == 0 else "red"
-                self._safe_toggle_compare_label_move(series)
+        # Enter/Return: 그리기 완료.
+        if event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
+            if not self._is_input_focused():
+                self._safe_draw_complete()
             return
         super().keyPressEvent(event)
+
 
     def _on_compare_label_move_clicked(self, series):
         self._safe_toggle_compare_label_move(series)

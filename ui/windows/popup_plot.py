@@ -1248,6 +1248,15 @@ class PlotPopup(BasePlotWindow):
                 self.on_apply()
 
 
+    def _bind_shortcuts(self):
+        """Base의 공통 단축키를 상속하고, PlotPopup 전용 T키를 추가로 등록한다.
+        T키는 base_plot_window에서 등록하지 않으므로(compare_plot과의 ambiguous 방지) 여기서 직접 연결.
+        """
+        super()._bind_shortcuts()
+        QShortcut(
+            QKeySequence(Qt.Key.Key_T), self, context=Qt.ShortcutContext.WindowShortcut
+        ).activated.connect(self._safe_toggle_label_move)
+
     def _safe_toggle_label_move(self):
         if self._is_input_focused():
             return

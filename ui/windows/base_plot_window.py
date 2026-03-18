@@ -104,9 +104,9 @@ class BasePlotWindow(QMainWindow):
         QShortcut(
             QKeySequence(Qt.Key.Key_R), self, context=Qt.ShortcutContext.WindowShortcut
         ).activated.connect(self._safe_toggle_ruler)
-        QShortcut(
-            QKeySequence(Qt.Key.Key_T), self, context=Qt.ShortcutContext.WindowShortcut
-        ).activated.connect(self._safe_toggle_label_move)
+        # T키는 서브클래스(popup_plot / compare_plot)에서 각자의 방식으로 등록한다.
+        # base에서 등록하면 compare_plot이 T를 재등록할 때 PyQt6 Ambiguous Shortcut이
+        # 발생해 두 핸들러 모두 무반응이 되므로 여기서는 등록하지 않는다.
         QShortcut(
             QKeySequence(Qt.Key.Key_M), self, context=Qt.ShortcutContext.WindowShortcut
         ).activated.connect(self._safe_compare_click)
