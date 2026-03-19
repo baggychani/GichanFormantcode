@@ -24,6 +24,7 @@ from PyQt6.QtCore import (
     Qt,
     pyqtSignal,
     QEvent,
+    QObject,
 )
 from PyQt6.QtGui import QFont, QFontMetrics
 
@@ -101,6 +102,15 @@ COLOR_NAMES = {
     "transparent": "Transparent",
     "custom": "Custom Color",
 }
+
+
+class TabBarWheelBlocker(QObject):
+    """탭 위에서 마우스 휠로 탭이 바뀌지 않도록 휠 이벤트를 흡수합니다."""
+
+    def eventFilter(self, obj, event):
+        if event.type() == QEvent.Type.Wheel:
+            return True
+        return False
 
 
 def _draw_object_display_name(draw_objects, index):
@@ -260,6 +270,29 @@ class LayerDockWidget(QWidget):
         self._setup_ui()
         self.label_filter_item_changed.connect(self._on_label_filter_item_changed)
         self.draw_item_state_changed.connect(self._on_draw_item_state_changed)
+        self._setup_drop_indicators()
+
+    def _setup_drop_indicators(self):
+        """드래그 앤 드롭 시 삽입 위치를 표시할 오버레이 위젯 초기화."""
+        # 1. 라벨 탭용 인디케이터
+        if hasattr(self, "_layer_list_widget"):
+            self._label_drop_indicator = QFrame(self._layer_list_widget)
+            self._label_drop_indicator.setFixedHeight(2)
+            self._label_drop_indicator.setStyleSheet(
+                "background-color: #409EFF; border: none;"
+            )
+            self._label_drop_indicator.hide()
+            self._label_drop_indicator.raise_()
+
+        # 2. 그리기 탭용 인디케이터
+        if hasattr(self, "_draw_list_placeholder"):
+            self._draw_drop_indicator = QFrame(self._draw_list_placeholder)
+            self._draw_drop_indicator.setFixedHeight(2)
+            self._draw_drop_indicator.setStyleSheet(
+                "background-color: #409EFF; border: none;"
+            )
+            self._draw_drop_indicator.hide()
+            self._draw_drop_indicator.raise_()
 
     def _setup_ui(self):
         root_layout = QVBoxLayout(self)
@@ -430,6 +463,8 @@ class LayerDockWidget(QWidget):
         )
         layer_tab = create_label_tab(self)
         self.tab_widget.addTab(layer_tab, "라벨")
+        self._tab_wheel_blocker = TabBarWheelBlocker(self)
+        self.tab_widget.tabBar().installEventFilter(self._tab_wheel_blocker)
 
         draw_tab = create_draw_tab(self)
         self.tab_widget.addTab(draw_tab, "그리기")
@@ -1080,12 +1115,20 @@ class LayerDockWidget(QWidget):
             self._hide_drop_indicator()
             return
         self._drop_target = (vowel, after)
-        self._layer_list_widget.update()
+        row = self._layer_rows.get(vowel)
+        if row and hasattr(self, "_label_drop_indicator"):
+            rect = row.geometry()
+            y = rect.bottom() if after else rect.top()
+            # 인디케이터 위치 및 크기 설정 후 노출
+            self._label_drop_indicator.setGeometry(rect.left(), y - 1, rect.width(), 2)
+            self._label_drop_indicator.show()
+            self._label_drop_indicator.raise_()
 
     def _hide_drop_indicator(self):
         """파란 선을 숨깁니다."""
         self._drop_target = None
-        self._layer_list_widget.update()
+        if hasattr(self, "_label_drop_indicator"):
+            self._label_drop_indicator.hide()
 
     def _get_drop_target_at_pos(self, pos):
         """레이어 목록 위젯 내 pos(좌표)에 대응하는 (vowel, after) 반환.
@@ -1155,13 +1198,23 @@ class LayerDockWidget(QWidget):
 
     def _hide_draw_drop_indicator(self):
         self._draw_drop_target = None
-        self._draw_list_placeholder.update()
+        if hasattr(self, "_draw_drop_indicator"):
+            self._draw_drop_indicator.hide()
 
     def _set_draw_drop_indicator_between(self, draw_index, after):
         objs = self.draw_manager.get_draw_objects()
         if 0 <= draw_index < len(objs):
             self._draw_drop_target = (draw_index, after)
-            self._draw_list_placeholder.update()
+            rows = getattr(self, "_draw_layer_rows", None) or []
+            if 0 <= draw_index < len(rows) and hasattr(self, "_draw_drop_indicator"):
+                row = rows[draw_index]
+                rect = row.geometry()
+                y = rect.bottom() if after else rect.top()
+                self._draw_drop_indicator.setGeometry(
+                    rect.left(), y - 1, rect.width(), 2
+                )
+                self._draw_drop_indicator.show()
+                self._draw_drop_indicator.raise_()
 
     def _get_draw_drop_target_at_pos(self, pos):
         """그리기 탭용 드롭 대상 계산. 동일하게 슬롯 로직을 적용하여 매끄럽게 처리합니다."""

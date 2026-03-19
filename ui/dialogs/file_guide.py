@@ -159,21 +159,21 @@ class DataGuidePopup(QDialog):
                 background-color: #F9FAFB; 
                 border: 1px solid #E5E7EB; 
                 border-radius: 6px;
-                margin-top: 10px;
-                margin-bottom: 10px;
+                margin-top: 6px;
+                margin-bottom: 6px;
             }
         """)
         ex_layout = QVBoxLayout(ex_box)
-        ex_layout.setContentsMargins(15, 15, 15, 15)
-        ex_layout.setSpacing(12)
+        ex_layout.setContentsMargins(15, 8, 15, 8)
+        ex_layout.setSpacing(6)
 
         ex_bad = make_lbl(
             "<b><span style='color: #d32f2f;'>X 잘못된 예:</span></b>&nbsp;&nbsp;&nbsp;<b>a, i, u, ㅏ, ʌ, \"e\", [ㅜ]</b>",
-            size=11,
+            size=10,
         )
         ex_good = make_lbl(
             "<b><span style='color: #1976d2;'>O 올바른 예:</span></b>&nbsp;&nbsp;&nbsp;<b>/a/, /i/, /u/, /ㅏ/, /ʌ/, /aː/</b> (ː=장음 기호)",
-            size=11,
+            size=10,
         )
         ex_layout.addWidget(ex_bad)
         ex_layout.addWidget(ex_good)

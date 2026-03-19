@@ -132,16 +132,7 @@ class _LayerListDropArea(QWidget):
 
     def paintEvent(self, event):
         super().paintEvent(event)
-        if getattr(self._dock, "_drop_target", None) is not None:
-            vowel, after = self._dock._drop_target
-            row = self._dock._layer_rows.get(vowel)
-            if row:
-                rect = row.geometry()
-                y = rect.bottom() if after else rect.top()
-                painter = QPainter(self)
-                painter.setPen(QPen(QColor("#409EFF"), 3))
-                painter.drawLine(rect.left(), y, rect.right(), y)
-                painter.end()
+        # 파란 선 그리기 로직 제거 (오버레이 위젯 방식 사용)
 
     def dragEnterEvent(self, event):
         if event.mimeData().hasFormat(LAYER_ROW_MIME_TYPE):
@@ -296,17 +287,7 @@ class _DrawListDropArea(QWidget):
 
     def paintEvent(self, event):
         super().paintEvent(event)
-        if getattr(self._dock, "_draw_drop_target", None) is not None:
-            idx, after = self._dock._draw_drop_target
-            rows = getattr(self._dock, "_draw_layer_rows", None) or []
-            if 0 <= idx < len(rows):
-                row = rows[idx]
-                rect = row.geometry()
-                y = rect.bottom() if after else rect.top()
-                painter = QPainter(self)
-                painter.setPen(QPen(QColor("#409EFF"), 3))
-                painter.drawLine(rect.left(), y, rect.right(), y)
-                painter.end()
+        # 파란 선 그리기 로직 제거 (오버레이 위젯 방식 사용)
 
     def dragEnterEvent(self, event):
         if event.mimeData().hasFormat(DRAW_ROW_MIME_TYPE):

@@ -15,11 +15,14 @@ from PyQt6.QtWidgets import (
     QWidget,
     QLabel,
     QStyledItemDelegate,
+    QStackedWidget,
 )
-from PyQt6.QtCore import Qt, QStandardPaths
-from PyQt6.QtGui import QBrush, QColor, QFont, QPen, QKeySequence
-
-from utils import icon_utils
+from PyQt6.QtCore import Qt, QStandardPaths, QSize, pyqtSignal
+from PyQt6.QtGui import QBrush, QColor, QFont, QPen, QKeySequence, QIcon
+import itertools
+import pandas as pd
+from utils.pillai_stats import calculate_pillai_score
+from utils.icon_utils import get_app_icon
 from utils.math_utils import calc_f2_prime
 from ui.widgets.display_utils import truncate_display_name, MAX_DISPLAY_NAME_LEN
 from utils.vowel_stats import (
@@ -64,6 +67,15 @@ class CopyableTableWidget(QTableWidget):
         from PyQt6.QtWidgets import QApplication
 
         QApplication.clipboard().setText(text_to_copy)
+
+    def mousePressEvent(self, event):
+        """이미 선택된 셀을 다시 누르면 선택을 해제합니다."""
+        item = self.itemAt(event.pos())
+        if item and item.isSelected():
+            self.setCurrentItem(None)
+            item.setSelected(False)
+        else:
+            super().mousePressEvent(event)
 
 
 # 데이터 행에만 세로 구분선 (헤더 행에는 그리지 않음)
@@ -129,14 +141,15 @@ def _outlier_suffix_from_params(plot_params):
     return "_이상치 제거 2σ"
 
 
-def _analysis_base_name(file_name, plot_params):
-    """저장 시 사용할 기본 이름 (확장자 제거 + 이상치 접미사 + 정규화 접미사 + _analysis)."""
+def _analysis_base_name(file_name, plot_params, is_pillai=False):
+    """저장 시 사용할 기본 이름 (확장자 제거 + 이상치 접미사 + 정규화 접미사 + _analysis/_pillai_analysis)."""
     base = os.path.splitext(file_name)[0]
     base += _outlier_suffix_from_params(plot_params)
     norm = (plot_params or {}).get("normalization")
     if norm:
         base += f"_{norm}"
-    return base + "_analysis"
+    suffix = "_pillai_analysis" if is_pillai else "_analysis"
+    return base + suffix
 
 
 class VowelAnalysisDialog(QDialog):
@@ -158,6 +171,7 @@ class VowelAnalysisDialog(QDialog):
         self.title_suffix = title_suffix
         self._initial_tab_idx = initial_tab_idx
         self._analysis_results = []  # list of (file_name, result_dict) per tab
+        self._stacked_widgets = []  # list of QStackedWidget per tab
         self._normalization = self.fixed_plot_params.get("normalization")
         plot_type = self.fixed_plot_params.get("type", "f1_f2")
         if self._normalization:
@@ -172,6 +186,9 @@ class VowelAnalysisDialog(QDialog):
         self._build_ui()
         self._run_analysis()
         self._set_initial_tab()
+        self._update_save_buttons_state()  # 초기 상태 반영
+        # 탭 변경 시 디폴트(포먼트) 화면으로 리셋
+        self.tabs.currentChanged.connect(lambda: self._switch_page(0))
 
     def keyPressEvent(self, event):
         """창 레벨에서 CTRL+C를 감지하여 현재 탭의 테이블 데이터를 복사합니다."""
@@ -186,7 +203,7 @@ class VowelAnalysisDialog(QDialog):
 
     def _apply_icon(self):
         try:
-            self.setWindowIcon(icon_utils.get_app_icon())
+            self.setWindowIcon(get_app_icon())
         except Exception:
             pass
 
@@ -225,22 +242,92 @@ class VowelAnalysisDialog(QDialog):
         layout.addWidget(self.tabs)
 
         btn_row = QHBoxLayout()
+
+        # Page navigation buttons (Bottom Left)
+        self.btn_page_formant = QPushButton()
+        self.btn_page_formant.setIcon(QIcon(os.path.join("assets", "formant.png")))
+        self.btn_page_formant.setIconSize(QSize(32, 28))
+        self.btn_page_formant.setFixedSize(40, 36)
+        self.btn_page_formant.setToolTip("포먼트 및 중심-개별 유클리드 거리")
+        self.btn_page_formant.setStyleSheet("""
+            QPushButton { background-color: white; border: 1px solid #DCDFE6; border-radius: 4px; }
+            QPushButton:hover { background-color: #F5F7FA; border-color: #409EFF; }
+        """)
+        self.btn_page_formant.clicked.connect(lambda: self._switch_page(0))
+
+        self.btn_page_pillai = QPushButton()
+        self.btn_page_pillai.setIcon(QIcon(os.path.join("assets", "pillai.png")))
+        self.btn_page_pillai.setIconSize(QSize(32, 28))
+        self.btn_page_pillai.setFixedSize(40, 36)
+        self.btn_page_pillai.setToolTip("Pillai Score")
+        self.btn_page_pillai.setStyleSheet("""
+            QPushButton { background-color: white; border: 1px solid #DCDFE6; border-radius: 4px; }
+            QPushButton:hover { background-color: #F5F7FA; border-color: #409EFF; }
+        """)
+        self.btn_page_pillai.clicked.connect(lambda: self._switch_page(1))
+
+        btn_row.addWidget(self.btn_page_formant)
+        btn_row.addWidget(self.btn_page_pillai)
+
         btn_row.addStretch()
         self.btn_excel = QPushButton("엑셀 저장")
         self.btn_excel.setStyleSheet("""
             QPushButton { background-color: white; border: 1px solid #DCDFE6; border-radius: 4px; color: #333333; padding: 6px 14px; }
             QPushButton:hover { background-color: #F5F7FA; color: #409EFF; border-color: #C0C4CC; }
+            QPushButton:disabled { background-color: #F9FAFB; color: #C0C4CC; border-color: #EBEEF5; }
         """)
+        self.btn_excel.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self.btn_excel.clicked.connect(self._save_excel)
         self.btn_csv = QPushButton("CSV 저장")
         self.btn_csv.setStyleSheet("""
             QPushButton { background-color: white; border: 1px solid #DCDFE6; border-radius: 4px; color: #333333; padding: 6px 14px; }
             QPushButton:hover { background-color: #F5F7FA; color: #409EFF; border-color: #C0C4CC; }
+            QPushButton:disabled { background-color: #F9FAFB; color: #C0C4CC; border-color: #EBEEF5; }
         """)
+        self.btn_csv.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self.btn_csv.clicked.connect(self._save_csv)
         btn_row.addWidget(self.btn_excel)
         btn_row.addWidget(self.btn_csv)
         layout.addLayout(btn_row)
+
+    def _switch_page(self, index):
+        """모든 탭의 페이지를 전환합니다."""
+        for stack in self._stacked_widgets:
+            stack.setCurrentIndex(index)
+            # 탭(파일) 전환 시 기존 선택/포커스 초기화
+            table = stack.widget(0)
+            if isinstance(table, QTableWidget):
+                table.clearSelection()
+                table.setCurrentCell(-1, -1)
+        self._update_save_buttons_state()
+
+    def _update_save_buttons_state(self):
+        """현재 페이지와 선택 상태에 따라 저장 버튼의 활성/비활성 상태를 업데이트합니다."""
+        current_tab_idx = self.tabs.currentIndex()
+        if current_tab_idx < 0 or current_tab_idx >= len(self._stacked_widgets):
+            return
+
+        stack = self._stacked_widgets[current_tab_idx]
+        if stack.currentIndex() == 0:
+            # Formant 페이지는 항상 활성화
+            self.btn_excel.setEnabled(True)
+            self.btn_csv.setEnabled(True)
+            self.btn_excel.setToolTip("")
+            self.btn_csv.setToolTip("")
+        else:
+            # Pillai 페이지는 3개 이상 선택 시에만 활성화
+            pillai_page = stack.currentWidget()
+            if isinstance(pillai_page, PillaiScorePage):
+                is_valid = pillai_page.selection_count >= 3
+                self.btn_excel.setEnabled(is_valid)
+                self.btn_csv.setEnabled(is_valid)
+                if not is_valid:
+                    msg = "모음을 3개 이상 선택해야 저장할 수 있습니다."
+                    self.btn_excel.setToolTip(msg)
+                    self.btn_csv.setToolTip(msg)
+                else:
+                    self.btn_excel.setToolTip("")
+                    self.btn_csv.setToolTip("")
 
     def _run_analysis(self):
         """비정규화: Hz df로 F1·X축 통계, Bark 기준 중심-개별 거리. 정규화: 정규화 df로 nF1·nX축 통계, 정규화 단위 기준 중심-개별 거리."""
@@ -300,7 +387,13 @@ class VowelAnalysisDialog(QDialog):
                     )
                 )
             self._analysis_results.append((name, result))
-            self._add_table_tab(name, result)
+            stack = self._add_table_tab(name, result, df_hz if not norm else df_work)
+            if stack:
+                # 페이지 전환 시 상태 업데이트
+                stack.currentChanged.connect(self._update_save_buttons_state)
+
+        # 탭 전환 시에도 상태 업데이트
+        self.tabs.currentChanged.connect(self._update_save_buttons_state)
 
     def _set_initial_tab(self):
         """Plot 창에서 보고 있던 파일 탭을 Analysis 창에서도 선택."""
@@ -314,7 +407,7 @@ class VowelAnalysisDialog(QDialog):
         layout.addWidget(QLabel(message))
         self.tabs.addTab(w, truncate_display_name(tab_label, MAX_DISPLAY_NAME_LEN))
 
-    def _add_table_tab(self, tab_label, result):
+    def _add_table_tab(self, tab_label, result, df):
         if not result or not result.get("statistics"):
             self._add_empty_tab(tab_label, "분석 결과 없음")
             return
@@ -329,7 +422,8 @@ class VowelAnalysisDialog(QDialog):
         table.verticalHeader().setVisible(False)
         table.setShowGrid(False)
         table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
-        table.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        table.setFocusPolicy(Qt.FocusPolicy.NoFocus)  # Focus Rect 제거
+        table.setCurrentCell(-1, -1)  # 초기 포커스 셀 제거
         table.setSelectionMode(QTableWidget.SelectionMode.ExtendedSelection)
         table.setAlternatingRowColors(True)
         table.setStyleSheet("""
@@ -413,15 +507,38 @@ class VowelAnalysisDialog(QDialog):
         layout = QVBoxLayout(w)
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
-        layout.addWidget(table)
+
+        stack = QStackedWidget()
+        stack.addWidget(table)  # Page 0: Formant Table
+
+        # Page 1: Pillai Score Interactive Page
+        pillai_page = PillaiScorePage(
+            df,
+            x_col="x_norm" if norm else "x_hz",
+            y_col="F1",
+            label_col="Label" if "Label" in df.columns else "label",
+        )
+        pillai_page.selectionStateChanged.connect(self._update_save_buttons_state)
+        stack.addWidget(pillai_page)
+
+        layout.addWidget(stack)
+        self._stacked_widgets.append(stack)
         self.tabs.addTab(w, truncate_display_name(tab_label, MAX_DISPLAY_NAME_LEN))
+        return stack
 
     def _current_file_name_and_result(self):
         """현재 선택된 탭의 (file_name, result_dict) 반환."""
-        idx = self.tabs.currentIndex()
-        if idx < 0 or idx >= len(self._analysis_results):
+        tab_idx = self.tabs.currentIndex()
+        if tab_idx < 0 or tab_idx >= len(self._analysis_results):
             return None, None
-        return self._analysis_results[idx]
+
+        stack = self._stacked_widgets[tab_idx]
+        if stack.currentIndex() == 1:
+            # Pillai Score 결과 저장을 위해 특수 데이터 반환 예정 (후속 작업에서 보완 가능)
+            # 여기서는 일단 기존 result를 반환하되, Pillai 전용 저장 로직이 _save_excel 내부에 필요함
+            pass
+
+        return self._analysis_results[tab_idx]
 
     def _initial_save_dir(self):
         if getattr(self.controller, "last_save_dir", None):
@@ -438,7 +555,42 @@ class VowelAnalysisDialog(QDialog):
         if not name or result is None:
             QMessageBox.information(self, "저장", "저장할 분석 데이터가 없습니다.")
             return
-        base_name = _analysis_base_name(name, self.fixed_plot_params)
+
+        current_tab_idx = self.tabs.currentIndex()
+        stack = self._stacked_widgets[current_tab_idx]
+        is_pillai = stack.currentIndex() == 1
+
+        if is_pillai:
+            # Pillai Score 조합 결과 저장
+            pillai_page = stack.currentWidget()
+            if (
+                isinstance(pillai_page, PillaiScorePage)
+                and pillai_page.selection_count >= 3
+            ):
+                data = pillai_page.get_combination_results()
+                df = pd.DataFrame(data, columns=["모음 조합", "Pillai Score"])
+
+                # Suffix: _pillai_analysis
+                base_name = _analysis_base_name(
+                    name, self.fixed_plot_params, is_pillai=True
+                )
+                path, _ = QFileDialog.getSaveFileName(
+                    self,
+                    "엑셀 저장",
+                    os.path.join(self._initial_save_dir(), base_name + ".xlsx"),
+                    "Excel Files (*.xlsx)",
+                )
+                if path:
+                    df.to_excel(path, index=False)
+                    if hasattr(self.controller, "set_last_save_dir"):
+                        self.controller.set_last_save_dir(os.path.dirname(path))
+                    QMessageBox.information(
+                        self, "저장 완료", f"저장되었습니다:\n{path}"
+                    )
+                return
+
+        # Suffix: _analysis
+        base_name = _analysis_base_name(name, self.fixed_plot_params, is_pillai=False)
         initial_dir = self._initial_save_dir()
         path, _ = QFileDialog.getSaveFileName(
             self,
@@ -469,7 +621,42 @@ class VowelAnalysisDialog(QDialog):
         if not name or result is None:
             QMessageBox.information(self, "저장", "저장할 분석 데이터가 없습니다.")
             return
-        base_name = _analysis_base_name(name, self.fixed_plot_params)
+
+        current_tab_idx = self.tabs.currentIndex()
+        stack = self._stacked_widgets[current_tab_idx]
+        is_pillai = stack.currentIndex() == 1
+
+        if is_pillai:
+            # Pillai Score 조합 결과 저장
+            pillai_page = stack.currentWidget()
+            if (
+                isinstance(pillai_page, PillaiScorePage)
+                and pillai_page.selection_count >= 3
+            ):
+                data = pillai_page.get_combination_results()
+                df = pd.DataFrame(data, columns=["모음 조합", "Pillai Score"])
+
+                # Suffix: _pillai_analysis
+                base_name = _analysis_base_name(
+                    name, self.fixed_plot_params, is_pillai=True
+                )
+                path, _ = QFileDialog.getSaveFileName(
+                    self,
+                    "CSV 저장",
+                    os.path.join(self._initial_save_dir(), base_name + ".csv"),
+                    "CSV Files (*.csv)",
+                )
+                if path:
+                    df.to_csv(path, index=False, encoding="utf-8-sig")
+                    if hasattr(self.controller, "set_last_save_dir"):
+                        self.controller.set_last_save_dir(os.path.dirname(path))
+                    QMessageBox.information(
+                        self, "저장 완료", f"저장되었습니다:\n{path}"
+                    )
+                return
+
+        # Suffix: _analysis
+        base_name = _analysis_base_name(name, self.fixed_plot_params, is_pillai=False)
         initial_dir = self._initial_save_dir()
         path, _ = QFileDialog.getSaveFileName(
             self,
@@ -574,3 +761,309 @@ def _export_to_csv(result, path, x_axis_label, normalized=False):
 
     df = _result_to_dataframe(result, x_axis_label, normalized=normalized)
     df.to_csv(path, index=False, encoding="utf-8-sig")
+
+
+MODERN_SCROLLBAR_STYLE = """
+    QScrollBar:vertical {
+        background: transparent;
+        width: 8px;
+        margin: 0px;
+    }
+    QScrollBar::handle:vertical {
+        background: #DCDFE6;
+        min-height: 20px;
+        border-radius: 4px;
+    }
+    QScrollBar::handle:vertical:hover {
+        background: #C0C4CC;
+    }
+    QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
+        height: 0px;
+    }
+    QScrollBar:horizontal {
+        background: transparent;
+        height: 8px;
+        margin: 0px;
+    }
+    QScrollBar::handle:horizontal {
+        background: #DCDFE6;
+        min-width: 20px;
+        border-radius: 4px;
+    }
+    QScrollBar::handle:horizontal:hover {
+        background: #C0C4CC;
+    }
+    QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {
+        width: 0px;
+    }
+"""
+
+
+class PillaiScorePage(QWidget):
+    """모음 여러 개를 선택하여 조합별 Pillai Score를 계산하는 페이지."""
+
+    selectionStateChanged = pyqtSignal()
+
+    def __init__(self, df, x_col, y_col, label_col, parent=None):
+        super().__init__(parent)
+        self.df = df
+        self.x_col = x_col
+        self.y_col = y_col
+        self.label_col = label_col
+        self._vowel_list = []
+        self.selection_count = 0
+        self._setup_ui()
+
+    def _setup_ui(self):
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 16, 0, 16)  # 가로를 넓게 쓰기 위해 좌우 마진 0
+        layout.setSpacing(12)
+
+        # Header with Reset Button
+        header_widget = QWidget()
+        header_layout = QHBoxLayout(header_widget)
+        header_layout.setContentsMargins(16, 0, 16, 0)
+
+        header = QLabel("Pillai Score 분석")
+        header.setStyleSheet(
+            "font-size: 16px; font-weight: bold; color: #303133; border: none;"
+        )
+        header_layout.addWidget(header)
+        header_layout.addStretch()
+
+        self.btn_reset = QPushButton("전체 초기화")
+        self.btn_reset.setStyleSheet("""
+            QPushButton { background-color: #Fefefe; border: 1px solid #DCDFE6; border-radius: 4px; padding: 4px 12px; color: #606266; }
+            QPushButton:hover { background-color: #F5F7FA; color: #F56C6C; border-color: #Fab6b6; }
+        """)
+        self.btn_reset.clicked.connect(self._reset_selection)
+        header_layout.addWidget(self.btn_reset)
+        layout.addWidget(header_widget)
+
+        content_layout = QHBoxLayout()
+        content_layout.setContentsMargins(16, 0, 16, 0)
+        layout.addLayout(content_layout)
+
+        # 1. 모음 선택 테이블 (2열 배치)
+        vowel_counts = self.df[self.label_col].value_counts().to_dict()
+        self._vowel_list = sorted(list(vowel_counts.keys()))
+
+        self.vowel_table = QTableWidget()
+        self.vowel_table.setColumnCount(2)
+        self.vowel_table.horizontalHeader().setVisible(False)
+        self.vowel_table.horizontalHeader().setSectionResizeMode(
+            QHeaderView.ResizeMode.Stretch
+        )  # 가로로 넓게 확장
+        self.vowel_table.verticalHeader().setVisible(False)
+        self.vowel_table.setShowGrid(False)
+        self.vowel_table.setSelectionMode(QTableWidget.SelectionMode.MultiSelection)
+        self.vowel_table.setSelectionBehavior(
+            QTableWidget.SelectionBehavior.SelectItems
+        )
+        self.vowel_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        self.vowel_table.setFocusPolicy(Qt.FocusPolicy.NoFocus)  # Focus Rect 제거
+        self.vowel_table.setCurrentCell(-1, -1)  # 초기 포커스 셀 제거
+        self.vowel_table.setStyleSheet(
+            f"QTableWidget {{ border: none; background-color: transparent; outline: none; }} QTableWidget::item:selected {{ background-color: #F0F7FF; color: #409EFF; border: none; }} {MODERN_SCROLLBAR_STYLE}"
+        )
+
+        # 행 간격 조정
+        self.vowel_table.verticalHeader().setDefaultSectionSize(42)
+
+        n_vowels = len(self._vowel_list)
+        n_rows = (n_vowels + 1) // 2
+        self.vowel_table.setRowCount(n_rows)
+        for i, v in enumerate(self._vowel_list):
+            row, col = i // 2, i % 2
+            count = vowel_counts.get(v, 0)
+
+            container = QWidget()
+            cell_layout = QHBoxLayout(container)
+            cell_layout.setContentsMargins(12, 4, 8, 4)
+            cell_layout.setSpacing(10)  # 8에서 10으로 확대 (스페이스 하나 더 느낌)
+
+            lbl_v = QLabel(str(v))
+            lbl_v.setStyleSheet(
+                "font-size: 16px; color: #303133; border: none; background: transparent;"
+            )
+            lbl_count = QLabel(f"(데이터 포인트 {count}개)")
+            lbl_count.setStyleSheet(
+                "font-size: 10px; color: #909399; border: none; background: transparent;"
+            )
+
+            cell_layout.addWidget(lbl_v)
+            cell_layout.addWidget(lbl_count)
+            cell_layout.addStretch()
+
+            item = QTableWidgetItem()
+            item.setData(Qt.ItemDataRole.UserRole, v)
+            self.vowel_table.setItem(row, col, item)
+            self.vowel_table.setCellWidget(row, col, container)
+
+        self.vowel_table.itemSelectionChanged.connect(self._on_selection_changed)
+        content_layout.addWidget(self.vowel_table, 1)  # 비율 조정
+
+        # 2. 결과 영역
+        self.result_stack = QStackedWidget()
+        self.result_stack.setStyleSheet(
+            "background-color: #F8FAFB; border: none; border-radius: 12px;"
+        )
+
+        self.prompt_page = QLabel(
+            "분석할 모음을 2개 이상 선택하세요.\n(조합별 점수가 자동 계산됩니다)"
+        )
+        self.prompt_page.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.prompt_page.setStyleSheet(
+            "color: #909399; font-style: italic; background: transparent; border: none;"
+        )
+        self.result_stack.addWidget(self.prompt_page)
+
+        self.single_page = QWidget()
+        self.single_page.setStyleSheet("background: transparent; border: none;")
+        single_layout = QVBoxLayout(self.single_page)
+        single_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.lbl_vowels_2 = QLabel("-")
+        self.lbl_vowels_2.setStyleSheet(
+            "font-size: 20px; font-weight: bold; color: #303133; background: transparent; border: none;"
+        )
+        self.lbl_vowels_2.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        single_layout.addWidget(self.lbl_vowels_2)
+        single_layout.addSpacing(10)
+        lbl_pillai_title = QLabel("Pillai Score")
+        lbl_pillai_title.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        lbl_pillai_title.setStyleSheet(
+            "color: #606266; background: transparent; border: none;"
+        )
+        single_layout.addWidget(lbl_pillai_title)
+        self.lbl_pillai_val = QLabel("-")
+        self.lbl_pillai_val.setStyleSheet(
+            "font-size: 48px; font-weight: bold; color: #409EFF; background: transparent; border: none;"
+        )
+        self.lbl_pillai_val.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        single_layout.addWidget(self.lbl_pillai_val)
+        self.result_stack.addWidget(self.single_page)
+
+        self.multi_page = QWidget()
+        self.multi_page.setStyleSheet("background: transparent; border: none;")
+        multi_layout = QVBoxLayout(self.multi_page)
+        multi_layout.setContentsMargins(
+            12, 12, 12, 12
+        )  # 테이블 외곽선 잘림 방지 (8에서 12로 확대)
+
+        self.lbl_multi_header = QLabel("모음 조합별 Pillai Score 분석 결과")
+        self.lbl_multi_header.setStyleSheet(
+            "font-weight: bold; color: #303133; padding-bottom: 4px; background: transparent; border: none;"
+        )
+        multi_layout.addWidget(self.lbl_multi_header)
+
+        self.multi_table = QTableWidget()
+        self.multi_table.setColumnCount(2)
+        self.multi_table.setHorizontalHeaderLabels(["모음 조합", "Pillai Score"])
+        self.multi_table.horizontalHeader().setStretchLastSection(True)
+        self.multi_table.horizontalHeader().setStyleSheet("""
+            QHeaderView::section { 
+                background-color: #F8FAFB; 
+                border: none; 
+                border-bottom: 1px solid #E4E7ED; 
+                border-right: 1px solid #E4E7ED; 
+                padding: 4px; 
+            }
+            QHeaderView::section:last { border-right: none; }
+        """)
+        self.multi_table.verticalHeader().setVisible(False)
+        self.multi_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
+        self.multi_table.setAlternatingRowColors(True)
+        self.multi_table.setFocusPolicy(Qt.FocusPolicy.NoFocus)  # Focus Rect 제거
+        self.multi_table.setCurrentCell(-1, -1)  # 초기 포커스 셀 제거
+        self.multi_table.setShowGrid(True)
+        self.multi_table.setGridStyle(Qt.PenStyle.SolidLine)
+        self.multi_table.setStyleSheet(f"""
+            QTableWidget {{ 
+                border: 1px solid #E4E7ED; 
+                background-color: transparent; 
+                outline: none; 
+                gridline-color: #E4E7ED;
+            }} 
+            QTableWidget::item {{ 
+                padding: 6px 4px; 
+            }}
+            QTableWidget::item:hover, QTableWidget::item:selected {{ 
+                background-color: #F5F9FF; 
+                color: #303133; 
+            }} 
+            {MODERN_SCROLLBAR_STYLE}
+        """)
+        multi_layout.addWidget(self.multi_table)
+        self.result_stack.addWidget(self.multi_page)
+
+        content_layout.addWidget(self.result_stack, 1)  # 좌우 비율 1:1로 조정
+
+    def get_combination_results(self):
+        """현재 멀티 테이블에 표시된 데이터를 리스트로 반환."""
+        rows = self.multi_table.rowCount()
+        data = []
+        for r in range(rows):
+            pair = self.multi_table.item(r, 0).text()
+            score = self.multi_table.item(r, 1).text()
+            data.append([pair, score])
+        return data
+
+    def _reset_selection(self):
+        self.vowel_table.clearSelection()
+
+    def _on_selection_changed(self):
+        selected_items = self.vowel_table.selectedItems()
+        selected_vowels = sorted(
+            list(set(it.data(Qt.ItemDataRole.UserRole) for it in selected_items))
+        )
+        self.selection_count = len(selected_vowels)
+        self.selectionStateChanged.emit()
+
+        if self.selection_count < 2:
+            self.result_stack.setCurrentIndex(0)
+        elif self.selection_count == 2:
+            self._handle_single_pair(selected_vowels)
+            self.result_stack.setCurrentIndex(1)
+        else:
+            self._handle_multi_pairs(selected_vowels)
+            self.result_stack.setCurrentIndex(2)
+
+    def _handle_single_pair(self, vowels):
+        v1, v2 = vowels
+        self.lbl_vowels_2.setText(f"{v1}  vs  {v2}")
+        score = self._calc_pillai(v1, v2)
+        if score is not None:
+            self.lbl_pillai_val.setText(f"{score:.4f}")
+        else:
+            self.lbl_pillai_val.setText("N/A")
+
+    def _handle_multi_pairs(self, vowels):
+        pairs = list(itertools.combinations(vowels, 2))
+        self.multi_table.setRowCount(len(pairs))
+        for i, (v1, v2) in enumerate(pairs):
+            pair_text = f"{v1} - {v2}"
+            score = self._calc_pillai(v1, v2)
+            score_text = f"{score:.4f}" if score is not None else "N/A"
+
+            it_pair = QTableWidgetItem(pair_text)
+            it_pair.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+            it_score = QTableWidgetItem(score_text)
+            it_score.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
+            it_score.setFont(QFont("Arial", 10, QFont.Weight.Bold))
+            if score is not None and score > 0.8:  # 분리도가 높은 경우 강조
+                it_score.setForeground(QColor("#409EFF"))
+
+            self.multi_table.setItem(i, 0, it_pair)
+            self.multi_table.setItem(i, 1, it_score)
+
+    def _calc_pillai(self, v1, v2):
+        try:
+            coords1 = self.df[self.df[self.label_col] == v1][
+                [self.x_col, self.y_col]
+            ].values
+            coords2 = self.df[self.df[self.label_col] == v2][
+                [self.x_col, self.y_col]
+            ].values
+            return calculate_pillai_score(coords1, coords2)
+        except Exception:
+            return None

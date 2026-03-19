@@ -465,8 +465,8 @@ class PlotPopup(BasePlotWindow):
         self.dock_widget.topLevelChanged.connect(self._on_dock_state_changed)
         self._on_dock_state_changed()
 
-        # 레이어 설정 도크 (도구 도크가 좌측, 레이어는 우측 기본 / 닫기는 불가, 떼기는 허용)
-        self.layer_dock_widget = QDockWidget("레이어 설정", self)
+        # 레이어 디자인 도크 (도구 도크가 좌측, 레이어는 우측 기본 / 닫기는 불가, 떼기는 허용)
+        self.layer_dock_widget = QDockWidget("레이어 디자인", self)
         self.layer_dock_widget.setAllowedAreas(
             Qt.DockWidgetArea.LeftDockWidgetArea | Qt.DockWidgetArea.RightDockWidgetArea
         )
