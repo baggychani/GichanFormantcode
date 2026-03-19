@@ -197,8 +197,11 @@ class MainUI(QMainWindow):
     def _apply_pyqt6_icon(self):
         try:
             self.setWindowIcon(icon_utils.get_app_icon())
-        except Exception:
-            pass
+        except Exception as e:
+            # 아이콘 로드 실패는 치명적이지 않으므로 디버그 로그만 남김
+            import app_logger
+
+            app_logger.debug(f"[_apply_pyqt6_icon] 아이콘 적용 중 예외 발생: {e}")
 
     def _setup_fonts(self):
         self.font_main = QFont(self.ui_font_name, 10)
@@ -378,9 +381,7 @@ class MainUI(QMainWindow):
         self.outlier_group.setExclusive(False)
         outlier_h = QHBoxLayout()
         outlier_h.setSpacing(10)
-        for col, (text, val) in enumerate(
-            [("1σ (68.27%)", "1sigma"), ("2σ (95.45%)", "2sigma")]
-        ):
+        for col, (text, val) in enumerate(config.OUTLIER_SIGMA_OPTIONS):
             btn = QPushButton(text)
             btn.setCheckable(True)
             btn.setProperty("val", val)
@@ -446,7 +447,7 @@ class MainUI(QMainWindow):
             QPushButton:disabled { background-color: #C0C4CC; color: #909399; }
         """)
         self.btn_generate.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.btn_generate.clicked.connect(self.controller.generate_plot)
+        self.btn_generate.clicked.connect(self.controller.open_single_plot)
         col3.addWidget(self.btn_generate)
         workspace_layout.addLayout(col3, stretch=32)
 

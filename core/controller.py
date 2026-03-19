@@ -78,7 +78,7 @@ class MainController:
         # LIVE 미리보기 디바운스: 연속 호출 시 마지막 한 번만 렌더 (메인 스레드 블로킹 완화)
         self._live_preview_timer = QTimer()
         self._live_preview_timer.setSingleShot(True)
-        self._live_preview_timer.timeout.connect(self._flush_live_preview)
+        self._live_preview_timer.timeout.connect(self._render_live_preview)
 
         # UI 생성 및 컨트롤러 등록
         self.ui = MainUI(self)
@@ -87,8 +87,8 @@ class MainController:
         try:
             if hasattr(self.ui, "_apply_pyqt6_icon"):
                 self.ui._apply_pyqt6_icon()
-        except Exception:
-            pass
+        except Exception as e:
+            app_logger.debug(f"[_apply_pyqt6_icon] 초기 아이콘 적용 실패: {e}")
 
         # 창을 먼저 표시한 뒤, UI 렌더링 완료 후 라이브 미리보기 지연 실행 (초기 렉 완화)
         self.ui.show()
@@ -236,6 +236,69 @@ class MainController:
             self.custom_label_offsets.pop((*key_cmp, "red"), None)
         if popup in self.open_popups:
             self.open_popups.remove(popup)
+
+    def _get_x_axis_label(self, plot_type):
+        """플롯 타입에 맞는 X축 라벨 문자열 반환."""
+        x_axis_labels = {
+            "f1_f2": "F2",
+            "f1_f3": "F3",
+            "f1_f2_prime": "F2'",
+            "f1_f2_minus_f1": "F2 - F1",
+            "f1_f2_prime_minus_f1": "F2' - F1",
+        }
+        return x_axis_labels.get(plot_type, "X-Axis")
+
+    def _get_axis_units_from_params(self, plot_params):
+        """플롯 파라미터에서 F1/F2 단위를 계산해 반환."""
+        f1_scale = plot_params.get("f1_scale", "linear")
+        f2_scale = plot_params.get("f2_scale", "linear")
+        use_bark = plot_params.get("use_bark_units", False)
+        f1_unit = "Bark" if (f1_scale == "bark" and use_bark) else "Hz"
+        f2_unit = "Bark" if (f2_scale == "bark" and use_bark) else "Hz"
+        return f1_unit, f2_unit
+
+    def _read_manual_ranges(self, range_widgets):
+        """범위 입력 위젯에서 수동 범위 dict를 읽어 반환."""
+        return {
+            "y_min": range_widgets["y_min"].text(),
+            "y_max": range_widgets["y_max"].text(),
+            "x_min": range_widgets["x_min"].text(),
+            "x_max": range_widgets["x_max"].text(),
+        }
+
+    def _apply_ranges_to_widgets(self, range_widgets, ranges):
+        """범위 dict를 입력 위젯에 반영."""
+        range_widgets["y_min"].setText(ranges["y_min"])
+        range_widgets["y_max"].setText(ranges["y_max"])
+        range_widgets["x_min"].setText(ranges["x_min"])
+        range_widgets["x_max"].setText(ranges["x_max"])
+
+    def _disable_ruler_for_open_popups(self):
+        """열린 팝업 전체에서 눈금자 모드를 비활성화."""
+        if not self.ruler_tool.active:
+            return
+        self.ruler_tool.active = False
+        self.ruler_tool.detach()
+        self.ruler_tool.clear_all()
+        for p in self.open_popups:
+            if hasattr(p, "update_ruler_style"):
+                p.update_ruler_style(False)
+        app_logger.info(config.LOG_MSG["RULER_OFF_INFO"])
+
+    def _disable_label_move_for_open_popups(self):
+        """열린 팝업 전체에서 라벨 이동 모드를 비활성화."""
+        if not (self.label_move_tool and self.label_move_tool.active):
+            return
+        self.label_move_tool.active = False
+        self.label_move_tool.detach()
+        for p in self.open_popups:
+            if hasattr(p, "update_label_move_style"):
+                p.update_label_move_style(False)
+        app_logger.info(config.LOG_MSG["LABEL_MOVE_OFF"])
+
+    def _get_label_offset_delta(self, dragging):
+        """드래깅 결과에서 중심 대비 라벨 오프셋(dx, dy)을 계산."""
+        return dragging["lx"] - dragging["cx"], dragging["ly"] - dragging["cy"]
 
     # --- 데이터 관리 로직 ---
 
@@ -524,7 +587,7 @@ class MainController:
         self._live_preview_timer.stop()
         self._live_preview_timer.start(150)
 
-    def _flush_live_preview(self):
+    def _render_live_preview(self):
         """디바운스 타이머 만료 시 실제 LIVE 미리보기 렌더링을 수행합니다."""
         if not hasattr(self, "ui") or not hasattr(self.ui, "preview_label"):
             return
@@ -559,8 +622,8 @@ class MainController:
                     fontsize=11,
                 )
                 ax.set_axis_off()
-            except Exception:
-                pass
+            except Exception as e:
+                app_logger.debug(f"[_render_live_preview] 렌더링 오류 폴백 실패: {e}")
             self.ui.preview_label.clear()
             self.ui.preview_label.setText("LIVE 렌더링 오류")
             if hasattr(self.ui, "preview_info_label"):
@@ -573,7 +636,7 @@ class MainController:
         guide = DataGuidePopup(self.ui)
         guide.exec()
 
-    def generate_plot(self):
+    def open_single_plot(self):
         """현재 데이터로 시각화 창(PlotPopup)을 생성합니다."""
         if not self.plot_data_list:
             self.ui.show_warning("데이터 없음", "분석할 데이터를 먼저 로드해 주세요.")
@@ -581,14 +644,7 @@ class MainController:
 
         fig = Figure(figsize=(6.5, 6.5), dpi=100)
         plot_type = self.ui.get_plot_type()
-        x_axis_labels = {
-            "f1_f2": "F2",
-            "f1_f3": "F3",
-            "f1_f2_prime": "F2'",
-            "f1_f2_minus_f1": "F2 - F1",
-            "f1_f2_prime_minus_f1": "F2' - F1",
-        }
-        x_label = x_axis_labels.get(plot_type, "X-Axis")
+        x_label = self._get_x_axis_label(plot_type)
 
         popup = PlotPopup(
             parent=self.ui, controller=self, figure=fig, x_axis_label=x_label
@@ -603,9 +659,7 @@ class MainController:
         f1_scale = popup.fixed_plot_params.get("f1_scale", "linear")
         f2_scale = popup.fixed_plot_params.get("f2_scale", "linear")
         use_bark = popup.fixed_plot_params.get("use_bark_units", False)
-
-        f1_unit = "Bark" if (f1_scale == "bark" and use_bark) else "Hz"
-        f2_unit = "Bark" if (f2_scale == "bark" and use_bark) else "Hz"
+        f1_unit, f2_unit = self._get_axis_units_from_params(popup.fixed_plot_params)
 
         try:
             popup.update_unit_labels(f1_unit, f2_unit)
@@ -613,10 +667,7 @@ class MainController:
             popup.update_unit_labels(f1_unit)
 
         smart_ranges = self._get_smart_ranges(plot_type, use_bark, f1_scale, f2_scale)
-        popup.range_widgets["y_min"].setText(smart_ranges["y_min"])
-        popup.range_widgets["y_max"].setText(smart_ranges["y_max"])
-        popup.range_widgets["x_min"].setText(smart_ranges["x_min"])
-        popup.range_widgets["x_max"].setText(smart_ranges["x_max"])
+        self._apply_ranges_to_widgets(popup.range_widgets, smart_ranges)
 
         popup.lbl_info.setText(
             format_file_label(
@@ -729,22 +780,8 @@ class MainController:
             )
             return
 
-        if self.ruler_tool.active:
-            self.ruler_tool.active = False
-            self.ruler_tool.detach()
-            self.ruler_tool.clear_all()
-            for p in self.open_popups:
-                if hasattr(p, "update_ruler_style"):
-                    p.update_ruler_style(False)
-            app_logger.info(config.LOG_MSG["RULER_OFF_INFO"])
-
-        if self.label_move_tool and self.label_move_tool.active:
-            self.label_move_tool.active = False
-            self.label_move_tool.detach()
-            for p in self.open_popups:
-                if hasattr(p, "update_label_move_style"):
-                    p.update_label_move_style(False)
-            app_logger.info(config.LOG_MSG["LABEL_MOVE_OFF"])
+        self._disable_ruler_for_open_popups()
+        self._disable_label_move_for_open_popups()
 
         dialog = SelectCompareDialog(parent_window or self.ui, self, current_idx)
         dialog.exec()
@@ -757,23 +794,8 @@ class MainController:
             fig = Figure(figsize=(6.5, 6.5), dpi=100)
 
             plot_type = self.ui.get_plot_type()
-            x_axis_labels = {
-                "f1_f2": "F2",
-                "f1_f3": "F3",
-                "f1_f2_prime": "F2'",
-                "f1_f2_minus_f1": "F2 - F1",
-                "f1_f2_prime_minus_f1": "F2' - F1",
-            }
-            x_label = x_axis_labels.get(plot_type, "X-Axis")
-
-            if self.ruler_tool.active:
-                self.ruler_tool.active = False
-                self.ruler_tool.detach()
-                self.ruler_tool.clear_all()
-                for p in self.open_popups:
-                    if hasattr(p, "update_ruler_style"):
-                        p.update_ruler_style(False)
-                app_logger.info(config.LOG_MSG["RULER_OFF_INFO"])
+            x_label = self._get_x_axis_label(plot_type)
+            self._disable_ruler_for_open_popups()
 
             popup = ComparePlotPopup(
                 parent_window or self.ui,
@@ -790,27 +812,20 @@ class MainController:
                 f1_scale = popup.fixed_plot_params.get("f1_scale", "linear")
                 f2_scale = popup.fixed_plot_params.get("f2_scale", "linear")
                 use_bark = popup.fixed_plot_params.get("use_bark_units", False)
-                f1_unit = "Bark" if (f1_scale == "bark" and use_bark) else "Hz"
+                f1_unit, _ = self._get_axis_units_from_params(popup.fixed_plot_params)
                 try:
                     popup.update_unit_labels(f1_unit)
-                except TypeError:
-                    pass
+                except TypeError as e:
+                    app_logger.debug(
+                        f"[open_compare_plot] 단위 라벨 업데이트 실패: {e}"
+                    )
                 smart_ranges = self._get_smart_ranges(
                     plot_type, use_bark, f1_scale, f2_scale
                 )
-                popup.range_widgets["y_min"].setText(smart_ranges["y_min"])
-                popup.range_widgets["y_max"].setText(smart_ranges["y_max"])
-                popup.range_widgets["x_min"].setText(smart_ranges["x_min"])
-                popup.range_widgets["x_max"].setText(smart_ranges["x_max"])
+                self._apply_ranges_to_widgets(popup.range_widgets, smart_ranges)
 
             # 다중 플롯 창이 뜨면 라벨 위치 이동 모드 강제 OFF
-            if self.label_move_tool and self.label_move_tool.active:
-                self.label_move_tool.active = False
-                self.label_move_tool.detach()
-                for p in self.open_popups:
-                    if hasattr(p, "update_label_move_style"):
-                        p.update_label_move_style(False)
-                app_logger.info(config.LOG_MSG["LABEL_MOVE_OFF"])
+            self._disable_label_move_for_open_popups()
 
             # 창을 먼저 표시한 뒤 첫 그리기 (0xC0000409 방지: 레이아웃 완료 후 canvas.draw)
             popup.show()
@@ -855,12 +870,7 @@ class MainController:
         ):
             return
         try:
-            manual_ranges = {
-                "y_min": range_widgets["y_min"].text(),
-                "y_max": range_widgets["y_max"].text(),
-                "x_min": range_widgets["x_min"].text(),
-                "x_max": range_widgets["x_max"].text(),
-            }
+            manual_ranges = self._read_manual_ranges(range_widgets)
 
             popup_window.fixed_plot_params = self._get_current_plot_params(popup_window)
             if hasattr(popup_window, "cb_sigma") and popup_window.cb_sigma is not None:
@@ -869,8 +879,8 @@ class MainController:
                         popup_window.fixed_plot_params or {},
                         sigma=float(popup_window.cb_sigma.currentText()),
                     )
-                except (ValueError, TypeError):
-                    pass
+                except (ValueError, TypeError) as e:
+                    app_logger.debug(f"[refresh_compare_plot] 시그마 값 파싱 실패: {e}")
 
             df_blue = self.plot_data_list[idx_blue]["df"]
             df_red = self.plot_data_list[idx_red]["df"]
@@ -902,12 +912,6 @@ class MainController:
                 custom_red = self.custom_label_offsets.get(key_red, {})
                 layer_overrides_blue = popup_window.get_layer_design_overrides_blue()
                 layer_overrides_red = popup_window.get_layer_design_overrides_red()
-                manual_ranges = {
-                    "y_min": range_widgets["y_min"].text(),
-                    "y_max": range_widgets["y_max"].text(),
-                    "x_min": range_widgets["x_min"].text(),
-                    "x_max": range_widgets["x_max"].text(),
-                }
                 (
                     _,
                     snapping_data,
@@ -1055,20 +1059,15 @@ class MainController:
                 )
                 ax.set_axis_off()
                 canvas.draw()
-            except Exception:
-                pass
+            except Exception as e:
+                app_logger.debug(f"[refresh_compare_plot] 렌더링 오류 폴백 실패: {e}")
 
     # --- 팝업 UI 내부에서 호출되는 액션 핸들러들 ---
 
     def refresh_plot(self, figure, canvas, range_widgets, lbl_info, popup_window):
         """[범위 적용] 버튼 클릭 또는 필터/디자인 적용 시 현재 입력된 상태로 플롯을 갱신합니다."""
         try:
-            manual_ranges = {
-                "y_min": range_widgets["y_min"].text(),
-                "y_max": range_widgets["y_max"].text(),
-                "x_min": range_widgets["x_min"].text(),
-                "x_max": range_widgets["x_max"].text(),
-            }
+            manual_ranges = self._read_manual_ranges(range_widgets)
 
             popup_window.fixed_plot_params = self._get_current_plot_params(popup_window)
             data_list = popup_window.plot_data_snapshot or self.plot_data_list
@@ -1138,8 +1137,8 @@ class MainController:
                 )
                 ax.set_axis_off()
                 canvas.draw()
-            except Exception:
-                pass
+            except Exception as e:
+                app_logger.debug(f"[refresh_plot] 렌더링 오류 폴백 실패: {e}")
 
     def navigate_plot(
         self, direction, figure, canvas, lbl_info, popup_window, range_widgets
@@ -1222,13 +1221,8 @@ class MainController:
             popup_window.update_ruler_style(False)
             app_logger.info(config.LOG_MSG["RULER_OFF_INFO"])
 
-    def _save_label_offset(self, dragging, popup_window):
-        key = getattr(popup_window, "_plot_key", None)
-        if not key:
-            return
-        dx = dragging["lx"] - dragging["cx"]
-        dy = dragging["ly"] - dragging["cy"]
-        self.custom_label_offsets.setdefault(key, {})[dragging["vowel"]] = (dx, dy)
+    def _refresh_single_popup_after_label_move(self, popup_window):
+        """단일 플롯 라벨 위치 변경 후 현재 팝업을 다시 그린다."""
         self.refresh_plot(
             popup_window.figure,
             popup_window.canvas,
@@ -1237,19 +1231,40 @@ class MainController:
             popup_window,
         )
 
+    def _refresh_compare_popup_after_label_move(self, popup_window):
+        """비교 플롯 라벨 위치 변경 후 현재 팝업을 다시 그린다."""
+        self.refresh_compare_plot(
+            popup_window.figure,
+            popup_window.canvas,
+            popup_window.range_widgets,
+            None,
+            popup_window,
+            popup_window.idx_blue,
+            popup_window.idx_red,
+        )
+
+    def _get_compare_label_offset_key(self, popup_window, series):
+        """비교 플롯(blue/red) 라벨 오프셋 저장 키를 반환한다."""
+        key_cmp = getattr(popup_window, "_plot_key_compare", None)
+        if not key_cmp:
+            return None
+        return (*key_cmp, series)
+
+    def _save_label_offset(self, dragging, popup_window):
+        key = getattr(popup_window, "_plot_key", None)
+        if not key:
+            return
+        dx, dy = self._get_label_offset_delta(dragging)
+        self.custom_label_offsets.setdefault(key, {})[dragging["vowel"]] = (dx, dy)
+        self._refresh_single_popup_after_label_move(popup_window)
+
     def _clear_label_offset(self, popup_window, vowel):
         """우클릭 원상복귀: 해당 모음의 사용자 지정 오프셋을 제거하면 refresh 시 자동 배치로 복귀."""
         key = getattr(popup_window, "_plot_key", None)
         if not key:
             return
         self.custom_label_offsets.get(key, {}).pop(vowel, None)
-        self.refresh_plot(
-            popup_window.figure,
-            popup_window.canvas,
-            popup_window.range_widgets,
-            popup_window.lbl_info,
-            popup_window,
-        )
+        self._refresh_single_popup_after_label_move(popup_window)
 
     def toggle_label_move(self, popup_window):
         """라벨 위치 이동 모드 토글. 눈금자 툴이 켜져 있으면 켜지지 않음."""
@@ -1280,39 +1295,20 @@ class MainController:
             app_logger.info(config.LOG_MSG["LABEL_MOVE_OFF"])
 
     def _save_compare_label_offset(self, dragging, popup_window, series):
-        key_cmp = getattr(popup_window, "_plot_key_compare", None)
-        if not key_cmp:
+        key = self._get_compare_label_offset_key(popup_window, series)
+        if not key:
             return
-        key = (*key_cmp, series)
-        dx = dragging["lx"] - dragging["cx"]
-        dy = dragging["ly"] - dragging["cy"]
+        dx, dy = self._get_label_offset_delta(dragging)
         self.custom_label_offsets.setdefault(key, {})[dragging["vowel"]] = (dx, dy)
-        self.refresh_compare_plot(
-            popup_window.figure,
-            popup_window.canvas,
-            popup_window.range_widgets,
-            None,
-            popup_window,
-            popup_window.idx_blue,
-            popup_window.idx_red,
-        )
+        self._refresh_compare_popup_after_label_move(popup_window)
 
     def _clear_compare_label_offset(self, popup_window, series, vowel):
         """우클릭 원상복귀: 해당 모음의 사용자 지정 오프셋 제거 후 refresh 시 자동 배치로 복귀."""
-        key_cmp = getattr(popup_window, "_plot_key_compare", None)
-        if not key_cmp:
+        key = self._get_compare_label_offset_key(popup_window, series)
+        if not key:
             return
-        key = (*key_cmp, series)
         self.custom_label_offsets.get(key, {}).pop(vowel, None)
-        self.refresh_compare_plot(
-            popup_window.figure,
-            popup_window.canvas,
-            popup_window.range_widgets,
-            None,
-            popup_window,
-            popup_window.idx_blue,
-            popup_window.idx_red,
-        )
+        self._refresh_compare_popup_after_label_move(popup_window)
 
     def toggle_compare_label_move(self, popup_window, series):
         """다중 플롯에서 해당 파일(blue/red) 라벨 위치 이동 토글 및 스위칭."""
@@ -1410,17 +1406,36 @@ class MainController:
         else:
             app_logger.info(config.LOG_MSG["LABEL_MOVE_OFF"])
 
-    def get_default_save_path(self, fmt, parent_window=None):
-        """단일 이미지 저장의 기본 경로 및 디렉터리 반환."""
-        if not self.plot_data_list:
-            return "", ""
+    def _get_outlier_save_suffix(self):
+        """현재 이상치 제거 모드에 맞는 저장 파일명 suffix를 반환."""
         outlier_mode = getattr(self.ui, "get_outlier_mode", lambda: None)()
-        outlier_suffix = ""
         if outlier_mode == "1sigma":
-            outlier_suffix = "_이상치 제거 1σ"
-        elif outlier_mode == "2sigma":
-            outlier_suffix = "_이상치 제거 2σ"
+            return "_이상치 제거 1σ"
+        if outlier_mode == "2sigma":
+            return "_이상치 제거 2σ"
+        return ""
 
+    def _get_initial_save_dir(self):
+        """저장 다이얼로그의 초기 디렉터리를 반환."""
+        if self.last_save_dir:
+            return self.last_save_dir
+        downloads_dir = QStandardPaths.writableLocation(
+            QStandardPaths.StandardLocation.DownloadLocation
+        )
+        return downloads_dir or ""
+
+    def _normalize_tag_for_filename(self, norm):
+        """정규화 이름을 파일명용 태그로 변환."""
+        return {
+            "Lobanov": "Lobanov",
+            "Gerstman": "Gerstman",
+            "2mW/F": "2mWF",
+            "Bigham": "Bigham",
+        }.get(norm, norm.replace("/", "").replace(" ", ""))
+
+    def _build_default_save_name(self, fmt, parent_window=None):
+        """현재 상태/팝업 문맥을 기반으로 저장 기본 파일명을 생성."""
+        outlier_suffix = self._get_outlier_save_suffix()
         if (
             parent_window
             and getattr(parent_window, "idx_blue", None) is not None
@@ -1435,24 +1450,19 @@ class MainController:
             base = f"{name_blue}_{name_red}{outlier_suffix}"
             norm = getattr(parent_window, "normalization", None)
             if norm:
-                base += "_" + {
-                    "Lobanov": "Lobanov",
-                    "Gerstman": "Gerstman",
-                    "2mW/F": "2mWF",
-                    "Bigham": "Bigham",
-                }.get(norm, norm.replace("/", "").replace(" ", ""))
-            default_name = f"{base}.{fmt}"
-        else:
-            current_name = self.plot_data_list[self.current_idx]["name"]
-            base = os.path.splitext(current_name)[0]
-            default_name = f"{base}{outlier_suffix}.{fmt}"
+                base += "_" + self._normalize_tag_for_filename(norm)
+            return f"{base}.{fmt}"
 
-        initial_dir = self.last_save_dir
-        if not initial_dir:
-            downloads_dir = QStandardPaths.writableLocation(
-                QStandardPaths.StandardLocation.DownloadLocation
-            )
-            initial_dir = downloads_dir or ""
+        current_name = self.plot_data_list[self.current_idx]["name"]
+        base = os.path.splitext(current_name)[0]
+        return f"{base}{outlier_suffix}.{fmt}"
+
+    def get_default_save_path(self, fmt, parent_window=None):
+        """단일 이미지 저장의 기본 경로 및 디렉터리 반환."""
+        if not self.plot_data_list:
+            return "", ""
+        default_name = self._build_default_save_name(fmt, parent_window)
+        initial_dir = self._get_initial_save_dir()
         initial_path = (
             os.path.join(initial_dir, default_name) if initial_dir else default_name
         )
@@ -1462,21 +1472,23 @@ class MainController:
         """실제 파일 저장만을 수행, 오류시 예외 발생."""
         try:
             self.set_last_save_dir(os.path.dirname(file_path))
-        except Exception:
-            pass
+        except Exception as e:
+            app_logger.debug(f"[save_plot_to_file] 마지막 저장 경로 저장 실패: {e}")
         if self.ruler_tool.active:
             self.ruler_tool.clear_all()
         if parent_window:
             if getattr(parent_window, "_draw_tool", None) is not None:
                 try:
                     parent_window._draw_tool.cancel()
-                except Exception:
-                    pass
+                except Exception as e:
+                    app_logger.debug(f"[save_plot_to_file] 그리기 도구 취소 실패: {e}")
             if getattr(parent_window, "canvas", None) is not None:
                 try:
                     parent_window.canvas.draw()
-                except Exception:
-                    pass
+                except Exception as e:
+                    app_logger.debug(
+                        f"[save_plot_to_file] 캔버스 다시 그리기 실패: {e}"
+                    )
         figure.set_size_inches(6.5, 6.5)
         if fmt.lower() == "png":
             figure.savefig(file_path, format="png", dpi=300, transparent=True)
@@ -1486,15 +1498,7 @@ class MainController:
 
     def get_default_batch_save_dir(self):
         """일괄 저장에 사용할 기본 디렉터리 반환."""
-        initial_dir = self.last_save_dir
-        if not initial_dir:
-            initial_dir = (
-                QStandardPaths.writableLocation(
-                    QStandardPaths.StandardLocation.DownloadLocation
-                )
-                or ""
-            )
-        return initial_dir
+        return self._get_initial_save_dir()
 
     def create_batch_save_worker(
         self, save_dir, ranges, sigma, img_format, design_settings=None

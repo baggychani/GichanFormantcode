@@ -792,8 +792,10 @@ class PlotPopup(BasePlotWindow):
         sig_h.addWidget(QLabel("신뢰 타원:", font=font_normal))
         self.cb_sigma = NoWheelComboBox()
         self.cb_sigma.setFocusPolicy(Qt.FocusPolicy.ClickFocus)
-        self.cb_sigma.addItems(["1.0", "2.0"])
-        self.cb_sigma.setCurrentText("2.0")
+        self.cb_sigma.addItems(config.SIGMA_VALS)
+        self.cb_sigma.setCurrentText(
+            config.SIGMA_VALS[-1] if config.SIGMA_VALS else "2.0"
+        )
         sig_h.addWidget(self.cb_sigma)
         sig_h.addWidget(QLabel("σ", font=font_normal))
         sig_h.addStretch()

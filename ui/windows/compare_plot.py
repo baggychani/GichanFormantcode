@@ -227,12 +227,8 @@ class SelectCompareDialog(QDialog):
         norm_row.addWidget(QLabel("정규화:", font=QFont("Malgun Gothic", 9)))
         self.combo_normalization = QComboBox()
         self.combo_normalization.setFont(QFont("Malgun Gothic", 9))
-        self.combo_normalization.addItem("없음", None)
-        self.combo_normalization.addItem("Lobanov", "Lobanov")
-        self.combo_normalization.addItem("Gerstman", "Gerstman")
-        self.combo_normalization.addItem("2mW/F", "2mW/F")
-        self.combo_normalization.addItem("Bigham", "Bigham")
-        self.combo_normalization.addItem("Nearey1", "Nearey1")
+        for label, data in config.NORMALIZATION_OPTIONS:
+            self.combo_normalization.addItem(label, data)
         ptype = self.controller.get_plot_type()
         if ptype in ("f1_f2_minus_f1", "f1_f2_prime_minus_f1"):
             self.combo_normalization.setEnabled(False)
