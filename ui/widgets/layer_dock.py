@@ -1077,17 +1077,40 @@ class LayerDockWidget(QWidget):
         self._layer_list_widget.update()
 
     def _get_drop_target_at_pos(self, pos):
-        """레이어 목록 위젯 내 pos(좌표)에 대응하는 (vowel, after) 반환. 행 밖이면 맨 위/맨 아래로."""
+        """레이어 목록 위젯 내 pos(좌표)에 대응하는 (vowel, after) 반환. 
+        행 사이의 구분선(간극)에 있더라도 가장 가까운 행을 찾습니다.
+        """
         ordered = self._get_ordered_vowels_for_display(list(self._layer_rows.keys()))
         if not ordered:
             return (None, False)
+        
+        y = pos.y()
         rows = [self._layer_rows[v] for v in ordered]
+        
+        # 1. 특정 행 내부에 있는 경우 바로 반환
         for i, row in enumerate(rows):
             geom = row.geometry()
-            if geom.contains(pos):
-                return (ordered[i], pos.y() > geom.center().y())
-        if pos.y() < rows[0].geometry().top():
+            if geom.top() <= y <= geom.bottom():
+                return (ordered[i], y > geom.center().y())
+        
+        # 2. 행 사이(구분선 등)에 있는 경우 가장 가까운 쪽을 찾음
+        if y < rows[0].geometry().top():
             return (ordered[0], False)
+        if y > rows[-1].geometry().bottom():
+            return (ordered[-1], True)
+            
+        # 중간 간극인 경우 바로 위/아래 행 비교
+        for i in range(len(rows) - 1):
+            r1 = rows[i]
+            r2 = rows[i+1]
+            if r1.geometry().bottom() < y < r2.geometry().top():
+                # 두 행 사이 정가운데를 기준으로 나눔
+                mid = (r1.geometry().bottom() + r2.geometry().top()) / 2
+                if y <= mid:
+                    return (ordered[i], True)
+                else:
+                    return (ordered[i+1], False)
+        
         return (ordered[-1], True)
 
     def _on_layer_reorder(self, dragged_list, drop_target_vowel, after=False):
@@ -1134,18 +1157,35 @@ class LayerDockWidget(QWidget):
             self._draw_list_placeholder.update()
 
     def _get_draw_drop_target_at_pos(self, pos):
+        """그리기 탭용 드롭 대상 계산. 행 사이 간극에서도 올바른 위치를 찾습니다."""
         rows = getattr(self, "_draw_layer_rows", None) or []
         if not rows:
             return (None, False)
-        for row in rows:
+            
+        y = pos.y()
+        # 1. 행 내부 체크
+        for i, row in enumerate(rows):
             geom = row.geometry()
-            if geom.contains(pos):
-                idx = getattr(row, "draw_index", None)
-                if idx is None:
-                    continue
-                return (idx, pos.y() > geom.center().y())
-        if pos.y() < rows[0].geometry().top():
-            return (0, False)
+            if geom.top() <= y <= geom.bottom():
+                idx = getattr(row, "draw_index", i)
+                return (idx, y > geom.center().y())
+                
+        # 2. 간극 체크
+        if y < rows[0].geometry().top():
+            return (getattr(rows[0], "draw_index", 0), False)
+        if y > rows[-1].geometry().bottom():
+            return (getattr(rows[-1], "draw_index", len(rows)-1), True)
+            
+        for i in range(len(rows) - 1):
+            r1 = rows[i]
+            r2 = rows[i+1]
+            if r1.geometry().bottom() < y < r2.geometry().top():
+                mid = (r1.geometry().bottom() + r2.geometry().top()) / 2
+                if y <= mid:
+                    return (getattr(r1, "draw_index", i), True)
+                else:
+                    return (getattr(r2, "draw_index", i+1), False)
+                    
         last_idx = getattr(rows[-1], "draw_index", len(rows) - 1)
         return (last_idx, True)
 
@@ -1277,38 +1317,60 @@ class LayerDockWidget(QWidget):
         row.semi_btn.blockSignals(False)
 
     def set_vowels(self, vowels):
-        """현재 파일의 모음 레이어 목록을 표시. 순서는 저장된 값이 있으면 사용, 없으면 정렬.
-        맨 위에 전체 눈/반투명 한 줄을 두고, 각 레이어 행 사이에 1px 구분선을 넣는다.
+        """현재 파일의 모음 레이어 목록을 표시. 
+        최적화: 위젯 재사용 및 불필요한 레이아웃 갱신(구분선 위젯 생성 등)을 제거하여 드롭 시 렉을 없앱니다.
         """
-        self._layer_rows.clear()
-        while self._layer_list_layout.count():
-            item = self._layer_list_layout.takeAt(0)
-            if item.widget():
-                item.widget().deleteLater()
         ordered_vowels = self._get_ordered_vowels_for_display(vowels)
-        if not ordered_vowels:
-            self._global_row = None
-            self._rebuild_effects()
-            return
+        self.setUpdatesEnabled(False)
+        try:
+            # 1. 기존 레이아웃에서 위젯들을 분리 (파괴하지 않음)
+            while self._layer_list_layout.count():
+                item = self._layer_list_layout.takeAt(0)
+                w = item.widget()
+                if w:
+                    w.hide()
+                    # 행 위젯이 아닌 것(기존 구분선 등)은 삭제
+                    if not (w == self._global_row or w.property("layerRow")):
+                        w.deleteLater()
 
-        filter_state = self._get_current_filter_state()
-        # 전체 눈/반투명 한 줄 (높이 낮게, 자체 border-bottom 1px 만 사용)
-        self._global_row = self._build_global_row()
-        self._layer_list_layout.addWidget(self._global_row)
+            if not ordered_vowels:
+                self._global_row = None
+                self._layer_rows.clear()
+                return
 
-        for idx, v in enumerate(ordered_vowels):
-            row = self._build_layer_row(str(v), filter_state.get(v, "ON"))
-            row.setProperty("vowel", v)
-            self._layer_list_layout.addWidget(row)
-            self._layer_rows[v] = row
-            if idx < len(ordered_vowels) - 1:
-                sep = QFrame()
-                sep.setFrameShape(QFrame.Shape.HLine)
-                sep.setFixedHeight(1)
-                sep.setStyleSheet("background-color: #EBEEF5; margin: 0; border: none;")
-                self._layer_list_layout.addWidget(sep)
-        self._rebuild_effects()
-        self._update_global_row_state()
+            filter_state = self._get_current_filter_state()
+            
+            # 2. 전역 행 재사용
+            if self._global_row is None:
+                self._global_row = self._build_global_row()
+            self._layer_list_layout.addWidget(self._global_row)
+            self._global_row.show()
+
+            # 3. 레이어 행 순서대로 재삽입 (생성 대신 재사용 우선)
+            new_rows = {}
+            for v in ordered_vowels:
+                row = self._layer_rows.get(v)
+                if row is None:
+                    row = self._build_layer_row(str(v), filter_state.get(v, "ON"))
+                    row.setProperty("vowel", v)
+                else:
+                    # 선택 상태 동기화
+                    is_sel = v in self._selected_vowels
+                    row.setProperty("selected", is_sel)
+                    if hasattr(row, "name_btn"):
+                        row.name_btn.setChecked(is_sel)
+                    row.style().unpolish(row)
+                    row.style().polish(row)
+                
+                self._layer_list_layout.addWidget(row)
+                row.show()
+                new_rows[v] = row
+            
+            self._layer_rows = new_rows
+            self._update_global_row_state()
+            # 주의: 단순 재정렬 시에는 _rebuild_effects()를 호출하지 않음 (렉의 주원인)
+        finally:
+            self.setUpdatesEnabled(True)
 
     def set_compare_file_index(self, index):
         """compare 모드에서 어느 파일이 선택됐는지 동기화 (0=파일A, 1=파일B)."""
@@ -1328,10 +1390,11 @@ class LayerDockWidget(QWidget):
         row.setProperty("layerRow", True)
         row.setProperty("vowel", vowel)
 
-        # 행 전체에 hover 및 선택 효과 적용 (밑줄은 행 사이 separator로만 처리)
+        # 행 전체에 hover 및 선택 효과 적용 (구분선 위젯 대신 border-bottom 사용)
         row.setStyleSheet("""
             QFrame[layerRow="true"] {
                 background-color: transparent;
+                border-bottom: 1px solid #EBEEF5;
             }
             QFrame[layerRow="true"]:hover {
                 background-color: #F5F7FA;
@@ -1593,53 +1656,57 @@ class LayerDockWidget(QWidget):
             self._sync_design_controls_to_selection()
 
     def update_draw_layer_list(self, draw_objects):
-        """그리기 탭 목록을 현재 파일의 그리기 객체와 동기화. 라벨과 동일 구조(눈/반투명/이름/X/잠금).
-        각 행의 draw_index는 draw_objects(objs) 리스트 내 인덱스이며, D&D/선택/락 전파에서 objs 기준으로 사용한다."""
-        self._draw_layer_rows = []
-        while self._draw_list_layout.count():
-            child = self._draw_list_layout.takeAt(0)
-            if child.widget():
-                child.widget().deleteLater()
-        draw_objects = draw_objects or []
-        # 폴리곤 행을 parent_id로 찾기 위한 맵
-        polygon_row_by_id = {}
-        prev_row_added = False
-        for i, obj in enumerate(draw_objects):
-            t = getattr(obj, "type", "")
+        """그리기 탭 목록 최적화: 위젯 재사용 및 레이아웃 갱신 최소화."""
+        self.setUpdatesEnabled(False)
+        try:
+            old_rows = getattr(self, "_draw_layer_rows", [])
+            # 레이아웃에서 분리
+            while self._draw_list_layout.count():
+                item = self._draw_list_layout.takeAt(0)
+                w = item.widget()
+                if w:
+                    w.hide()
+                    if not (w == getattr(self, "_draw_global_row", None) or w in old_rows):
+                        w.deleteLater()
+            
+            draw_objects = draw_objects or []
+            if not draw_objects:
+                self._draw_global_row = None
+                self._draw_layer_rows = []
+                return
 
-            row = self._build_draw_layer_row(i, obj, draw_objects)
-            if t == "area_label":
-                # 넓이 텍스트 레이어: 이름 앞에 들여쓰기 화살표를 붙이고, effect 영역은 숨긴다.
-                full_name = _draw_object_display_name(draw_objects, i)
-                row.name_btn.setText(
-                    QFontMetrics(row.name_btn.font()).elidedText(
-                        "  ↳ " + full_name,
-                        Qt.TextElideMode.ElideRight,
-                        200,
-                    )
-                )
-                if hasattr(row, "expand_btn"):
-                    row.expand_btn.setVisible(False)
+            if getattr(self, "_draw_global_row", None) is None:
+                self._draw_global_row = self._build_draw_global_row()
+            self._draw_list_layout.addWidget(self._draw_global_row)
+            self._draw_global_row.show()
 
-            self._draw_list_layout.addWidget(row)
-            self._draw_layer_rows.append(row)
-
-            if t == "polygon":
-                pid = getattr(obj, "id", None)
-                if not pid:
-                    pid = str(i)
-                polygon_row_by_id[pid] = row
-
-            if prev_row_added:
-                sep = QFrame()
-                sep.setFrameShape(QFrame.Shape.HLine)
-                sep.setFixedHeight(1)
-                sep.setStyleSheet("background-color: #EBEEF5; margin: 0; border: none;")
-                self._draw_list_layout.addWidget(sep)
-            prev_row_added = True
-        self._update_draw_global_row_state()
-        self._sync_draw_design_panel_to_selection()
-        self._rebuild_draw_effects()
+            self._draw_layer_rows = []
+            for i, obj in enumerate(draw_objects):
+                # 기존 위젯이 있다면 재사용 (단순 인덱스 기반 매칭)
+                if i < len(old_rows):
+                    row = old_rows[i]
+                    row.setProperty("drawIndex", i)
+                    row.draw_index = i
+                    # 이름 등 최소한의 정보만 업데이트
+                    if hasattr(row, "name_btn"):
+                        full_name = _draw_object_display_name(draw_objects, i)
+                        prefix = "  ↳ " if getattr(obj, "type", "") == "area_label" else ""
+                        row.name_btn.setText(
+                            QFontMetrics(row.name_btn.font()).elidedText(
+                                prefix + full_name, Qt.TextElideMode.ElideRight, 200
+                            )
+                        )
+                else:
+                    row = self._build_draw_layer_row(i, obj, draw_objects)
+                
+                self._draw_list_layout.addWidget(row)
+                row.show()
+                self._draw_layer_rows.append(row)
+            
+            self._update_draw_global_row_state()
+            # 재정렬 시에는 무거운 _rebuild_draw_effects() 호출 생략
+        finally:
+            self.setUpdatesEnabled(True)
 
     def _sync_draw_design_panel_to_selection(self):
         """현재 그리기 탭에서 선택된 객체에 맞춰 그리기 디자인 패널을 갱신."""

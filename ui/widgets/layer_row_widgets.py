@@ -57,8 +57,19 @@ class _LayerRowFrame(QFrame):
         mime.setData(LAYER_ROW_MIME_TYPE, QByteArray(self._build_drag_payload()))
         drag = QDrag(self)
         drag.setMimeData(mime)
+        
+        # 원본 스냅샷 획득
         pix = self.grab()
-        drag.setPixmap(pix)
+        
+        # 반투명 처리된 새 Pixmap 생성
+        transparent_pix = QColor(0, 0, 0, 0)
+        out_pix = pix.copy()
+        painter = QPainter(out_pix)
+        painter.setCompositionMode(QPainter.CompositionMode.CompositionMode_DestinationIn)
+        painter.fillRect(out_pix.rect(), QColor(0, 0, 0, 180)) # 약 70% 불투명도
+        painter.end()
+        
+        drag.setPixmap(out_pix)
         if self._drag_start_pos_local is not None:
             drag.setHotSpot(self._drag_start_pos_local)
         else:
@@ -200,8 +211,18 @@ class _DrawLayerRowFrame(QFrame):
         mime.setData(DRAW_ROW_MIME_TYPE, QByteArray(self._build_drag_payload()))
         drag = QDrag(self)
         drag.setMimeData(mime)
+        
+        # 원본 스냅샷 획득
         pix = self.grab()
-        drag.setPixmap(pix)
+        
+        # 반투명 처리
+        out_pix = pix.copy()
+        painter = QPainter(out_pix)
+        painter.setCompositionMode(QPainter.CompositionMode.CompositionMode_DestinationIn)
+        painter.fillRect(out_pix.rect(), QColor(0, 0, 0, 180))
+        painter.end()
+        
+        drag.setPixmap(out_pix)
         if self._drag_start_pos_local is not None:
             drag.setHotSpot(self._drag_start_pos_local)
         else:
