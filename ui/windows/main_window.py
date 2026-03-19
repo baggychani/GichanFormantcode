@@ -196,9 +196,7 @@ class MainUI(QMainWindow):
 
     def _apply_pyqt6_icon(self):
         try:
-            icon_path = icon_utils.get_icon_path()
-            if icon_path:
-                self.setWindowIcon(QIcon(icon_path))
+            self.setWindowIcon(icon_utils.get_app_icon())
         except Exception:
             pass
 

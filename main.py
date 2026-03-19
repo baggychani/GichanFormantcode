@@ -26,13 +26,9 @@ if __name__ == "__main__":
     app.setOrganizationName(config.AUTHOR)
     app.setOrganizationDomain("com.gichan.formant")
 
-    # 전역 앱 레벨에서 물리 아이콘 경로 적용
+    # 전역 앱 레벨에서 아이콘 적용
     try:
-        from PyQt6.QtGui import QIcon
-
-        icon_path = icon_utils.get_icon_path()
-        if icon_path:
-            app.setWindowIcon(QIcon(icon_path))
+        app.setWindowIcon(icon_utils.get_app_icon())
     except Exception:
         pass
 

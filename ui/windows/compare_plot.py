@@ -181,10 +181,7 @@ class SelectCompareDialog(QDialog):
 
     def _apply_pyqt6_icon(self):
         try:
-            icon_data = base64.b64decode(icon_utils.ICON_BASE64)
-            pixmap = QPixmap()
-            pixmap.loadFromData(icon_data)
-            self.setWindowIcon(QIcon(pixmap))
+            self.setWindowIcon(icon_utils.get_app_icon())
         except Exception:
             pass
 

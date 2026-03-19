@@ -916,15 +916,21 @@ class LayerDockWidget(QWidget):
             draw_index in getattr(self, "_selected_draw_indices", set())
         )
 
-        expand_btn = QPushButton("▼")
+        is_area_label = getattr(obj, "type", "") == "area_label"
+        expand_btn = QPushButton("▶")
         expand_btn.setFixedSize(22, 22)
         expand_btn.setCheckable(True)
-        expand_btn.setChecked(True)
+        expand_btn.setChecked(False) # 처음에는 접힌 상태
         expand_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         expand_btn.setStyleSheet(
             "QPushButton { border: none; background: transparent; color: #909399; font-size: 10px; } "
             "QPushButton:hover { color: #409EFF; }"
         )
+        if is_area_label:
+            expand_btn.setVisible(False)
+        else:
+            # 세부 설정 유무에 따라 _rebuild_draw_effects에서 결정될 것이므로 일단 숨김
+            expand_btn.setVisible(False)
 
         name_layout.addWidget(name_btn, 1)
         name_layout.addWidget(expand_btn)
@@ -1356,7 +1362,7 @@ class LayerDockWidget(QWidget):
             
             self._layer_rows = new_rows
             self._update_global_row_state()
-            # 주의: 단순 재정렬 시에는 _rebuild_effects()를 호출하지 않음 (렉의 주원인)
+            self._rebuild_effects()
         finally:
             self.setUpdatesEnabled(True)
 
@@ -1459,14 +1465,16 @@ class LayerDockWidget(QWidget):
             "QPushButton { border: none; background: transparent; text-align: left; color: #303133; }"
         )
 
-        expand_btn = QPushButton("▼")
+        expand_btn = QPushButton("▶")
         expand_btn.setFixedSize(22, 22)
         expand_btn.setCheckable(True)
-        expand_btn.setChecked(True)
+        expand_btn.setChecked(False) # 처음부터 펼쳐지지 않도록 접힌 상태(▶)로 초기화
         expand_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         expand_btn.setStyleSheet(
             "QPushButton { border: none; background: transparent; color: #909399; font-size: 10px; } QPushButton:hover { color: #409EFF; }"
         )
+        # 세부 정보 유무 확인 전까지는 숨김 처리
+        expand_btn.setVisible(False)
 
         name_layout.addWidget(name_btn, 1)
         name_layout.addWidget(expand_btn)
@@ -1657,9 +1665,11 @@ class LayerDockWidget(QWidget):
                     if not (w == getattr(self, "_draw_global_row", None) or w in old_rows):
                         w.deleteLater()
             
-            draw_objects = draw_objects or []
             if not draw_objects:
-                self._draw_global_row = None
+                if getattr(self, "_draw_global_row", None) is not None:
+                    self._draw_global_row.hide()
+                    self._draw_global_row.deleteLater()
+                    self._draw_global_row = None
                 self._draw_layer_rows = []
                 return
 
@@ -1691,8 +1701,7 @@ class LayerDockWidget(QWidget):
                 row.show()
                 self._draw_layer_rows.append(row)
             
-            self._update_draw_global_row_state()
-            # 재정렬 시에는 무거운 _rebuild_draw_effects() 호출 생략
+            self._rebuild_draw_effects()
         finally:
             self.setUpdatesEnabled(True)
 
@@ -2054,9 +2063,16 @@ class LayerDockWidget(QWidget):
                     item.widget().deleteLater()
             o = overrides.get(vowel, {})
             if not o:
-                row.expand_btn.setVisible(False)
+                if hasattr(row, "expand_btn"):
+                    row.expand_btn.setVisible(False)
+                    row.expand_btn.setChecked(False) # 세부 정보가 없으면 로직상으로도 접힘 처리
                 continue
-            row.expand_btn.setVisible(True)
+            
+            if hasattr(row, "expand_btn"):
+                # 세부 정보가 생기면 버튼을 보여주고 기본적으로 펼침 상태(▼)가 되도록 함
+                if not row.expand_btn.isVisible():
+                    row.expand_btn.setChecked(True)
+                row.expand_btn.setVisible(True)
             first = True
             for key in [
                 "lbl_color",
@@ -2207,12 +2223,16 @@ class LayerDockWidget(QWidget):
                 and str(display_cfg.get("arrow_mode", "none")) == "none"
             ):
                 keys = [k for k in keys if k != "arrow_head"]
-            if not keys:
+            if not keys or t == "area_label":
                 if hasattr(row, "expand_btn"):
                     row.expand_btn.setVisible(False)
+                    row.expand_btn.setChecked(False) # 로직상 접힘 상태 유지
                 continue
 
             if hasattr(row, "expand_btn"):
+                # 세부 정보가 처음 생길 때 자동으로 펼침(▼) 상태가 되도록 처리
+                if not row.expand_btn.isVisible():
+                    row.expand_btn.setChecked(True)
                 row.expand_btn.setVisible(True)
 
             first = True
