@@ -1245,6 +1245,17 @@ class LayerDockWidget(QWidget):
         objs = self.draw_manager.get_draw_objects()
         if not objs or target_index is None:
             return
+        selected_obj_ids = {
+            id(objs[i])
+            for i in getattr(self, "_selected_draw_indices", set())
+            if 0 <= i < len(objs)
+        }
+        anchor_idx = getattr(self, "_anchor_draw_index", None)
+        anchor_obj_id = (
+            id(objs[anchor_idx])
+            if anchor_idx is not None and 0 <= anchor_idx < len(objs)
+            else None
+        )
         dragged_list = [objs[i] for i in sorted(dragged_indices) if 0 <= i < len(objs)]
         drop_target = objs[target_index]
         new_order = compute_order_after_drop(objs, dragged_list, drop_target, after)
@@ -1276,9 +1287,20 @@ class LayerDockWidget(QWidget):
                 if pid in child_by_parent:
                     reordered.extend(child_by_parent[pid])
 
+        # 선택/앵커를 "인덱스"가 아닌 "객체" 기준으로 재매핑하여 재정렬 후에도 유지한다.
+        if selected_obj_ids:
+            self._selected_draw_indices = {
+                i for i, o in enumerate(reordered) if id(o) in selected_obj_ids
+            }
+        else:
+            self._selected_draw_indices = set()
+        if anchor_obj_id is not None:
+            self._anchor_draw_index = next(
+                (i for i, o in enumerate(reordered) if id(o) == anchor_obj_id), None
+            )
+
         self.draw_manager.set_draw_objects(reordered)
         self._hide_draw_drop_indicator()
-        self._selected_draw_indices = set()
         self.draw_manager.redraw()
         self.update_draw_layer_list(reordered)
 
@@ -1748,6 +1770,8 @@ class LayerDockWidget(QWidget):
                     row = old_rows[i]
                     row.setProperty("drawIndex", i)
                     row.draw_index = i
+                    is_selected = i in getattr(self, "_selected_draw_indices", set())
+                    row.setProperty("selected", is_selected)
                     # 이름 등 최소한의 정보만 업데이트
                     if hasattr(row, "name_btn"):
                         full_name = _draw_object_display_name(draw_objects, i)
@@ -1759,6 +1783,21 @@ class LayerDockWidget(QWidget):
                                 prefix + full_name, Qt.TextElideMode.ElideRight, 200
                             )
                         )
+                        row.name_btn.setChecked(is_selected)
+                    if hasattr(row, "eye_btn"):
+                        row.eye_btn.blockSignals(True)
+                        row.eye_btn.setChecked(getattr(obj, "visible", True))
+                        row.eye_btn.blockSignals(False)
+                    if hasattr(row, "semi_btn"):
+                        row.semi_btn.blockSignals(True)
+                        row.semi_btn.setChecked(getattr(obj, "semi", False))
+                        row.semi_btn.blockSignals(False)
+                    if hasattr(row, "lock_btn"):
+                        row.lock_btn.blockSignals(True)
+                        row.lock_btn.setChecked(getattr(obj, "locked", False))
+                        row.lock_btn.blockSignals(False)
+                    row.style().unpolish(row)
+                    row.style().polish(row)
                 else:
                     row = self._build_draw_layer_row(i, obj, draw_objects)
 
