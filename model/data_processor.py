@@ -179,5 +179,7 @@ class DataProcessor:
 
         return final_df, None, drop_report
 
-    def get_data(self):
-        return self.df_all.copy()
+    def get_data(self, copy=True):
+        if copy:
+            return self.df_all.copy()
+        return self.df_all

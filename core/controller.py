@@ -335,7 +335,7 @@ class MainController:
 
             if success:
                 # 로드된 원본 DataFrame 복사본 (plot_data_list 항목용)
-                raw_df = temp_processor.get_data()
+                raw_df = temp_processor.get_data(copy=False)
                 self.filepaths.append(f)
                 self.plot_data_list.append(
                     {
