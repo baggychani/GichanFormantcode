@@ -1078,7 +1078,7 @@ class LayerDockWidget(QWidget):
 
     def _get_drop_target_at_pos(self, pos):
         """레이어 목록 위젯 내 pos(좌표)에 대응하는 (vowel, after) 반환. 
-        행 사이의 구분선(간극)에 있더라도 가장 가까운 행을 찾습니다.
+        'A 아래'와 'B 위'가 사실상 같은 간격임을 고려하여, 하나의 간격에는 하나의 상태만 대응되도록 정규화합니다.
         """
         ordered = self._get_ordered_vowels_for_display(list(self._layer_rows.keys()))
         if not ordered:
@@ -1087,29 +1087,25 @@ class LayerDockWidget(QWidget):
         y = pos.y()
         rows = [self._layer_rows[v] for v in ordered]
         
-        # 1. 특정 행 내부에 있는 경우 바로 반환
+        # 각 행의 중심점을 기준으로 영역을 나눕니다. (N개 행 -> N+1개 슬롯)
+        # 슬롯 i는 'i번째 행의 위'를 의미하며, 마지막 슬롯은 '마지막 행의 아래'를 의미합니다.
         for i, row in enumerate(rows):
             geom = row.geometry()
-            if geom.top() <= y <= geom.bottom():
-                return (ordered[i], y > geom.center().y())
-        
-        # 2. 행 사이(구분선 등)에 있는 경우 가장 가까운 쪽을 찾음
-        if y < rows[0].geometry().top():
-            return (ordered[0], False)
-        if y > rows[-1].geometry().bottom():
-            return (ordered[-1], True)
+            mid = geom.center().y()
             
-        # 중간 간극인 경우 바로 위/아래 행 비교
-        for i in range(len(rows) - 1):
-            r1 = rows[i]
-            r2 = rows[i+1]
-            if r1.geometry().bottom() < y < r2.geometry().top():
-                # 두 행 사이 정가운데를 기준으로 나눔
-                mid = (r1.geometry().bottom() + r2.geometry().top()) / 2
-                if y <= mid:
-                    return (ordered[i], True)
-                else:
+            if y <= mid:
+                # 현재 행의 중심점보다 위면 무조건 '현재 행의 위'로 취급
+                return (ordered[i], False)
+            
+            # 현재 행의 중심점보다 아래인 경우
+            if i < len(rows) - 1:
+                # 다음 행이 있다면, 다음 행의 중심점까지의 영역을 모두 '다음 행의 위'로 통합
+                next_mid = rows[i+1].geometry().center().y()
+                if y <= next_mid:
                     return (ordered[i+1], False)
+            else:
+                # 마지막 행의 중심점보다 아래면 '마지막 행의 아래'
+                return (ordered[i], True)
         
         return (ordered[-1], True)
 
@@ -1157,34 +1153,26 @@ class LayerDockWidget(QWidget):
             self._draw_list_placeholder.update()
 
     def _get_draw_drop_target_at_pos(self, pos):
-        """그리기 탭용 드롭 대상 계산. 행 사이 간극에서도 올바른 위치를 찾습니다."""
+        """그리기 탭용 드롭 대상 계산. 동일하게 슬롯 로직을 적용하여 매끄럽게 처리합니다."""
         rows = getattr(self, "_draw_layer_rows", None) or []
         if not rows:
             return (None, False)
             
         y = pos.y()
-        # 1. 행 내부 체크
         for i, row in enumerate(rows):
             geom = row.geometry()
-            if geom.top() <= y <= geom.bottom():
-                idx = getattr(row, "draw_index", i)
-                return (idx, y > geom.center().y())
-                
-        # 2. 간극 체크
-        if y < rows[0].geometry().top():
-            return (getattr(rows[0], "draw_index", 0), False)
-        if y > rows[-1].geometry().bottom():
-            return (getattr(rows[-1], "draw_index", len(rows)-1), True)
+            mid = geom.center().y()
             
-        for i in range(len(rows) - 1):
-            r1 = rows[i]
-            r2 = rows[i+1]
-            if r1.geometry().bottom() < y < r2.geometry().top():
-                mid = (r1.geometry().bottom() + r2.geometry().top()) / 2
-                if y <= mid:
-                    return (getattr(r1, "draw_index", i), True)
-                else:
-                    return (getattr(r2, "draw_index", i+1), False)
+            if y <= mid:
+                return (getattr(row, "draw_index", i), False)
+                
+            if i < len(rows) - 1:
+                next_mid = rows[i+1].geometry().center().y()
+                if y <= next_mid:
+                    return (getattr(rows[i+1], "draw_index", i+1), False)
+            else:
+                idx = getattr(row, "draw_index", len(rows)-1)
+                return (idx, True)
                     
         last_idx = getattr(rows[-1], "draw_index", len(rows) - 1)
         return (last_idx, True)
