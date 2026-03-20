@@ -237,4 +237,8 @@ $RECYCLE.BIN/
 
 .idea/
 
+# GichanFormant specific
+logs/
+compile_*.txt
+
 # End of https://www.toptal.com/developers/gitignore/api/macos,python,windows
