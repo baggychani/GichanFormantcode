@@ -19,6 +19,7 @@ from PyQt6.QtGui import QFont
 
 from utils import icon_utils
 from ui.widgets.display_utils import strip_gichan_prefix
+from utils.vowel_sorting import get_vowel_sort_key
 
 
 class LiveVowelFilterPanel(QDialog):
@@ -28,7 +29,7 @@ class LiveVowelFilterPanel(QDialog):
 
     def __init__(self, parent, vowels, current_state, file_name, on_change_callback):
         super().__init__(parent)
-        self.vowels = sorted(list(vowels))
+        self.vowels = sorted(list(vowels), key=get_vowel_sort_key)
         self.file_name = file_name
         self.on_change_callback = on_change_callback
 
@@ -282,11 +283,11 @@ class MultiVowelFilterPanel(QDialog):
     ):
         super().__init__(parent)
         self.file1_name = file1_name
-        self.vowels1 = sorted(list(vowels1))
+        self.vowels1 = sorted(list(vowels1), key=get_vowel_sort_key)
         self.state1 = state1.copy() if state1 else {}
 
         self.file2_name = file2_name
-        self.vowels2 = sorted(list(vowels2))
+        self.vowels2 = sorted(list(vowels2), key=get_vowel_sort_key)
         self.state2 = state2.copy() if state2 else {}
 
         self.on_change_callback = on_change_callback

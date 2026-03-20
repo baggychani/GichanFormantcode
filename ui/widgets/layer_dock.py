@@ -59,6 +59,7 @@ from ui.widgets.icon_widgets import (
     LayerEyeButton,
     LayerLockButton,
 )
+from utils.vowel_sorting import get_vowel_sort_key
 import ui.widgets.layout_constants as lc
 from draw.draw_common import polygon_area
 
@@ -1124,7 +1125,7 @@ class LayerDockWidget(QWidget):
         stored = [v for v in ordered if v in vowels_set]
         if stored and set(stored) == vowels_set:
             return list(stored)
-        return sorted(vowels)
+        return sorted(vowels, key=get_vowel_sort_key)
 
     def _set_drop_indicator_between(self, vowel, after):
         """그려야 할 목표 위치만 저장하고 화면(DropArea)을 다시 그리도록 요청합니다."""

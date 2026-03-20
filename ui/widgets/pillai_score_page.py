@@ -14,6 +14,7 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import Qt, pyqtSignal, QPropertyAnimation, QEasingCurve, QEvent
 from PyQt6.QtGui import QColor, QFont
 from utils.pillai_stats import calculate_pillai_score
+from utils.vowel_sorting import get_vowel_sort_key
 
 # Scrollbar style (copied from vowel_analysis_dialog.py or move to a separate theme file later)
 MODERN_SCROLLBAR_STYLE = """
@@ -209,7 +210,7 @@ class PillaiScorePage(QWidget):
 
         # 1. 모음 선택 테이블 (2열 배치)
         vowel_counts = self.df[self.label_col].value_counts().to_dict()
-        self._vowel_list = sorted(list(vowel_counts.keys()))
+        self._vowel_list = sorted(list(vowel_counts.keys()), key=get_vowel_sort_key)
 
         self.vowel_table = QTableWidget()
         self.vowel_table.setColumnCount(2)
@@ -377,7 +378,8 @@ class PillaiScorePage(QWidget):
     def _on_selection_changed(self):
         selected_items = self.vowel_table.selectedItems()
         selected_vowels = sorted(
-            list(set(it.data(Qt.ItemDataRole.UserRole) for it in selected_items))
+            list(set(it.data(Qt.ItemDataRole.UserRole) for it in selected_items)),
+            key=get_vowel_sort_key
         )
         self.selection_count = len(selected_vowels)
         self.selectionStateChanged.emit()

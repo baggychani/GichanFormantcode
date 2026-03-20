@@ -59,6 +59,7 @@ from ui.widgets.layer_dock import LayerDockWidget
 import ui.widgets.layout_constants as layout
 from draw import DrawModeIndicator
 from draw.draw_common import polygon_area, AreaLabelObject
+from utils.vowel_sorting import get_vowel_sort_key
 
 
 class ClickClearFocusFilter(QObject):
@@ -799,12 +800,14 @@ class ComparePlotPopup(BasePlotWindow):
             lbl_col_red = _get_label_column(d_red)
             if d_blue is not None and lbl_col_blue:
                 vowels_blue = sorted(
-                    d_blue[lbl_col_blue].dropna().astype(str).unique().tolist()
+                    d_blue[lbl_col_blue].dropna().astype(str).unique().tolist(),
+                    key=get_vowel_sort_key
                 )
                 self._layer_dock_blue.set_vowels(vowels_blue)
             if d_red is not None and lbl_col_red:
                 vowels_red = sorted(
-                    d_red[lbl_col_red].dropna().astype(str).unique().tolist()
+                    d_red[lbl_col_red].dropna().astype(str).unique().tolist(),
+                    key=get_vowel_sort_key
                 )
                 self._layer_dock_red.set_vowels(vowels_red)
 

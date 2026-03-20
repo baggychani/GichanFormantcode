@@ -29,6 +29,7 @@ from utils.vowel_stats import (
     calculate_point_distances_from_centroid,
     calculate_point_distances_from_centroid_bark,
 )
+from utils.vowel_sorting import get_vowel_sort_key
 
 # 열 너비 (px)
 VOWEL_COL_WIDTH = 58
@@ -415,7 +416,7 @@ class VowelAnalysisDialog(QDialog):
             return
         stats = result["statistics"]
         point_dist = result.get("point_distances") or {}
-        vowels = sorted(stats.keys())
+        vowels = sorted(stats.keys(), key=get_vowel_sort_key)
         widths = [VOWEL_COL_WIDTH] + [DATA_COL_WIDTH] * 8
         n_data_rows = len(vowels)
         n_header_rows = 2
@@ -725,7 +726,7 @@ def _result_to_dataframe(result, x_axis_label, normalized=False):
 
     stats = result.get("statistics") or {}
     point_dist = result.get("point_distances") or {}
-    vowels = sorted(stats.keys())
+    vowels = sorted(stats.keys(), key=get_vowel_sort_key)
     y_pre = "nF1" if normalized else "F1"
     dist_mean_col = "중심-개별 거리 평균" if normalized else "중심-개별 거리(Bark) 평균"
     dist_sd_col = "중심-개별 거리 SD" if normalized else "중심-개별 거리(Bark) SD"
