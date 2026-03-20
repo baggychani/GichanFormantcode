@@ -136,6 +136,7 @@ def warm_up(splash=None):
     _update_msg("Loading Core Engines...")
     try:
         from engine.plot_engine import PlotEngine
+
         context["plot_engine"] = PlotEngine()
     except Exception as e:
         app_logger.error(f"Failed to pre-load core modules: {e}")

@@ -5,7 +5,7 @@ import math
 import os
 import tempfile
 from PyQt6.QtGui import QIcon, QPixmap, QPainter, QPen, QColor, QPainterPath, QBrush
-from PyQt6.QtCore import Qt, QPointF, QSize, QRectF
+from PyQt6.QtCore import Qt, QPointF, QRectF
 
 # 전역 아이콘 캐시
 _ICON_CACHE = {}
@@ -74,16 +74,16 @@ def create_formant_icon(size=128, color_hex="#555555"):
     # 2. L자형 X, Y축 그리기
     axis_pen = QPen(color, 2, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap)
     painter.setPen(axis_pen)
-    painter.drawLine(int(margin), int(margin), int(margin), int(base_y))           # Y축
-    painter.drawLine(int(margin), int(base_y), int(size - margin), int(base_y))    # X축
+    painter.drawLine(int(margin), int(margin), int(margin), int(base_y))  # Y축
+    painter.drawLine(int(margin), int(base_y), int(size - margin), int(base_y))  # X축
 
     # 3. 가우시안 곡선 파라미터 (스케치 반영: F1 큰 산, F2 작은 산)
     # (진폭(높이), 중심위치(0~1 비율), 퍼짐정도)
     peaks = [
         (h * 0.70, 0.25, 0.08),  # F1 (왼쪽 높은 산)
-        (h * 0.35, 0.75, 0.12)   # F2 (오른쪽 부드럽고 낮은 산)
+        (h * 0.35, 0.75, 0.12),  # F2 (오른쪽 부드럽고 낮은 산)
     ]
-    baseline = h * 0.15      # X축에서 기본적으로 떨어져 있는 높이
+    baseline = h * 0.15  # X축에서 기본적으로 떨어져 있는 높이
 
     def get_curve_y(x_ratio):
         y_val = baseline
@@ -116,7 +116,13 @@ def create_formant_icon(size=128, color_hex="#555555"):
         else:
             path.lineTo(x, y)
 
-    curve_pen = QPen(color, 2, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin)
+    curve_pen = QPen(
+        color,
+        2,
+        Qt.PenStyle.SolidLine,
+        Qt.PenCapStyle.RoundCap,
+        Qt.PenJoinStyle.RoundJoin,
+    )
     painter.setPen(curve_pen)
     painter.drawPath(path)
 
@@ -145,10 +151,12 @@ def create_pillai_icon(size=128, color_hex="#555555"):
     base_y = size - margin
 
     # 2. 배경 축(X, Y축) 그리기 (포먼트 아이콘과 통일감)
-    axis_pen = QPen(QColor(color_hex), 2, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap)
+    axis_pen = QPen(
+        QColor(color_hex), 2, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap
+    )
     painter.setPen(axis_pen)
-    painter.drawLine(int(margin), int(margin), int(margin), int(base_y))           # Y축
-    painter.drawLine(int(margin), int(base_y), int(size - margin), int(base_y))    # X축
+    painter.drawLine(int(margin), int(margin), int(margin), int(base_y))  # Y축
+    painter.drawLine(int(margin), int(base_y), int(size - margin), int(base_y))  # X축
 
     # 3. 그룹별 색상 설정 (R, G, B, Alpha)
     # Alpha(투명도) 값을 140 정도로 주어 겹치는 면적이 자연스럽게 섞이도록 함

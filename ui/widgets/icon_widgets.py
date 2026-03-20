@@ -22,7 +22,7 @@ def create_font_style_icon(is_serif=False):
     w, h = 40, 26
     app = QApplication.instance()
     dpr = app.primaryScreen().devicePixelRatio() if app else 1.0
-    
+
     pixmap = QPixmap(int(w * dpr), int(h * dpr))
     pixmap.setDevicePixelRatio(dpr)
     pixmap.fill(Qt.GlobalColor.transparent)
@@ -178,7 +178,7 @@ class LinePreviewButton(QPushButton):
         """)
         app = QApplication.instance()
         dpr = app.primaryScreen().devicePixelRatio() if app else 1.0
-        
+
         pixmap = QPixmap(int(50 * dpr), int(14 * dpr))
         pixmap.setDevicePixelRatio(dpr)
         pixmap.fill(Qt.GlobalColor.transparent)

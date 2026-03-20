@@ -18,7 +18,7 @@ from PyQt6.QtWidgets import (
     QStackedWidget,
 )
 from PyQt6.QtCore import Qt, QStandardPaths, QSize
-from PyQt6.QtGui import QBrush, QColor, QFont, QPen, QKeySequence, QIcon
+from PyQt6.QtGui import QBrush, QColor, QFont, QPen, QKeySequence
 import pandas as pd
 from ui.widgets.pillai_score_page import PillaiScorePage
 from utils.icon_utils import get_app_icon, get_formant_icon, get_pillai_icon
