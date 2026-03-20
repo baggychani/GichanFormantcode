@@ -1,4 +1,4 @@
-from PyQt6.QtWidgets import (
+from PySide6.QtWidgets import (
     QFrame,
     QHBoxLayout,
     QPushButton,
@@ -7,8 +7,8 @@ from PyQt6.QtWidgets import (
     QGraphicsOpacityEffect,
     QLayout,
 )
-from PyQt6.QtCore import Qt, pyqtSignal, QPropertyAnimation, QEasingCurve, QTimer
-from PyQt6.QtGui import QCursor, QFont
+from PySide6.QtCore import Qt, Signal, QPropertyAnimation, QEasingCurve, QTimer
+from PySide6.QtGui import QCursor, QFont
 
 
 class DrawModeIndicator(QFrame):
@@ -18,7 +18,7 @@ class DrawModeIndicator(QFrame):
     """
 
     # 모드가 바뀌었을 때: (mode_str) 시그널. None = 그리기 끔.
-    mode_changed = pyqtSignal(object)  # str | None
+    mode_changed = Signal(object)  # str | None
 
     MODE_LINE = "line"
     MODE_POLYGON = "polygon"

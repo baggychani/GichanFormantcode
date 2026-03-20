@@ -55,8 +55,8 @@ jobs:
           if [[ "${{ runner.os }}" == "Windows" ]]; then
             uv run pyinstaller --noconfirm --onefile --windowed --icon=icon.ico --name=GichanFormant main.py
           else
-            # For macOS, PyQt6 needs --collect-all for full framework compatibility
-            uv run pyinstaller --noconfirm --windowed --name=GichanFormant --collect-all PyQt6 main.py
+            # For macOS, PySide6 needs --collect-all for full Qt framework bundling
+            uv run pyinstaller --noconfirm --windowed --name=GichanFormant --collect-all PySide6 main.py
           fi
 
       - name: Package artifacts (Windows)

@@ -1,4 +1,4 @@
-from PyQt6.QtCore import QObject, pyqtSignal
+from PySide6.QtCore import QObject, Signal
 from typing import Dict, Any, List
 
 
@@ -8,10 +8,10 @@ class LayerDataModel(QObject):
     UI 없이 데이터 상태만 관리하며, 상태가 변경되면 Signal을 발생시킵니다.
     """
 
-    filter_state_changed = pyqtSignal(dict)
-    layer_overrides_changed = pyqtSignal(dict)
-    layer_order_changed = pyqtSignal(list)
-    draw_objects_changed = pyqtSignal()
+    filter_state_changed = Signal(dict)
+    layer_overrides_changed = Signal(dict)
+    layer_order_changed = Signal(list)
+    draw_objects_changed = Signal()
 
     def __init__(self, label_manager, draw_manager, parent=None):
         super().__init__(parent)

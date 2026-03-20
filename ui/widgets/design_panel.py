@@ -2,7 +2,7 @@
 
 import os
 import config
-from PyQt6.QtWidgets import (
+from PySide6.QtWidgets import (
     QWidget,
     QVBoxLayout,
     QHBoxLayout,
@@ -17,8 +17,8 @@ from PyQt6.QtWidgets import (
     QTabWidget,
     QGridLayout,
 )
-from PyQt6.QtCore import Qt, pyqtSignal, QRectF
-from PyQt6.QtGui import (
+from PySide6.QtCore import Qt, Signal, QRectF
+from PySide6.QtGui import (
     QFont,
     QColor,
     QCursor,
@@ -55,7 +55,7 @@ class ToggleSwitch(QWidget):
     체크박스 대신 사용할 커스텀 ON/OFF 토글 스위치 위젯
     """
 
-    toggled = pyqtSignal(bool)
+    toggled = Signal(bool)
 
     def __init__(self, checked=False, parent=None):
         super().__init__(parent)
@@ -100,7 +100,7 @@ class ColorPalette(QWidget):
     디자인 설정용 색상 선택 컴포넌트
     """
 
-    color_changed = pyqtSignal(str)
+    color_changed = Signal(str)
 
     def __init__(self, default_color="#000000", allow_transparent=False, parent=None):
         super().__init__(parent)
@@ -237,8 +237,8 @@ class DesignSettingsPanel(QWidget):
     단일 플롯 전용 디자인 설정 패널입니다.
     """
 
-    settings_changed = pyqtSignal(dict)
-    label_move_clicked = pyqtSignal()
+    settings_changed = Signal(dict)
+    label_move_clicked = Signal()
 
     def __init__(self, parent=None, ui_font_name="Malgun Gothic"):
         super().__init__(parent)
@@ -867,8 +867,8 @@ class CompareDesignSettingsPanel(QWidget):
     다중 비교 플롯 전용 디자인 설정 패널입니다.
     """
 
-    settings_changed = pyqtSignal(dict)
-    label_move_clicked = pyqtSignal(str)  # 'blue' | 'red'
+    settings_changed = Signal(dict)
+    label_move_clicked = Signal(str)  # 'blue' | 'red'
 
     def __init__(
         self,

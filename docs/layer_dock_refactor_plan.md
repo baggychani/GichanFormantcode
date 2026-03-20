@@ -218,7 +218,7 @@ finally:
 - `apply_reference_settings(obj, cfg)`
 
 제약:
-- `layer_logic.py`는 PyQt import 금지
+- `layer_logic.py`는 Qt import 금지
 
 ### Phase 2 — Manager 도입 (분리형) [완료]
 
@@ -360,7 +360,7 @@ finally:
 3) layer_dock.py는 위 순수 함수를 호출하도록 교체
 
 제약:
-- layer_logic.py에 PyQt import 금지
+- layer_logic.py에 Qt import 금지
 - 기존 동작(넓이 라벨 생성/제거, 속성 fallback, redraw/list update 타이밍) 100% 유지
 - 이번 Phase에서는 Manager 분리/파일 분할/시그널 구조 변경 금지
 

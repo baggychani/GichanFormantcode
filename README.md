@@ -1,7 +1,7 @@
 # 🎙️ GichanFormant
 
 ![Python](https://img.shields.io/badge/python-3670A0?style=for-the-badge&logo=python&logoColor=ffdd54)
-![PyQt](https://img.shields.io/badge/PyQt-41CD52?style=for-the-badge&logo=Qt&logoColor=white)
+![PySide6](https://img.shields.io/badge/PySide6-41CD52?style=for-the-badge&logo=Qt&logoColor=white)
 ![uv](https://img.shields.io/badge/uv-DE5FE9?style=for-the-badge&logo=uv&logoColor=white)
 
 **GichanFormant**는 모음 분석 및 포먼트 시각화를 위한 데스크톱 애플리케이션입니다.
@@ -33,7 +33,7 @@ uv run main.py
 ## 📦 기술 스택
 
 - **언어**: Python 3.10+
-- **GUI 프레임워크**: PyQt6
+- **GUI 프레임워크**: PySide6
 - **데이터 분석**: NumPy, Pandas, SciPy
 - **시각화**: Matplotlib
 - **패키지 관리자**: [uv](https://github.com/astral-sh/uv)

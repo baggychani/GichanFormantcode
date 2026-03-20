@@ -3,7 +3,7 @@
 
 import logging
 import numpy as np
-from PyQt6.QtCore import Qt
+from PySide6.QtCore import Qt
 import matplotlib.patches as mpatches
 
 _log = logging.getLogger(__name__)

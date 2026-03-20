@@ -4,8 +4,8 @@ import base64
 import math
 import os
 import tempfile
-from PyQt6.QtGui import QIcon, QPixmap, QPainter, QPen, QColor, QPainterPath, QBrush
-from PyQt6.QtCore import Qt, QPointF, QRectF
+from PySide6.QtGui import QIcon, QPixmap, QPainter, QPen, QColor, QPainterPath, QBrush
+from PySide6.QtCore import Qt, QPointF, QRectF
 
 # 전역 아이콘 캐시
 _ICON_CACHE = {}
@@ -89,7 +89,7 @@ def create_formant_icon(size=128, color_hex="#555555"):
         y_val = baseline
         for amp, mu, sigma in peaks:
             y_val += amp * math.exp(-0.5 * ((x_ratio - mu) / sigma) ** 2)
-        return base_y - y_val  # PyQt는 Y축이 아래로 갈수록 증가하므로 뒤집어줌
+        return base_y - y_val  # Qt는 Y축이 아래로 갈수록 증가하므로 뒤집어줌
 
     # 4. 배음 (수직선 찍찍찍) 그리기
     num_harmonics = 16  # 스케치 느낌을 살리기 위한 적절한 세로선 개수

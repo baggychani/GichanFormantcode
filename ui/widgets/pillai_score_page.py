@@ -1,5 +1,5 @@
 import itertools
-from PyQt6.QtWidgets import (
+from PySide6.QtWidgets import (
     QWidget,
     QVBoxLayout,
     QHBoxLayout,
@@ -11,8 +11,8 @@ from PyQt6.QtWidgets import (
     QStackedWidget,
     QGraphicsDropShadowEffect,
 )
-from PyQt6.QtCore import Qt, pyqtSignal, QPropertyAnimation, QEasingCurve, QEvent
-from PyQt6.QtGui import QColor, QFont
+from PySide6.QtCore import Qt, Signal, QPropertyAnimation, QEasingCurve, QEvent
+from PySide6.QtGui import QColor, QFont
 from utils.pillai_stats import calculate_pillai_score
 from utils.vowel_sorting import get_vowel_sort_key
 
@@ -138,7 +138,7 @@ class PillaiHelpTooltip(QWidget):
 class PillaiScorePage(QWidget):
     """모음 여러 개를 선택하여 조합별 Pillai Score를 계산하는 페이지."""
 
-    selectionStateChanged = pyqtSignal()
+    selectionStateChanged = Signal()
 
     def __init__(self, df, x_col, y_col, label_col, parent=None):
         super().__init__(parent)

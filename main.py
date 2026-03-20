@@ -3,9 +3,9 @@
 import sys
 import platform
 import os
-from PyQt6.QtWidgets import QApplication, QSplashScreen
-from PyQt6.QtGui import QPixmap, QFont, QColor
-from PyQt6.QtCore import Qt
+from PySide6.QtWidgets import QApplication, QSplashScreen
+from PySide6.QtGui import QPixmap, QFont, QColor
+from PySide6.QtCore import Qt
 
 
 
@@ -42,7 +42,7 @@ if __name__ == "__main__":
     if splash_pix.isNull():
         splash_pix = QPixmap(SPLASH_WIDTH, int(SPLASH_WIDTH * 0.6))
         splash_pix.fill(QColor("#1976D2"))  # 브랜드 컬러 계열
-        from PyQt6.QtGui import QPainter
+        from PySide6.QtGui import QPainter
 
         painter = QPainter(splash_pix)
         painter.setPen(QColor("white"))
@@ -111,8 +111,8 @@ if __name__ == "__main__":
     # UI 로딩 상태를 스플래시에 중계하기 위한 콜백 함수
     def status_callback(msg):
         if splash:
-            from PyQt6.QtCore import Qt
-            from PyQt6.QtGui import QColor
+            from PySide6.QtCore import Qt
+            from PySide6.QtGui import QColor
 
             splash.showMessage(
                 msg,

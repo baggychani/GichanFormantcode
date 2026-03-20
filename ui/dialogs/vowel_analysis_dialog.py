@@ -1,7 +1,7 @@
 # ui/vowel_analysis_dialog.py — 모음 상세 분석 결과 창
 
 import os
-from PyQt6.QtWidgets import (
+from PySide6.QtWidgets import (
     QDialog,
     QVBoxLayout,
     QHBoxLayout,
@@ -17,8 +17,8 @@ from PyQt6.QtWidgets import (
     QStyledItemDelegate,
     QStackedWidget,
 )
-from PyQt6.QtCore import Qt, QStandardPaths, QSize
-from PyQt6.QtGui import QBrush, QColor, QFont, QPen, QKeySequence
+from PySide6.QtCore import Qt, QStandardPaths, QSize
+from PySide6.QtGui import QBrush, QColor, QFont, QPen, QKeySequence
 import pandas as pd
 from ui.widgets.pillai_score_page import PillaiScorePage
 from utils.icon_utils import get_app_icon, get_formant_icon, get_pillai_icon
@@ -64,7 +64,7 @@ class CopyableTableWidget(QTableWidget):
             lines.append("\t".join(row_data))
 
         text_to_copy = "\n".join(lines)
-        from PyQt6.QtWidgets import QApplication
+        from PySide6.QtWidgets import QApplication
 
         QApplication.clipboard().setText(text_to_copy)
 

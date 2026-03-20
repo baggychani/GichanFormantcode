@@ -5,7 +5,7 @@ StateManager - 중앙 집중식 상태 관리 시스템
 각 컴포넌트는 StateManager를 구독(Subscribe)하여 상태 변경을 알림 받습니다.
 """
 
-from PyQt6.QtCore import QObject, pyqtSignal
+from PySide6.QtCore import QObject, Signal
 
 
 class StateManager(QObject):
@@ -18,13 +18,13 @@ class StateManager(QObject):
         state.emit_filter_changed({'vowel': 'a', 'visible': True})
     """
 
-    filter_changed = pyqtSignal(dict)
-    design_changed = pyqtSignal(dict)
-    data_changed = pyqtSignal(object)
-    tool_state_changed = pyqtSignal(str, bool)
-    plot_refresh_requested = pyqtSignal()
-    layer_order_changed = pyqtSignal(list)
-    lock_state_changed = pyqtSignal(bool)
+    filter_changed = Signal(dict)
+    design_changed = Signal(dict)
+    data_changed = Signal(object)
+    tool_state_changed = Signal(str, bool)
+    plot_refresh_requested = Signal()
+    layer_order_changed = Signal(list)
+    lock_state_changed = Signal(bool)
 
     _instance = None
 

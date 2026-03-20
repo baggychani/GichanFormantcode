@@ -3,7 +3,7 @@
 import os
 import platform
 from ui.windows.base_plot_window import BasePlotWindow
-from PyQt6.QtWidgets import (
+from PySide6.QtWidgets import (
     QDialog,
     QMainWindow,
     QWidget,
@@ -24,7 +24,7 @@ from PyQt6.QtWidgets import (
     QSizePolicy,
     QStackedWidget,
 )
-from PyQt6.QtCore import Qt, QObject, QEvent
+from PySide6.QtCore import Qt, QObject, QEvent
 
 
 class TabBarWheelBlocker(QObject):
@@ -36,7 +36,7 @@ class TabBarWheelBlocker(QObject):
         return False
 
 
-from PyQt6.QtGui import (
+from PySide6.QtGui import (
     QFont,
     QShortcut,
     QKeySequence,
@@ -171,13 +171,13 @@ class SelectCompareDialog(QDialog):
         )
         self.setWindowModality(Qt.WindowModality.ApplicationModal)
 
-        self._apply_pyqt6_icon()
+        self._apply_window_icon()
         self._setup_ui()
 
         self.available_items = self.controller.get_compare_choices(self.current_idx)
         self._populate_list()
 
-    def _apply_pyqt6_icon(self):
+    def _apply_window_icon(self):
         try:
             self.setWindowIcon(icon_utils.get_app_icon())
         except Exception:
@@ -410,7 +410,7 @@ class ComparePlotPopup(BasePlotWindow):
         self.setDockOptions(QMainWindow.DockOption.AnimatedDocks)
         self.setDockNestingEnabled(False)
 
-        self._apply_pyqt6_icon()
+        self._apply_window_icon()
 
         self.setStyleSheet(
             """

@@ -3,7 +3,7 @@
 import logging
 import numpy as np
 import platform
-from PyQt6.QtCore import Qt
+from PySide6.QtCore import Qt
 from utils.math_utils import hz_to_bark
 
 _log = logging.getLogger(__name__)

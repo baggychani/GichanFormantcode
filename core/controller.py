@@ -5,9 +5,9 @@ import io
 import inspect
 import traceback
 import copy
-from PyQt6.QtWidgets import QApplication
-from PyQt6.QtCore import Qt, QTimer, QStandardPaths
-from PyQt6.QtGui import QPixmap
+from PySide6.QtWidgets import QApplication
+from PySide6.QtCore import Qt, QTimer, QStandardPaths
+from PySide6.QtGui import QPixmap
 from matplotlib.figure import Figure
 
 import config
@@ -72,7 +72,7 @@ class MainController:
                 ):
                     self.last_open_dir = _loaded["last_open_dir"]
 
-        # PyQt6에서는 팝업 창이 가비지 컬렉터(GC)에 의해 증발하는 것을
+        # PySide6에서는 팝업 창이 가비지 컬렉터(GC)에 의해 증발하는 것을
         # 막기 위해 리스트에 참조를 보관해야 합니다.
         self.open_popups = []
 
@@ -97,10 +97,10 @@ class MainController:
         app_logger.set_ui(self.ui)
         # 작업표시줄 아이콘이 처음 실행 시 바로 뜨도록, 창 표시 전에 한 번 더 아이콘 적용
         try:
-            if hasattr(self.ui, "_apply_pyqt6_icon"):
-                self.ui._apply_pyqt6_icon()
+            if hasattr(self.ui, "_apply_window_icon"):
+                self.ui._apply_window_icon()
         except Exception as e:
-            app_logger.debug(f"[_apply_pyqt6_icon] 초기 아이콘 적용 실패: {e}")
+            app_logger.debug(f"[_apply_window_icon] 초기 아이콘 적용 실패: {e}")
 
         # 사전 초기화된 Fig가 있다면 첫 렌더링을 즉시 동기적으로 수행하여 스플래시 종료 전 화면을 채웁니다.
         # (실제 창 표시는 main.py에서 splash.finish()와 함께 수행하여 겹침 현상을 방지합니다)

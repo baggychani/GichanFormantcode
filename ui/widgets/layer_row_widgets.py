@@ -2,9 +2,9 @@ from __future__ import annotations
 
 import json
 
-from PyQt6.QtCore import QByteArray, QEvent, QMimeData, QObject, QPointF, Qt
-from PyQt6.QtGui import QColor, QDrag, QPainter, QPen
-from PyQt6.QtWidgets import QFrame, QWidget
+from PySide6.QtCore import QByteArray, QEvent, QMimeData, QObject, QPointF, Qt
+from PySide6.QtGui import QColor, QDrag, QPainter, QPen
+from PySide6.QtWidgets import QFrame, QWidget
 
 from ui.widgets.layer_logic import DRAW_ROW_MIME_TYPE, LAYER_ROW_MIME_TYPE
 
@@ -82,7 +82,7 @@ class _LayerRowFrame(QFrame):
             offset = 6
             stack_w = base_pix.width() / dpr + (len(show_items) - 1) * offset
             stack_h = base_pix.height() / dpr + (len(show_items) - 1) * offset
-            from PyQt6.QtGui import QPixmap
+            from PySide6.QtGui import QPixmap
 
             # 장치 픽셀 비유(DPR) 반영하여 물리 픽셀 크기로 생성
             out_pix = QPixmap(int(stack_w * dpr), int(stack_h * dpr))
@@ -277,7 +277,7 @@ class _DrawLayerRowFrame(QFrame):
             offset = 6
             stack_w = base_pix.width() / dpr + (len(show_items) - 1) * offset
             stack_h = base_pix.height() / dpr + (len(show_items) - 1) * offset
-            from PyQt6.QtGui import QPixmap
+            from PySide6.QtGui import QPixmap
 
             out_pix = QPixmap(int(stack_w * dpr), int(stack_h * dpr))
             out_pix.setDevicePixelRatio(dpr)

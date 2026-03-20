@@ -2,7 +2,7 @@
 
 import os
 import platform
-from PyQt6.QtWidgets import (
+from PySide6.QtWidgets import (
     QMainWindow,
     QWidget,
     QVBoxLayout,
@@ -21,8 +21,8 @@ from PyQt6.QtWidgets import (
     QAbstractItemView,
     QFileDialog,
 )
-from PyQt6.QtCore import Qt
-from PyQt6.QtGui import QFont
+from PySide6.QtCore import Qt
+from PySide6.QtGui import QFont
 
 import config
 from utils import icon_utils
@@ -84,7 +84,7 @@ class MainUI(QMainWindow):
 
         # 아이콘 로드 및 적용
         _report("Loading UI Resources...")
-        self._apply_pyqt6_icon()
+        self._apply_window_icon()
 
         # 창 크기 고정
         self.setFixedSize(1100, 615)
@@ -200,16 +200,16 @@ class MainUI(QMainWindow):
         # 프로그램 최초 실행 시 작업표시줄(상태 표시줄) 아이콘이 보이지 않는 오류 개선
         if not getattr(self, "_icon_applied_on_show", True):
             self._icon_applied_on_show = True
-            self._apply_pyqt6_icon()
+            self._apply_window_icon()
 
-    def _apply_pyqt6_icon(self):
+    def _apply_window_icon(self):
         try:
             self.setWindowIcon(icon_utils.get_app_icon())
         except Exception as e:
             # 아이콘 로드 실패는 치명적이지 않으므로 디버그 로그만 남김
             import app_logger
 
-            app_logger.debug(f"[_apply_pyqt6_icon] 아이콘 적용 중 예외 발생: {e}")
+            app_logger.debug(f"[_apply_window_icon] 아이콘 적용 중 예외 발생: {e}")
 
     def _setup_fonts(self):
         self.font_main = QFont(self.ui_font_name, 10)

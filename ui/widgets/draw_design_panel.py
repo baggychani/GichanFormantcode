@@ -1,4 +1,4 @@
-from PyQt6.QtWidgets import (
+from PySide6.QtWidgets import (
     QWidget,
     QVBoxLayout,
     QHBoxLayout,
@@ -8,8 +8,8 @@ from PyQt6.QtWidgets import (
     QStackedWidget,
     QPushButton,
 )
-from PyQt6.QtCore import Qt, QSize, pyqtSignal
-from PyQt6.QtGui import QFont, QCursor
+from PySide6.QtCore import Qt, QSize, Signal
+from PySide6.QtGui import QFont, QCursor
 
 from ui.widgets.design_panel import ToggleSwitch, ColorPalette
 from ui.widgets.icon_widgets import LinePreviewButton, create_trajectory_icon
@@ -29,7 +29,7 @@ class DrawDesignPanel(QWidget):
     - 실제 캔버스 반영/레이어 생성·삭제 로직은 포함하지 않는다.
     """
 
-    settings_changed = pyqtSignal(str, dict)
+    settings_changed = Signal(str, dict)
 
     def __init__(self, parent=None, ui_font_name="Malgun Gothic"):
         super().__init__(parent)

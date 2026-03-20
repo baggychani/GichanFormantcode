@@ -29,7 +29,7 @@ def warm_up(splash=None):
     import datetime
     import config
     import app_logger
-    from PyQt6.QtWidgets import QApplication
+    from PySide6.QtWidgets import QApplication
 
     context = {
         "data_processor": None,
@@ -40,8 +40,8 @@ def warm_up(splash=None):
 
     def _update_msg(msg):
         if splash:
-            from PyQt6.QtCore import Qt
-            from PyQt6.QtGui import QColor
+            from PySide6.QtCore import Qt
+            from PySide6.QtGui import QColor
 
             splash.showMessage(
                 msg,

@@ -18,7 +18,7 @@
 * **[ui/layer_dock.py](file:///c:/Users/c/Desktop/GichanFormant/ui/layer_dock.py) (2200줄 / 96KB):**
   * **문제점:** 레이어 UI 목록을 생성하는 일과, 디자인 데이터(색상, 두께 등)를 임시 보관하는 일, 드래그 앤 드롭 인디케이터 그리기 들이 마구 섞여있습니다.
 * **[core/controller.py](file:///c:/Users/c/Desktop/GichanFormant/core/controller.py) (1700줄 / 75KB):**
-  * **문제점:** 원래 설계 목적은 앱의 핵심 제어기였겠으나, 현재는 PyQt의 `QFileDialog`를 직접 호출하거나, 백그라운드 Worker 스레드 클래스까지 품고 있어 View 코드에 너무 강하게 결합되어 있습니다.
+  * **문제점:** 원래 설계 목적은 앱의 핵심 제어기였겠으나, 현재는 Qt(`QFileDialog`)를 직접 호출하거나, 백그라운드 Worker 스레드 클래스까지 품고 있어 View 코드에 너무 강하게 결합되어 있습니다.
 
 ### [2] M-V-C 구조의 준수 여부
 * **현황:** 폴더 자체는 `model/`, `core/` (Controller 성격), [ui/](file:///c:/Users/c/Desktop/GichanFormant/ui/widgets/layer_dock.py#255-562) (View) 로 나뉘어 있어 **어느 정도 기본 골격은 훌륭합니다**.
@@ -38,7 +38,7 @@
 
 ### [6] 스파게티 코드 (유지보수성)
 * **문제점 파악:** "이벤트 핸들러 콜백 지옥". A를 클릭하면 B 함수를 부르고, B 안에서 C 모듈의 D 함수를 찔러 넣는 흐름이 일부 보입니다. 특히 `_on_apply()` 나 `_on_draw_object_complete` 과정에서 다른 창의 위젯 속성을 강제로 뜯어 고치는(coupling) 부분들이 약간의 스파게티 성향을 띠고 있습니다. (예: `setattr(obj, "series", self._active_draw_series)` 로 직접 객체를 조작).
-* **대책:** 이벤트 기반 통신(`pyqtSignal`)을 적극 활용해서, 창 A가 객체 B를 직접 조작하지 않고 "*여기 클릭됐음*" 이라는 신호만 던지고 객체 B가 스스로 처리하도록(캡슐화) 제어 흐름을 단순화시켜야 합니다.
+* **대책:** 이벤트 기반 통신(`Signal`)을 적극 활용해서, 창 A가 객체 B를 직접 조작하지 않고 "*여기 클릭됐음*" 이라는 신호만 던지고 객체 B가 스스로 처리하도록(캡슐화) 제어 흐름을 단순화시켜야 합니다.
 
 ---
 
@@ -76,7 +76,7 @@
 
 | 메서드명 | 현재 위치 | 이관 여부 |
 |---|---|---|
-| `_apply_pyqt6_icon()` | 양쪽 동일 | ✅ BasePlotWindow로 이관 |
+| `_apply_window_icon()` | 양쪽 동일 | ✅ BasePlotWindow로 이관 |
 | `_is_ruler_active()` | 양쪽 동일 | ✅ BasePlotWindow로 이관 |
 | `_is_input_focused()` | 양쪽 동일 | ✅ BasePlotWindow로 이관 |
 | `_is_draw_active()` | 양쪽 동일 | ✅ BasePlotWindow로 이관 |
@@ -150,7 +150,7 @@
 1. [NEW] ui/widgets/layer_data_model.py 파일 생성
    - 순수 Python 클래스 (QWidget 미상속)
    - 레이어 순서 리스트, 오버라이드 딕셔너리, 필터 상태 딕셔너리 보관
-   - 상태 변경 시 pyqtSignal로 알림 (layer_changed, filter_changed 등)
+   - 상태 변경 시 Signal로 알림 (layer_changed, filter_changed 등)
 
 2. [MODIFY] ui/widgets/layer_dock.py
    - LayerDataModel을 주입받아 사용 (의존성 주입)
@@ -165,7 +165,7 @@
 
 > ⚠️ **주의사항**
 > - `layer_dock.py`는 현재 `popup_plot.py`와 `compare_plot.py`가 직접 `.update_draw_layer_list()`, `.set_vowels()` 등을 호출. 이 인터페이스는 반드시 유지해야 함.
-> - `LayerDataModel`이 `pyqtSignal`을 내보내려면 `QObject`를 상속해야 함.
+> - `LayerDataModel`이 `Signal`을 내보내려면 `QObject`를 상속해야 함.
 
 ---
 
@@ -300,7 +300,7 @@ Phase 3-C (내부 다이얼로그 분리) → 실행 테스트 → git commit
 | 위젯/레이어 제거 | `_clear_*()` 메서드명으로 통일 | ~~`_remove_*()`, `_delete_*()`~~ |
 | 도구 비활성화 | `.deactivate()` | ~~`_clear_current()` 혼용 금지~~ |
 
-> ⚠️ `close()`는 PyQt에서 `closeEvent()`를 트리거하므로, `hide()`와 완전히 다른 동작임. 잘못 혼용하면 GC에 의한 팝업 소멸 등 런타임 오류 발생 가능.
+> ⚠️ `close()`는 Qt에서 `closeEvent()`를 트리거하므로, `hide()`와 완전히 다른 동작임. 잘못 혼용하면 GC에 의한 팝업 소멸 등 런타임 오류 발생 가능.
 
 ---
 

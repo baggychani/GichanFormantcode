@@ -4,9 +4,9 @@ repo_root = Path(__file__).resolve().parent
 
 base_code = """import os
 import platform
-from PyQt6.QtWidgets import QMainWindow, QApplication, QLineEdit, QMessageBox, QFileDialog
-from PyQt6.QtGui import QIcon, QShortcut, QKeySequence
-from PyQt6.QtCore import Qt
+from PySide6.QtWidgets import QMainWindow, QApplication, QLineEdit, QMessageBox, QFileDialog
+from PySide6.QtGui import QIcon, QShortcut, QKeySequence
+from PySide6.QtCore import Qt
 
 import matplotlib.colors as mcolors
 import config
@@ -38,7 +38,7 @@ import ast
 
 file_path = repo_root / "ui" / "windows" / "popup_plot.py"
 methods_to_extract = [
-    "_apply_pyqt6_icon",
+    "_apply_window_icon",
     "_is_ruler_active",
     "_is_input_focused",
     "_is_draw_active",

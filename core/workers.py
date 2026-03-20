@@ -2,15 +2,15 @@
 
 import os
 import traceback
-from PyQt6.QtCore import QThread, pyqtSignal
+from PySide6.QtCore import QThread, Signal
 
 
 class BatchSaveWorker(QThread):
     """일괄 저장을 백그라운드 스레드에서 수행하여 GUI 멈춤 방지."""
 
-    progress = pyqtSignal(int, int)  # current, total
-    finished_with_count = pyqtSignal(int)
-    log_error = pyqtSignal(str)
+    progress = Signal(int, int)  # current, total
+    finished_with_count = Signal(int)
+    log_error = Signal(str)
 
     def __init__(
         self,

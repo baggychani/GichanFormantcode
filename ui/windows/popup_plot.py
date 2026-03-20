@@ -3,7 +3,7 @@
 import platform
 from ui.windows.base_plot_window import BasePlotWindow
 from ui.dialogs.batch_save_dialog import BatchSaveDialog
-from PyQt6.QtWidgets import (
+from PySide6.QtWidgets import (
     QMainWindow,
     QWidget,
     QVBoxLayout,
@@ -18,7 +18,7 @@ from PyQt6.QtWidgets import (
     QSizePolicy,
     QTabWidget,
 )
-from PyQt6.QtCore import Qt, QObject, QEvent
+from PySide6.QtCore import Qt, QObject, QEvent
 
 
 class TabBarWheelBlocker(QObject):
@@ -30,7 +30,7 @@ class TabBarWheelBlocker(QObject):
         return False
 
 
-from PyQt6.QtGui import (
+from PySide6.QtGui import (
     QFont,
     QShortcut,
     QKeySequence,
@@ -217,7 +217,7 @@ class PlotPopup(BasePlotWindow):
         self.setDockOptions(QMainWindow.DockOption.AnimatedDocks)
         self.setDockNestingEnabled(False)
 
-        self._apply_pyqt6_icon()
+        self._apply_window_icon()
 
         self.setStyleSheet(
             """

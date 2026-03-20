@@ -82,7 +82,7 @@
 ### 5.1 람다·이벤트 덮어쓰기 정리
 
 - **ui/design_panel.py** 1112행: `graph_header_row.mousePressEvent = lambda e: toggle_graph_bg_cmp()`  
-  → `def _on_graph_header_clicked(self, e): toggle_graph_bg_cmp()` 같은 메서드로 빼고, `graph_header_row.mousePressEvent = self._on_graph_header_clicked`로 연결. (PyQt6에서는 시그널이 있다면 시그널 사용이 더 나음.)
+  → `def _on_graph_header_clicked(self, e): toggle_graph_bg_cmp()` 같은 메서드로 빼고, `graph_header_row.mousePressEvent = self._on_graph_header_clicked`로 연결. (PySide6에서는 시그널이 있다면 시그널 사용이 더 나음.)
 - **위험도**: 낮음.
 
 ### 5.2 복잡한 스타일 분기

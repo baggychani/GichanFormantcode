@@ -2,7 +2,7 @@
 
 import os
 import platform
-from PyQt6.QtWidgets import (
+from PySide6.QtWidgets import (
     QDialog,
     QVBoxLayout,
     QHBoxLayout,
@@ -14,8 +14,8 @@ from PyQt6.QtWidgets import (
     QFrame,
     QTabWidget,
 )
-from PyQt6.QtCore import Qt
-from PyQt6.QtGui import QFont
+from PySide6.QtCore import Qt
+from PySide6.QtGui import QFont
 
 from utils import icon_utils
 from ui.widgets.display_utils import strip_gichan_prefix
@@ -52,10 +52,10 @@ class LiveVowelFilterPanel(QDialog):
             "Malgun Gothic" if platform.system() == "Windows" else "AppleGothic"
         )
 
-        self._apply_pyqt6_icon()
+        self._apply_window_icon()
         self._setup_ui()
 
-    def _apply_pyqt6_icon(self):
+    def _apply_window_icon(self):
         try:
             self.setWindowIcon(icon_utils.get_app_icon())
         except Exception:
@@ -312,10 +312,10 @@ class MultiVowelFilterPanel(QDialog):
             "Malgun Gothic" if platform.system() == "Windows" else "AppleGothic"
         )
 
-        self._apply_pyqt6_icon()
+        self._apply_window_icon()
         self._setup_ui()
 
-    def _apply_pyqt6_icon(self):
+    def _apply_window_icon(self):
         try:
             self.setWindowIcon(icon_utils.get_app_icon())
         except Exception:

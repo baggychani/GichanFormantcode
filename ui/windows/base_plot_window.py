@@ -1,12 +1,12 @@
-from PyQt6.QtWidgets import (
+from PySide6.QtWidgets import (
     QMainWindow,
     QApplication,
     QLineEdit,
     QMessageBox,
     QFileDialog,
 )
-from PyQt6.QtGui import QShortcut, QKeySequence
-from PyQt6.QtCore import Qt
+from PySide6.QtGui import QShortcut, QKeySequence
+from PySide6.QtCore import Qt
 
 import matplotlib.colors as mcolors
 import config
@@ -33,7 +33,7 @@ class BasePlotWindow(QMainWindow):
             btn_on = self.design_tab.btn_label_move.isChecked()
         return btn_on
 
-    def _apply_pyqt6_icon(self):
+    def _apply_window_icon(self):
         try:
             self.setWindowIcon(icon_utils.get_app_icon())
         except Exception:
@@ -109,7 +109,7 @@ class BasePlotWindow(QMainWindow):
             QKeySequence(Qt.Key.Key_R), self, context=Qt.ShortcutContext.WindowShortcut
         ).activated.connect(self._safe_toggle_ruler)
         # T키는 서브클래스(popup_plot / compare_plot)에서 각자의 방식으로 등록한다.
-        # base에서 등록하면 compare_plot이 T를 재등록할 때 PyQt6 Ambiguous Shortcut이
+        # base에서 등록하면 compare_plot이 T를 재등록할 때 PySide6 Ambiguous Shortcut이
         # 발생해 두 핸들러 모두 무반응이 되므로 여기서는 등록하지 않는다.
         QShortcut(
             QKeySequence(Qt.Key.Key_M), self, context=Qt.ShortcutContext.WindowShortcut

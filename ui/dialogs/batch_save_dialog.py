@@ -1,4 +1,4 @@
-from PyQt6.QtWidgets import (
+from PySide6.QtWidgets import (
     QDialog,
     QVBoxLayout,
     QHBoxLayout,
@@ -13,8 +13,8 @@ from PyQt6.QtWidgets import (
     QProgressDialog,
     QMessageBox,
 )
-from PyQt6.QtGui import QFont, QRegularExpressionValidator
-from PyQt6.QtCore import Qt, QRegularExpression
+from PySide6.QtGui import QFont, QRegularExpressionValidator
+from PySide6.QtCore import Qt, QRegularExpression
 import inspect
 
 from utils import icon_utils
@@ -44,10 +44,10 @@ class BatchSaveDialog(QDialog):
         self.setWindowModality(Qt.WindowModality.ApplicationModal)
 
         self.ui_font_name = parent.ui_font_name
-        self._apply_pyqt6_icon()
+        self._apply_window_icon()
         self._setup_ui(current_ranges, f1_unit, f2_unit, x_axis_label, current_sigma)
 
-    def _apply_pyqt6_icon(self):
+    def _apply_window_icon(self):
         try:
             self.setWindowIcon(icon_utils.get_app_icon())
         except Exception:

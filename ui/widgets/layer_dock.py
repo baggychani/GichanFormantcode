@@ -6,7 +6,7 @@
 # - 전체 한 줄: _build_global_row() 는 눈/반투명만 사용, 동일 규칙(눈=전체 끄기/켜기, 반투명=전체 반투명/해제).
 # - 순서 변경: _on_layer_reorder(dragged, target, after) 로 저장 후 set_vowels(ordered). 삽입 위치 미리 보기는 _set_drop_indicator_between / _hide_drop_indicator.
 
-from PyQt6.QtWidgets import (
+from PySide6.QtWidgets import (
     QWidget,
     QVBoxLayout,
     QHBoxLayout,
@@ -20,13 +20,13 @@ from PyQt6.QtWidgets import (
     QApplication,
     QSplitter,
 )
-from PyQt6.QtCore import (
+from PySide6.QtCore import (
     Qt,
-    pyqtSignal,
+    Signal,
     QEvent,
     QObject,
 )
-from PyQt6.QtGui import QFont, QFontMetrics
+from PySide6.QtGui import QFont, QFontMetrics
 
 import config
 import app_logger
@@ -226,17 +226,17 @@ def _create_visual_button_group(parent, options, default_idx):
 
 
 class LayerDockWidget(QWidget):
-    filter_state_changed = pyqtSignal(dict)
-    overrides_changed = pyqtSignal(dict)
-    label_filter_item_changed = pyqtSignal(str, str)
-    draw_item_state_changed = pyqtSignal(int, str, object)
-    compare_switch_requested = pyqtSignal(
+    filter_state_changed = Signal(dict)
+    overrides_changed = Signal(dict)
+    label_filter_item_changed = Signal(str, str)
+    draw_item_state_changed = Signal(int, str, object)
+    compare_switch_requested = Signal(
         int
     )  # compare 모드에서 파일 A(0)/B(1) 전환 요청
-    splitter_sizes_changed = pyqtSignal(
+    splitter_sizes_changed = Signal(
         list
     )  # 다중플롯에서 두 도크 스플리터 비율 공유용
-    order_changed = pyqtSignal(list)
+    order_changed = Signal(list)
 
     def __init__(
         self,

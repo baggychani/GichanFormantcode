@@ -1,5 +1,5 @@
 import platform
-from PyQt6.QtWidgets import (
+from PySide6.QtWidgets import (
     QDialog,
     QVBoxLayout,
     QHBoxLayout,
@@ -9,8 +9,8 @@ from PyQt6.QtWidgets import (
     QWidget,
     QFrame,
 )
-from PyQt6.QtCore import Qt
-from PyQt6.QtGui import QFont
+from PySide6.QtCore import Qt
+from PySide6.QtGui import QFont
 
 from utils import icon_utils
 
@@ -22,13 +22,13 @@ class DataGuidePopup(QDialog):
         self.setFixedSize(580, 550)
         self.setWindowModality(Qt.WindowModality.ApplicationModal)
 
-        self._apply_pyqt6_icon()
+        self._apply_window_icon()
         self.ui_font_name = (
             "Malgun Gothic" if platform.system() == "Windows" else "AppleGothic"
         )
         self._setup_ui()
 
-    def _apply_pyqt6_icon(self):
+    def _apply_window_icon(self):
         try:
             self.setWindowIcon(icon_utils.get_app_icon())
         except Exception:

@@ -1,9 +1,9 @@
 # ui/icon_widgets.py — QPainter로 그리는 아이콘·버튼·인디케이터 모음
 # design_panel, layer_dock, compare_plot, tool_indicator에서 import하여 사용.
 
-from PyQt6.QtWidgets import QPushButton, QFrame, QApplication
-from PyQt6.QtCore import Qt, QSize, QRectF, QPointF, QVariantAnimation
-from PyQt6.QtGui import (
+from PySide6.QtWidgets import QPushButton, QFrame, QApplication
+from PySide6.QtCore import Qt, QSize, QRectF, QPointF, QVariantAnimation
+from PySide6.QtGui import (
     QPainter,
     QPen,
     QColor,
