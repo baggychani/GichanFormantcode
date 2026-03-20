@@ -1,9 +1,11 @@
 # icon_utils.py (utils 패키지) — 앱 아이콘 경로 및 Base64 데이터 제공
 
 import base64
+import math
 import os
 import tempfile
-from PyQt6.QtGui import QIcon
+from PyQt6.QtGui import QIcon, QPixmap, QPainter, QPen, QColor, QPainterPath, QBrush
+from PyQt6.QtCore import Qt, QPointF, QSize, QRectF
 
 # 전역 아이콘 캐시
 _ICON_CACHE = {}
@@ -47,3 +49,141 @@ def get_app_icon():
         else:
             _ICON_CACHE["app_icon"] = QIcon()
     return _ICON_CACHE["app_icon"]
+
+
+def create_formant_icon(size=128, color_hex="#555555"):
+    """
+    포먼트 스펙트럼(F1, F2)과 배음(Harmonics)을 부드러운 곡선으로 그리는 함수.
+    반환된 QIcon을 QPushButton 등에 바로 적용할 수 있습니다.
+    """
+    # 1. 캔버스 초기화 (투명 배경)
+    pixmap = QPixmap(size, size)
+    pixmap.fill(Qt.GlobalColor.transparent)
+
+    painter = QPainter(pixmap)
+    painter.setRenderHint(QPainter.RenderHint.Antialiasing)  # 계단현상 방지
+
+    color = QColor(color_hex)
+
+    # 여백 및 좌표축 설정
+    margin = size * 0.15
+    w = size - margin * 2
+    h = size - margin * 2
+    base_y = size - margin
+
+    # 2. L자형 X, Y축 그리기
+    axis_pen = QPen(color, 2, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap)
+    painter.setPen(axis_pen)
+    painter.drawLine(int(margin), int(margin), int(margin), int(base_y))           # Y축
+    painter.drawLine(int(margin), int(base_y), int(size - margin), int(base_y))    # X축
+
+    # 3. 가우시안 곡선 파라미터 (스케치 반영: F1 큰 산, F2 작은 산)
+    # (진폭(높이), 중심위치(0~1 비율), 퍼짐정도)
+    peaks = [
+        (h * 0.70, 0.25, 0.08),  # F1 (왼쪽 높은 산)
+        (h * 0.35, 0.75, 0.12)   # F2 (오른쪽 부드럽고 낮은 산)
+    ]
+    baseline = h * 0.15      # X축에서 기본적으로 떨어져 있는 높이
+
+    def get_curve_y(x_ratio):
+        y_val = baseline
+        for amp, mu, sigma in peaks:
+            y_val += amp * math.exp(-0.5 * ((x_ratio - mu) / sigma) ** 2)
+        return base_y - y_val  # PyQt는 Y축이 아래로 갈수록 증가하므로 뒤집어줌
+
+    # 4. 배음 (수직선 찍찍찍) 그리기
+    num_harmonics = 16  # 스케치 느낌을 살리기 위한 적절한 세로선 개수
+    harmonic_pen = QPen(color, 1, Qt.PenStyle.SolidLine)
+    painter.setPen(harmonic_pen)
+
+    for i in range(1, num_harmonics):
+        x_ratio = i / num_harmonics
+        x = margin + w * x_ratio
+        y = get_curve_y(x_ratio)
+        painter.drawLine(QPointF(x, base_y), QPointF(x, y))
+
+    # 5. 포락선 (부드러운 스펙트럼 곡선) 그리기
+    path = QPainterPath()
+    resolution = 100  # 곡선 해상도 (잘게 쪼갤수록 부드러움)
+
+    for i in range(resolution + 1):
+        x_ratio = i / resolution
+        x = margin + w * x_ratio
+        y = get_curve_y(x_ratio)
+
+        if i == 0:
+            path.moveTo(x, y)
+        else:
+            path.lineTo(x, y)
+
+    curve_pen = QPen(color, 2, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap, Qt.PenJoinStyle.RoundJoin)
+    painter.setPen(curve_pen)
+    painter.drawPath(path)
+
+    painter.end()
+
+    # 버튼에 바로 쓸 수 있도록 QIcon으로 변환해서 리턴
+    return QIcon(pixmap)
+
+
+def create_pillai_icon(size=128, color_hex="#555555"):
+    """
+    Pillai Score의 본질인 두 모음 집단(타원)의 '겹침(Overlap)'을
+    벤다이어그램 형태로 직관적으로 보여주는 아이콘 생성 함수.
+    """
+    # 1. 캔버스 초기화
+    pixmap = QPixmap(size, size)
+    pixmap.fill(Qt.GlobalColor.transparent)
+
+    painter = QPainter(pixmap)
+    painter.setRenderHint(QPainter.RenderHint.Antialiasing)  # 부드러운 외곽선
+
+    # 여백 및 축 좌표 설정
+    margin = size * 0.15
+    w = size - margin * 2
+    h = size - margin * 2
+    base_y = size - margin
+
+    # 2. 배경 축(X, Y축) 그리기 (포먼트 아이콘과 통일감)
+    axis_pen = QPen(QColor(color_hex), 2, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap)
+    painter.setPen(axis_pen)
+    painter.drawLine(int(margin), int(margin), int(margin), int(base_y))           # Y축
+    painter.drawLine(int(margin), int(base_y), int(size - margin), int(base_y))    # X축
+
+    # 3. 그룹별 색상 설정 (R, G, B, Alpha)
+    # Alpha(투명도) 값을 140 정도로 주어 겹치는 면적이 자연스럽게 섞이도록 함
+    group1_color = QColor(100, 170, 255, 140)  # 파스텔 블루
+    group2_color = QColor(255, 150, 100, 140)  # 파스텔 오렌지
+
+    # 타원 외곽선은 아이콘 테마색(주로 흰색/회색)으로 얇게 설정
+    border_pen = QPen(QColor(color_hex), 1.5)
+    painter.setPen(border_pen)
+
+    # 4. 첫 번째 타원 (왼쪽 아래, Group 1)
+    painter.setBrush(QBrush(group1_color))
+    # QRectF(x, y, width, height) - 영역을 큼직하게 0.55 비율로 잡음
+    rect1 = QRectF(margin + w * 0.1, margin + h * 0.35, w * 0.55, h * 0.55)
+    painter.drawEllipse(rect1)
+
+    # 5. 두 번째 타원 (오른쪽 위, Group 2)
+    painter.setBrush(QBrush(group2_color))
+    rect2 = QRectF(margin + w * 0.35, margin + h * 0.1, w * 0.55, h * 0.55)
+    painter.drawEllipse(rect2)
+
+    painter.end()
+
+    return QIcon(pixmap)
+
+
+def get_formant_icon(size=128, color_hex="#555555"):
+    cache_key = f"formant_{size}_{color_hex}"
+    if cache_key not in _ICON_CACHE:
+        _ICON_CACHE[cache_key] = create_formant_icon(size, color_hex)
+    return _ICON_CACHE[cache_key]
+
+
+def get_pillai_icon(size=128, color_hex="#555555"):
+    cache_key = f"pillai_{size}_{color_hex}"
+    if cache_key not in _ICON_CACHE:
+        _ICON_CACHE[cache_key] = create_pillai_icon(size, color_hex)
+    return _ICON_CACHE[cache_key]

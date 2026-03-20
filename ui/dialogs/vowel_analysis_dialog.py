@@ -21,7 +21,7 @@ from PyQt6.QtCore import Qt, QStandardPaths, QSize
 from PyQt6.QtGui import QBrush, QColor, QFont, QPen, QKeySequence, QIcon
 import pandas as pd
 from ui.widgets.pillai_score_page import PillaiScorePage
-from utils.icon_utils import get_app_icon
+from utils.icon_utils import get_app_icon, get_formant_icon, get_pillai_icon
 from utils.math_utils import calc_f2_prime
 from ui.widgets.display_utils import truncate_display_name, MAX_DISPLAY_NAME_LEN
 from utils.vowel_stats import (
@@ -247,8 +247,8 @@ class VowelAnalysisDialog(QDialog):
 
         # Page navigation buttons (Bottom Left)
         self.btn_page_formant = QPushButton()
-        self.btn_page_formant.setIcon(QIcon(os.path.join("assets", "formant.png")))
-        self.btn_page_formant.setIconSize(QSize(32, 28))
+        self.btn_page_formant.setIcon(get_formant_icon())
+        self.btn_page_formant.setIconSize(QSize(30, 30))
         self.btn_page_formant.setFixedSize(40, 36)
         self.btn_page_formant.setToolTip("포먼트 및 중심-개별 유클리드 거리")
         self.btn_page_formant.setStyleSheet("""
@@ -258,8 +258,8 @@ class VowelAnalysisDialog(QDialog):
         self.btn_page_formant.clicked.connect(lambda: self._switch_page(0))
 
         self.btn_page_pillai = QPushButton()
-        self.btn_page_pillai.setIcon(QIcon(os.path.join("assets", "pillai.png")))
-        self.btn_page_pillai.setIconSize(QSize(32, 28))
+        self.btn_page_pillai.setIcon(get_pillai_icon())
+        self.btn_page_pillai.setIconSize(QSize(30, 30))
         self.btn_page_pillai.setFixedSize(40, 36)
         self.btn_page_pillai.setToolTip("Pillai Score")
         self.btn_page_pillai.setStyleSheet("""
