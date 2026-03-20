@@ -11,7 +11,6 @@ import config
 import app_logger
 from utils import icon_utils, logger_setup
 from core import preloader
-from core.controller import MainController
 
 if __name__ == "__main__":
     # 백그라운드 로깅 시스템 초기화
@@ -118,6 +117,8 @@ if __name__ == "__main__":
             app.processEvents()
 
     # 4. 메인 컨트롤러 생성 및 실행 (사전 초기화된 객체 및 콜백 전달)
+    from core.controller import MainController
+
     controller = MainController(
         startup_context=startup_context, status_callback=status_callback
     )
