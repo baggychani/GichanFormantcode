@@ -18,23 +18,55 @@ from PySide6.QtGui import (
 
 
 def create_font_style_icon(is_serif=False):
-    """폰트 스타일 선택 버튼용 아이콘: 투명 배경 QPixmap 중앙에 'A'를 Sans-serif/Serif로 그려 QIcon 반환."""
-    w, h = 40, 26
+    """폰트 텍스트 대신 QPainter로 직접 'A'를 그려서 반환하는 함수 (픽셀 완벽 통제)."""
+    # 캔버스 크기를 40x26에서 34x22로 축소
+    w, h = 34, 22
     app = QApplication.instance()
     dpr = app.primaryScreen().devicePixelRatio() if app else 1.0
 
     pixmap = QPixmap(int(w * dpr), int(h * dpr))
     pixmap.setDevicePixelRatio(dpr)
     pixmap.fill(Qt.GlobalColor.transparent)
+
     try:
         painter = QPainter(pixmap)
         try:
             painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-            painter.setRenderHint(QPainter.RenderHint.TextAntialiasing, True)
-            font = QFont("Times New Roman", 12) if is_serif else QFont("Arial", 12)
-            painter.setFont(font)
-            painter.setPen(QColor("#303133"))
-            painter.drawText(QRectF(0, 0, w, h), Qt.AlignmentFlag.AlignCenter, "A")
+
+            # 1. 메인 뼈대 선: 1.2 픽셀 두께로 더욱 날렵하게 (크기 축소 반영)
+            pen = QPen(QColor("#303133"))
+            pen.setWidthF(1.2)
+            pen.setCapStyle(Qt.PenCapStyle.RoundCap)
+            pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
+            painter.setPen(pen)
+
+            # 축소된 34x22 캔버스에 맞춘 새로운 좌표 (중앙 17 기준)
+            top_y, bottom_y = 5, 17
+            top_point = QPointF(17, top_y)
+            bottom_left = QPointF(12, bottom_y)
+            bottom_right = QPointF(22, bottom_y)
+
+            # 1-1. 'A'의 양쪽 다리
+            painter.drawLine(top_point, bottom_left)
+            painter.drawLine(top_point, bottom_right)
+
+            # 1-2. 가운데 가로줄 (높이 13 지점)
+            cross_y = 13.0
+            painter.drawLine(QPointF(14, cross_y), QPointF(20, cross_y))
+
+            # 2. 세리프(Serif) 폰트일 경우 발 장식 (SquareCap으로 절도 있게)
+            if is_serif:
+                serif_pen = QPen(QColor("#303133"))
+                serif_pen.setWidthF(0.9)  # 장식도 비례해서 얇게
+                serif_pen.setCapStyle(Qt.PenCapStyle.SquareCap)
+                painter.setPen(serif_pen)
+
+                # 상단 모자
+                painter.drawLine(QPointF(15.5, top_y), QPointF(18.5, top_y))
+                # 좌측 하단 발
+                painter.drawLine(QPointF(10, bottom_y), QPointF(14, bottom_y))
+                # 우측 하단 발
+                painter.drawLine(QPointF(20, bottom_y), QPointF(24, bottom_y))
         finally:
             painter.end()
     except Exception:

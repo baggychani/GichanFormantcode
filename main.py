@@ -20,6 +20,15 @@ sentry_sdk.init(
 
 
 if __name__ == "__main__":
+    # High-DPI 스케일링 설정
+    # Qt6에서는 AA_EnableHighDpiScaling과 AA_UseHighDpiPixmaps가 기본 활성화되어 있으므로
+    # 경고를 피하기 위해 명시적 setAttribute 호출을 제거하고 소수점 스케일링 정책만 설정합니다.
+    if hasattr(Qt.HighDpiScaleFactorRoundingPolicy, "PassThrough"):
+        QApplication.setHighDpiScaleFactorRoundingPolicy(
+            Qt.HighDpiScaleFactorRoundingPolicy.PassThrough
+        )
+    os.environ["QT_AUTO_SCREEN_SCALE_FACTOR"] = "1"
+
     app = QApplication(sys.argv)
 
     # 1. 스플래시 스크린 즉시 설정 (가장 최우선 순위로 실행하여 시각적 반응성 극대화)

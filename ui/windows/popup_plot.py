@@ -18,7 +18,7 @@ from PySide6.QtWidgets import (
     QSizePolicy,
     QTabWidget,
 )
-from PySide6.QtCore import Qt, QObject, QEvent
+from PySide6.QtCore import Qt, QObject, QEvent, QTimer
 
 
 class TabBarWheelBlocker(QObject):
@@ -181,6 +181,12 @@ class PlotPopup(BasePlotWindow):
         self.design_settings = {}
         self.filter_panel = None
         self._layer_dock_was_docked_before_hide = False  # 창 크기 연동용
+
+        # 디자인 설정 실시간 반영 디바운스 타이머 (150ms)
+        # 사유: 동기식 on_apply() 호출 시 Matplotlib 렌더링 부하로 인한 버튼 클릭 UI 피드백 지연 방지
+        self._design_timer = QTimer(self)
+        self._design_timer.setSingleShot(True)
+        self._design_timer.timeout.connect(self.on_apply)
 
         # 컨트롤러가 set_initial_plot_state / set_draw_result 로 주입 (직접 대입 대신 명시적 API)
         self.fixed_plot_params = {}
@@ -962,7 +968,10 @@ class PlotPopup(BasePlotWindow):
             and self._layer_dock_content is not None
         ):
             self._layer_dock_content._sync_design_controls_to_selection()
-        self.on_apply()
+
+        # 즉시 렌더링 대신 150ms 디바운스 타이머 시작
+        # (무거운 렌더링 작업을 뒤로 미뤄서 버튼의 시각적 눌림 상태가 즉시 리페인트되도록 함)
+        self._design_timer.start(150)
 
     def _update_window_title(self, file_name):
         base = f"Plot Result - {file_name}"

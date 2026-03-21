@@ -24,7 +24,7 @@ from PySide6.QtWidgets import (
     QSizePolicy,
     QStackedWidget,
 )
-from PySide6.QtCore import Qt, QObject, QEvent
+from PySide6.QtCore import Qt, QObject, QEvent, QTimer
 
 
 class TabBarWheelBlocker(QObject):
@@ -379,6 +379,12 @@ class ComparePlotPopup(BasePlotWindow):
         self._draw_layer_area_label_refs = []
         self._draw_tool = None
         self.snapping_data = []  # draw tool 활성화에 필요; refresh_compare_plot에서 주입됨
+
+        # 디자인 설정 실시간 반영 디바운스 타이머 (150ms)
+        # 사유: 동기식 on_apply() 호출 시 Matplotlib 렌더링 부하로 인한 버튼 클릭 UI 피드백 지연 방지
+        self._design_timer = QTimer(self)
+        self._design_timer.setSingleShot(True)
+        self._design_timer.timeout.connect(self.on_apply)
 
         # 범례 위젯들을 저장하여 실시간 렌더링에 사용
         self.legend_refs = {"blue": {}, "red": {}}
@@ -1280,7 +1286,10 @@ class ComparePlotPopup(BasePlotWindow):
         self._update_legend_style()
         if hasattr(self.design_tab, "update_legend_indicators"):
             self.design_tab.update_legend_indicators(settings)
-        self.on_apply()
+
+        # 즉시 렌더링 대신 150ms 디바운스 타이머 시작
+        # (무거운 렌더링 작업을 뒤로 미뤄서 버튼의 시각적 눌림 상태가 즉시 리페인트되도록 함)
+        self._design_timer.start(150)
         if hasattr(self, "_layer_dock_blue") and self._layer_dock_blue:
             self._layer_dock_blue.refresh_design_ui()
         if hasattr(self, "_layer_dock_red") and self._layer_dock_red:

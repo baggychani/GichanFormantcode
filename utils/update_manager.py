@@ -72,14 +72,13 @@ class UpdateManager(QObject):
 
     def _on_check_finished(self, current_version, check_time):
         """API 응답 결과를 처리합니다."""
-        if self.reply.error() != QNetworkReply.NetworkError.NoError:
-            app_logger.debug(
-                f"[UpdateManager] Network error or no release found: {self.reply.errorString()}"
-            )
-            self.reply.deleteLater()
-            return
-
         try:
+            if self.reply.error() != QNetworkReply.NetworkError.NoError:
+                app_logger.debug(
+                    f"[UpdateManager] Network error or no release found: {self.reply.errorString()}"
+                )
+                return
+
             data = json.loads(self.reply.readAll().data().decode("utf-8"))
             latest_tag = data.get("tag_name", "").strip()
             # 'v2.3.4' 형식을 '2.3.4'로 정규화
@@ -95,16 +94,14 @@ class UpdateManager(QObject):
                 app_logger.debug("[UpdateManager] New version detected!")
                 self.update_available.emit(latest_version, html_url, body)
 
-            # 성공적으로 확인했으므로 시간 업데이트를 위해 시그널 대신 직접 상태를 알리거나 할 수 있으나,
-            # 여기서는 호출 측에서 저장하도록 설계
-            if hasattr(self, "on_success_callback"):
-                self.on_success_callback(check_time.isoformat())
-
         except Exception as e:
             app_logger.debug(
                 f"[UpdateManager] Failed to parsing GitHub API response: {e}"
             )
         finally:
+            # 성공 여부와 상관없이 '확인 시도' 자체를 기록하여 반복 체크 방지
+            if hasattr(self, "on_success_callback"):
+                self.on_success_callback(check_time.isoformat())
             self.reply.deleteLater()
 
     def _is_newer(self, current, latest):
