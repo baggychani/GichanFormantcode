@@ -1031,6 +1031,7 @@ class LayerDockWidget(QWidget):
         effects_layout = QVBoxLayout(effects_container)
         effects_layout.setContentsMargins(40, 2, 8, 2)
         effects_layout.setSpacing(0)
+        effects_container.setVisible(False)  # 초기에는 접힌 상태로 설정
         row_vbox.addWidget(effects_container)
 
         idx = draw_index
@@ -1412,7 +1413,7 @@ class LayerDockWidget(QWidget):
         최적화: 위젯 재사용 및 불필요한 레이아웃 갱신(구분선 위젯 생성 등)을 제거하여 드롭 시 렉을 없앱니다.
         """
         ordered_vowels = self._get_ordered_vowels_for_display(vowels)
-        
+
         # 애니메이션을 위한 이전 위치 저장
         old_pos_map = {}
         for v, r in self._layer_rows.items():
@@ -1488,7 +1489,13 @@ class LayerDockWidget(QWidget):
                     if not hasattr(self, "_active_animations"):
                         self._active_animations = []
                     self._active_animations.append(anim)
-                    anim.finished.connect(lambda a=anim: self._active_animations.remove(a) if a in self._active_animations else None)
+                    anim.finished.connect(
+                        lambda a=anim: (
+                            self._active_animations.remove(a)
+                            if a in self._active_animations
+                            else None
+                        )
+                    )
 
     def set_compare_file_index(self, index):
         """compare 모드에서 어느 파일이 선택됐는지 동기화 (0=파일A, 1=파일B)."""
@@ -1616,6 +1623,7 @@ class LayerDockWidget(QWidget):
         row.effects_layout = QVBoxLayout(row.effects_container)
         row.effects_layout.setContentsMargins(40, 2, 8, 2)
         row.effects_layout.setSpacing(0)
+        row.effects_container.setVisible(False)  # 초기에는 접힌 상태로 설정
         row_vbox.addWidget(row.effects_container)
 
         # 드래그 시작 영역 확장: 행 전체와 주요 클릭 영역(이름/토글 버튼들/효과 영역)에서 드래그 가능
@@ -1805,7 +1813,7 @@ class LayerDockWidget(QWidget):
                     if not oid and getattr(obj, "type", "") == "area_label":
                         oid = f"label_{getattr(obj, 'parent_id', '')}"
                     row.object_id = oid
-                    
+
                     is_selected = i in getattr(self, "_selected_draw_indices", set())
                     row.setProperty("selected", is_selected)
                     # 이름 등 최소한의 정보만 업데이트
@@ -1865,7 +1873,7 @@ class LayerDockWidget(QWidget):
                 oid = getattr(obj, "id", None)
                 if not oid and getattr(obj, "type", "") == "area_label":
                     oid = f"label_{getattr(obj, 'parent_id', '')}"
-                
+
                 if oid in old_pos_map:
                     old_pos = old_pos_map[oid]
                     new_pos = row.pos()
@@ -1880,7 +1888,13 @@ class LayerDockWidget(QWidget):
                         if not hasattr(self, "_active_animations"):
                             self._active_animations = []
                         self._active_animations.append(anim)
-                        anim.finished.connect(lambda a=anim: self._active_animations.remove(a) if a in self._active_animations else None)
+                        anim.finished.connect(
+                            lambda a=anim: (
+                                self._active_animations.remove(a)
+                                if a in self._active_animations
+                                else None
+                            )
+                        )
 
     def _sync_draw_design_panel_to_selection(self):
         """현재 그리기 탭에서 선택된 객체에 맞춰 그리기 디자인 패널을 갱신."""
