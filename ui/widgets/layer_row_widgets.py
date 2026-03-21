@@ -434,3 +434,5 @@ class _DrawListDropArea(QWidget):
         idx, after = self._dock._get_draw_drop_target_at_pos(pos)
         if idx is not None:
             self._dock._set_draw_drop_indicator_between(idx, after)
+        if idx is not None:
+            self._dock._set_draw_drop_indicator_between(idx, after)

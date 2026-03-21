@@ -25,6 +25,8 @@ from PySide6.QtCore import (
     Signal,
     QEvent,
     QObject,
+    QPropertyAnimation,
+    QEasingCurve,
 )
 from PySide6.QtGui import QFont, QFontMetrics
 
@@ -1410,6 +1412,13 @@ class LayerDockWidget(QWidget):
         최적화: 위젯 재사용 및 불필요한 레이아웃 갱신(구분선 위젯 생성 등)을 제거하여 드롭 시 렉을 없앱니다.
         """
         ordered_vowels = self._get_ordered_vowels_for_display(vowels)
+        
+        # 애니메이션을 위한 이전 위치 저장
+        old_pos_map = {}
+        for v, r in self._layer_rows.items():
+            if r.isVisible():
+                old_pos_map[v] = r.pos()
+
         self.setUpdatesEnabled(False)
         try:
             # 1. 기존 레이아웃에서 위젯들을 분리 (파괴하지 않음)
@@ -1460,6 +1469,26 @@ class LayerDockWidget(QWidget):
             self._rebuild_effects()
         finally:
             self.setUpdatesEnabled(True)
+
+        # 레이아웃 강제 활성화 후 애니메이션 실행
+        self._layer_list_layout.activate()
+        for v in ordered_vowels:
+            row = self._layer_rows.get(v)
+            if row and v in old_pos_map:
+                old_pos = old_pos_map[v]
+                new_pos = row.pos()
+                if old_pos != new_pos:
+                    anim = QPropertyAnimation(row, b"pos")
+                    anim.setDuration(300)
+                    anim.setStartValue(old_pos)
+                    anim.setEndValue(new_pos)
+                    anim.setEasingCurve(QEasingCurve.Type.OutCubic)
+                    anim.start(QPropertyAnimation.DeletionPolicy.DeleteWhenStopped)
+                    # 애니메이션 가비지 컬렉션 방지
+                    if not hasattr(self, "_active_animations"):
+                        self._active_animations = []
+                    self._active_animations.append(anim)
+                    anim.finished.connect(lambda a=anim: self._active_animations.remove(a) if a in self._active_animations else None)
 
     def set_compare_file_index(self, index):
         """compare 모드에서 어느 파일이 선택됐는지 동기화 (0=파일A, 1=파일B)."""
@@ -1732,6 +1761,12 @@ class LayerDockWidget(QWidget):
 
     def update_draw_layer_list(self, draw_objects):
         """그리기 탭 목록 최적화: 위젯 재사용 및 레이아웃 갱신 최소화."""
+        # 애니메이션을 위한 이전 위치 저장
+        old_pos_map = {}
+        for r in getattr(self, "_draw_layer_rows", []):
+            if r.isVisible() and hasattr(r, "object_id"):
+                old_pos_map[r.object_id] = r.pos()
+
         self.setUpdatesEnabled(False)
         try:
             old_rows = getattr(self, "_draw_layer_rows", [])
@@ -1766,6 +1801,11 @@ class LayerDockWidget(QWidget):
                     row = old_rows[i]
                     row.setProperty("drawIndex", i)
                     row.draw_index = i
+                    oid = getattr(obj, "id", None)
+                    if not oid and getattr(obj, "type", "") == "area_label":
+                        oid = f"label_{getattr(obj, 'parent_id', '')}"
+                    row.object_id = oid
+                    
                     is_selected = i in getattr(self, "_selected_draw_indices", set())
                     row.setProperty("selected", is_selected)
                     # 이름 등 최소한의 정보만 업데이트
@@ -1803,6 +1843,10 @@ class LayerDockWidget(QWidget):
                     row.style().polish(row)
                 else:
                     row = self._build_draw_layer_row(i, obj, draw_objects)
+                oid = getattr(obj, "id", None)
+                if not oid and getattr(obj, "type", "") == "area_label":
+                    oid = f"label_{getattr(obj, 'parent_id', '')}"
+                row.object_id = oid
 
                 self._draw_list_layout.addWidget(row)
                 row.show()
@@ -1811,6 +1855,32 @@ class LayerDockWidget(QWidget):
             self._rebuild_draw_effects()
         finally:
             self.setUpdatesEnabled(True)
+
+        # 애니메이션 실행 (기존 객체가 이동했을 때만)
+        self._draw_list_layout.activate()
+        for row in getattr(self, "_draw_layer_rows", []):
+            idx = getattr(row, "draw_index", -1)
+            if 0 <= idx < len(draw_objects):
+                obj = draw_objects[idx]
+                oid = getattr(obj, "id", None)
+                if not oid and getattr(obj, "type", "") == "area_label":
+                    oid = f"label_{getattr(obj, 'parent_id', '')}"
+                
+                if oid in old_pos_map:
+                    old_pos = old_pos_map[oid]
+                    new_pos = row.pos()
+                    if old_pos != new_pos:
+                        anim = QPropertyAnimation(row, b"pos")
+                        anim.setDuration(300)
+                        anim.setStartValue(old_pos)
+                        anim.setEndValue(new_pos)
+                        anim.setEasingCurve(QEasingCurve.Type.OutCubic)
+                        anim.start(QPropertyAnimation.DeletionPolicy.DeleteWhenStopped)
+                        # 가비지 컬렉션 방지
+                        if not hasattr(self, "_active_animations"):
+                            self._active_animations = []
+                        self._active_animations.append(anim)
+                        anim.finished.connect(lambda a=anim: self._active_animations.remove(a) if a in self._active_animations else None)
 
     def _sync_draw_design_panel_to_selection(self):
         """현재 그리기 탭에서 선택된 객체에 맞춰 그리기 디자인 패널을 갱신."""
