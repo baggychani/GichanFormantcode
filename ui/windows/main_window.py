@@ -207,7 +207,7 @@ class MainUI(QMainWindow):
             self.setWindowIcon(icon_utils.get_app_icon())
         except Exception as e:
             # 아이콘 로드 실패는 치명적이지 않으므로 디버그 로그만 남김
-            import app_logger
+            from utils import app_logger
 
             app_logger.debug(f"[_apply_window_icon] 아이콘 적용 중 예외 발생: {e}")
 

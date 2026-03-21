@@ -28,7 +28,7 @@ def warm_up(splash=None, context=None):
     import platform
     import datetime
     import config
-    import app_logger
+    from utils import app_logger
     from PySide6.QtWidgets import QApplication
 
     if context is None:

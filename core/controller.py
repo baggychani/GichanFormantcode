@@ -10,7 +10,7 @@ from PySide6.QtGui import QPixmap
 from matplotlib.figure import Figure
 
 import config
-import app_logger
+from utils import app_logger
 from ui.windows.main_window import MainUI
 from ui.dialogs.file_guide import DataGuidePopup
 from ui.windows.popup_plot import PlotPopup

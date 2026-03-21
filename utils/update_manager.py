@@ -6,7 +6,7 @@ from PySide6.QtCore import QObject, Signal, QUrl
 from PySide6.QtNetwork import QNetworkAccessManager, QNetworkRequest, QNetworkReply
 
 import config
-import app_logger
+from utils import app_logger
 
 
 class UpdateManager(QObject):

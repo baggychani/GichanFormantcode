@@ -38,7 +38,7 @@ from PySide6.QtGui import (
 from ui.widgets.canvas_fixed import FixedFigureCanvas
 
 import config
-import app_logger
+from utils import app_logger
 from ui.widgets.filter_panel import LiveVowelFilterPanel
 from ui.widgets.design_panel import DesignSettingsPanel, NoWheelComboBox
 from ui.widgets.icon_widgets import BidirectionalArrowButton

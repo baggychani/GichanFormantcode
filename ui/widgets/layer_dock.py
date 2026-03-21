@@ -31,7 +31,7 @@ from PySide6.QtCore import (
 from PySide6.QtGui import QFont, QFontMetrics
 
 import config
-import app_logger
+from utils import app_logger
 from ui.widgets.layer_logic import (
     apply_global_eye,
     apply_global_semi,

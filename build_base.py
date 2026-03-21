@@ -10,7 +10,7 @@ from PySide6.QtCore import Qt
 
 import matplotlib.colors as mcolors
 import config
-import app_logger
+from utils import app_logger
 from utils import icon_utils
 from draw import DrawMode
 from draw.draw_common import polygon_area, AreaLabelObject

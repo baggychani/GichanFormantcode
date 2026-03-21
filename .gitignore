@@ -243,3 +243,20 @@ logs/
 compile_*.txt
 
 # End of https://www.toptal.com/developers/gitignore/api/macos,python,windows
+# Database files
+*.db
+*.sqlite3
+
+# Build and packaging
+dist/
+build/
+*.spec
+
+# Python env
+.venv/
+venv/
+__pycache__/
+
+# Log files
+*.log
+logs/

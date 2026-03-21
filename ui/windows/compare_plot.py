@@ -48,7 +48,7 @@ from engine.plot_engine import PlotEngine
 from ui.widgets.tool_indicator import ToolStatusIndicator
 from utils import icon_utils
 import config
-import app_logger
+from utils import app_logger
 from ui.widgets.filter_panel import MultiVowelFilterPanel
 
 from ui.widgets.design_panel import CompareDesignSettingsPanel, NoWheelComboBox

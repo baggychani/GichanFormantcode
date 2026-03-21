@@ -19,7 +19,7 @@ import inspect
 
 from utils import icon_utils
 import config
-import app_logger
+from utils import app_logger
 
 
 class BatchSaveDialog(QDialog):
