@@ -91,7 +91,6 @@ class MainController:
         self._live_preview_timer.setSingleShot(True)
         self._live_preview_timer.timeout.connect(self._render_live_preview)
 
-        # UI 생성 및 컨트롤러 등록
         self.ui = MainUI(self, status_callback=status_callback)
         app_logger.set_ui(self.ui)
         # 작업표시줄 아이콘이 처음 실행 시 바로 뜨도록, 창 표시 전에 한 번 더 아이콘 적용
@@ -107,7 +106,11 @@ class MainController:
         app_logger.info(config.LOG_MSG["APP_START"].format(app_title=config.APP_TITLE))
 
     def _deferred_init_after_show(self):
-        """(현재는 __init__에서 동기화 처리하므로 필요 시 다른 지연 작업용으로 남겨둠)"""
+        """
+        메인 창이 화면에 완전히 표시된 후 수행할 지연 작업들을 처리합니다.
+        현재는 대부분의 초기화가 __init__에서 완료되므로, 향후 네트워크 체크나
+        복잡한 리소스 로딩이 필요할 경우를 위한 확장 포인트로 남겨둡니다.
+        """
         pass
 
     def _build_outlier_log_message(
@@ -140,7 +143,12 @@ class MainController:
         return None
 
     def on_outlier_mode_changed(self):
-        """이상치 제거 모드 변경: 원본 복원 또는 마할라노비스 기반 제거 적용 후 LIVE·플롯 반영"""
+        """
+        사용자가 이상치 제거 모드(None, 1σ, 2σ)를 변경했을 때의 처리를 담당합니다.
+        1. 변경된 모드에 따라 데이터 프로세서를 통해 이상치를 식별합니다.
+        2. 필터링된 데이터를 각 플롯 데이터 항목에 반영합니다.
+        3. 변경 결과를 로그로 출력하고 실시간 미리보기를 갱신합니다.
+        """
         outlier_mode = self.ui.get_outlier_mode()
         prev_outlier_mode = self.last_outlier_mode
         self.last_outlier_mode = outlier_mode
@@ -194,7 +202,10 @@ class MainController:
         self.update_live_preview()
 
     def _refresh_open_popups(self):
-        """열려 있는 단일/다중 플롯 창을 현재 데이터로 다시 그리기"""
+        """
+        현재 데이터 상태(이상치 제거, 정규화 등)에 맞춰 이미 열려 있는
+        모든 단일 플롯(PlotPopup) 및 비교 플롯(ComparePlotPopup) 창의 그래프를 다시 그립니다.
+        """
         for w in self.open_popups:
             if hasattr(w, "on_apply"):
                 try:
@@ -314,7 +325,10 @@ class MainController:
     # --- 데이터 관리 로직 ---
 
     def handle_file_drop(self, files):
-        """드롭된 파일 리스트 처리"""
+        """
+        사용자가 메인 창에 파일을 드롭했을 때의 진입점입니다.
+        전달받은 파일 경로 리스트를 내부 로드 프로세스로 연결합니다.
+        """
         self._process_new_files(files)
 
     def open_file_dialog(self):
@@ -324,8 +338,13 @@ class MainController:
 
     def add_files(self, filepaths):
         """
-        파일 경로 리스트를 받아 내부 상태(filepaths, plot_data_list)를 갱신하고,
-        결과 요약을 딕셔너리로 반환한다. UI 갱신은 하지 않는다.
+        새로운 데이터 파일들을 로드하고 내부 메모리(plot_data_list)에 추가합니다.
+
+        Args:
+            filepaths (list): 로드할 파일들의 절대 경로 리스트
+
+        Returns:
+            dict: 로드 성공 횟수, 실패 에러 정보, F3 가용 여부, 제외된 데이터 행 정보 등을 포함한 결과 요약
         """
         result = {
             "success_count": 0,
@@ -375,7 +394,10 @@ class MainController:
         return result
 
     def _apply_file_load_result_to_ui(self, result):
-        """add_files 결과를 로그/테이블/F3 토글/라이브 프리뷰에 반영한다."""
+        """
+        파일 로드 결과를 바탕으로 메인 UI(테이블, 로그, 필터 패널)를 갱신합니다.
+        로드된 파일의 통계 정보 및 누락된 데이터에 대한 안내를 수행합니다.
+        """
         if result["success_count"] > 0:
             app_logger.info(
                 config.LOG_MSG["FILE_LOAD_NEW_SUCCESS"].format(

@@ -60,16 +60,19 @@ class ClickClearFocusFilter(QObject):
         self._edits = set(edits)
 
     def eventFilter(self, obj, event):
-        if (
-            event.type() != QEvent.Type.MouseButtonPress
-            or event.button() != Qt.MouseButton.LeftButton
-        ):
-            return False
-        f = QApplication.focusWidget()
-        if not f or f not in self._edits:
-            return False
         try:
-            # obj가 QWindow일 수 있음 → isAncestorOf는 QWidget에만 사용
+            # Sentry 로그 분석 결과, 이벤트 객체가 이미 파괴된 상태(broken repr)로 들어올 수 있음
+            if (
+                event.type() != QEvent.Type.MouseButtonPress
+                or event.button() != Qt.MouseButton.LeftButton
+            ):
+                return False
+
+            f = QApplication.focusWidget()
+            if not f or f not in self._edits:
+                return False
+
+            # obj가 QWindow일 수 있으며, 이미 삭제된 경우 RuntimeError가 발생할 수 있음
             clicked_inside_edit = obj is f
             if (
                 not clicked_inside_edit
@@ -79,9 +82,12 @@ class ClickClearFocusFilter(QObject):
                 clicked_inside_edit = f.isAncestorOf(obj)
             if clicked_inside_edit:
                 return False
+
             same_window = False
             if isinstance(obj, QWidget) and hasattr(obj, "window"):
-                same_window = obj.window() is self._window
+                # window() 호출 시 이미 객체가 테이터되었는지 확인 필요
+                w = obj.window()
+                same_window = w is self._window
             else:
                 tw = f.window() if hasattr(f, "window") else None
                 if tw and hasattr(tw, "windowHandle") and tw.windowHandle() is obj:
@@ -89,7 +95,8 @@ class ClickClearFocusFilter(QObject):
             if same_window:
                 f.clearFocus()
                 self._analysis_tab.setFocus()
-        except (RuntimeError, TypeError):
+        except (RuntimeError, TypeError, AttributeError):
+            # C++ 객체 파괴 시 발생하는 에러를 무시하여 크래시 방지
             pass
         return False
 
@@ -358,22 +365,6 @@ class PlotPopup(BasePlotWindow):
 
         # 창을 닫을 때 메모리에서 즉시 해제되도록 설정 (Memory Leak 방지)
         self.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
-
-    def closeEvent(self, event):
-        """창이 닫힐 때 Matplotlib 자원을 명시적으로 해제합니다."""
-        try:
-            import matplotlib.pyplot as plt
-
-            if hasattr(self, "figure") and self.figure:
-                self.figure.clear()
-                plt.close(self.figure)
-                self.figure = None
-            if hasattr(self, "canvas") and self.canvas:
-                self.canvas.setParent(None)
-                self.canvas = None
-        except Exception as e:
-            app_logger.debug(f"[PlotPopup] 자원 해제 중 오류: {e}")
-        super().closeEvent(event)
 
     def set_initial_plot_state(
         self, fixed_plot_params, plot_data_snapshot, current_idx
@@ -1677,3 +1668,35 @@ class PlotPopup(BasePlotWindow):
             current_sigma,
         )
         dialog.exec()
+
+    def closeEvent(self, event):
+        """창 종료 시 전역 필터/툴 상태를 정리한 뒤 부모 종료 로직을 호출합니다."""
+        try:
+            if hasattr(self, "_click_clear_focus_filter"):
+                app = QApplication.instance()
+                if app is not None:
+                    app.removeEventFilter(self._click_clear_focus_filter)
+                self._click_clear_focus_filter = None
+        except Exception:
+            pass
+        try:
+            if hasattr(self, "controller") and self.controller:
+                if (
+                    hasattr(self.controller, "ruler_tool")
+                    and self.controller.ruler_tool.active
+                ):
+                    self.controller.toggle_ruler(self)
+        except Exception:
+            pass
+        try:
+            if getattr(self, "btn_draw", None) and self.btn_draw.isChecked():
+                self.btn_draw.setChecked(False)
+            self._draw_tool_deactivate()
+        except Exception:
+            pass
+        try:
+            if hasattr(self, "_design_timer") and self._design_timer is not None:
+                self._design_timer.stop()
+        except Exception:
+            pass
+        super().closeEvent(event)

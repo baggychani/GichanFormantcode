@@ -219,7 +219,24 @@ class PlotEngine:
         custom_label_offsets=None,
         layer_overrides=None,
     ):
-        """custom_label_offsets: optional dict vowel -> (dx_data, dy_data). layer_overrides: optional dict vowel -> design dict (레이어별 디자인 오버라이드)."""
+        """
+        단일 데이터 세트에 대한 모음 플롯을 생성합니다.
+
+        Args:
+            figure (matplotlib.figure.Figure): 그래프를 그릴 캔버스 객체
+            df (pd.DataFrame): 로드된 원본 데이터프레임
+            plot_params (dict): 플롯 타입, 축 스케일, 원점 위치 등의 파라미터
+            manual_ranges (dict, optional): 사용자 지정 축 범위
+            is_normalized (bool, optional): 정규화 데이터 여부
+            filter_state (dict, optional): 모음별 가시성 상태 (ON/OFF/SEMI)
+            design_settings (dict, optional): 폰트, 색상, 마커 등 디자인 설정
+            custom_label_offsets (dict, optional): 모음별 라벨 위치 오프셋
+            layer_overrides (dict, optional): 모음별 개별 디자인 오프셋
+
+        Returns:
+            tuple: (ax, snapping_data, label_data, label_text_artists)
+        """
+        ### [Phase 1] 초기화 및 전역 설정
         figure.clear()
         if (
             df is None
@@ -271,6 +288,7 @@ class PlotEngine:
         else:
             figure.subplots_adjust(left=0.20, bottom=0.12, right=0.92, top=0.88)
 
+        ### [Phase 2] 캔버스(Axes) 설정
         ax = figure.add_subplot(111)
         ax.set_box_aspect(1)
         ax.set_axisbelow(True)
@@ -278,6 +296,7 @@ class PlotEngine:
         if df.empty:
             return ax, [], [], []
 
+        ### [Phase 3] 데이터 전처리 및 축 범위 확정
         df_plot = self._prepare_plot_df(df, plot_params)
         plot_type = plot_params["type"]
         ranges = self._compute_axes_ranges(plot_type, use_bark_units, manual_ranges)
@@ -289,6 +308,7 @@ class PlotEngine:
         vowels = df_plot["Label"].unique()
         placed_labels = []
 
+        ### [Phase 4] 모음별 렌더링 루프 (데이터 포인트, 타원, 중심점, 라벨)
         for vowel in vowels:
             state = "ON"
             if filter_state and vowel in filter_state:
@@ -534,6 +554,7 @@ class PlotEngine:
                     }
                 )
 
+        ### [Phase 5] 축 틱(Tick) 및 리미트(Limit) 설정
         show_minor_ticks = design_settings.get("show_minor_ticks", True)
         self._set_ticks(
             ax,
@@ -575,6 +596,7 @@ class PlotEngine:
         ax.set_ylim(y_lim_start - y_eps, y_lim_end + y_eps)
         # ax.margins(0.05)
 
+        ### [Phase 6] 그리드 및 스파인(Spine) 스타일 적용
         if box_spines:
             for spine in ax.spines.values():
                 spine.set_visible(True)
@@ -602,6 +624,7 @@ class PlotEngine:
             ax.invert_xaxis()
             ax.invert_yaxis()
 
+        ### [Phase 7] 축 이름 및 단위 라벨링
         y_label_rotate = design_settings.get("y_label_rotation", False)
         show_axis_units = design_settings.get("show_axis_units", False)
         use_bark = plot_params.get("use_bark_units", False)
@@ -682,6 +705,25 @@ class PlotEngine:
         layer_overrides_blue=None,
         layer_overrides_red=None,
     ):
+        """
+        두 데이터 세트(기준/비교)를 하나의 플롯에 겹쳐서 그립니다.
+
+        Args:
+            figure (matplotlib.figure.Figure): 그래프를 그릴 캔버스 객체
+            df_blue (pd.DataFrame): 첫 번째 데이터 세트
+            df_red (pd.DataFrame): 두 번째 데이터 세트
+            plot_params (dict): 플롯 기본 파라미터
+            manual_ranges (dict, optional): 사용자 지정 축 범위
+            name_blue, name_red (str): 데이터 세트 이름 (범례 등에서 사용)
+            filter_state_blue, filter_state_red (dict): 데이터 세트별 가시성 필터
+            design_settings (dict): 통합 디자인 설정 (공통/기준/비교 설정 포함)
+            custom_label_offsets_blue, custom_label_offsets_red (dict): 라벨 위치 오프셋
+            layer_overrides_blue, layer_overrides_red (dict): 레이어별 디자인 오버라이드
+
+        Returns:
+            tuple: (ax, snapping_data, label_data_blue, label_data_red, label_text_artists_blue, label_text_artists_red)
+        """
+        ### [Phase 1] 초기화 및 전역 설정
         figure.clear()
 
         def _has_required(df):
@@ -733,6 +775,7 @@ class PlotEngine:
         else:
             figure.subplots_adjust(left=0.20, bottom=0.12, right=0.92, top=0.88)
 
+        ### [Phase 2] 캔버스(Axes) 설정
         ax = figure.add_subplot(111)
         ax.set_box_aspect(1)
         ax.set_axisbelow(True)
@@ -762,6 +805,7 @@ class PlotEngine:
             final_min_y, final_max_y = fallback["y_min"], fallback["y_max"]
             final_min_x, final_max_x = fallback["x_min"], fallback["x_max"]
 
+        ### [Phase 3] 축 범위 및 공통 데이터 바인딩
         layer_overrides_by_side = {
             "blue": layer_overrides_blue,
             "red": layer_overrides_red,
@@ -773,6 +817,7 @@ class PlotEngine:
 
         placed_labels = []
 
+        ### [Phase 4] 데이터 세트별(기준/비교) 렌더링 루프
         for df_curr, ds_type, file_name, curr_filter_state, cfg in datasets:
             if df_curr.empty:
                 continue
@@ -1129,6 +1174,7 @@ class PlotEngine:
         y_lim_start = get_lim(final_min_y, plot_params["f1_scale"], use_bark_units)
         y_lim_end = get_lim(final_max_y, plot_params["f1_scale"], use_bark_units)
 
+        ### [Phase 5] 축 틱(Tick), 리미트(Limit) 및 스타일 적용
         # 마진 추가 (Multi Plot)
         x_eps = 0.1 if plot_params.get("f2_scale") != "bark" else 0.01
         y_eps = 0.1 if plot_params.get("f1_scale") != "bark" else 0.001
@@ -1299,7 +1345,11 @@ class PlotEngine:
         layer_overrides_blue=None,
         layer_overrides_red=None,
     ):
-        """정규화된 F1 vs F2 비교 플롯. manual_ranges 있으면(Gerstman 제외) 해당 범위 사용."""
+        """
+        정규화된 F1 vs F2 비교 플롯을 생성합니다.
+        가시성 필터 및 레이어 디자인 오버라이드가 적용됩니다.
+        """
+        ### [Phase 1] 초기화 및 전역 설정
         figure.clear()
         if design_settings is None or "common" not in design_settings:
             design_settings = self._get_default_multi_design()
@@ -1346,6 +1396,7 @@ class PlotEngine:
             except (ValueError, TypeError):
                 pass
         # 정규화 비교에서도 세로 중심이 유지되도록 위/아래 여백을 대칭에 가깝게 설정 (상하좌우 +0.02)
+        ### [Phase 2] 캔버스(Axes) 및 축 리미트 설정
         figure.subplots_adjust(left=0.22, right=0.91, bottom=0.12, top=0.88)
         ax = figure.add_subplot(111)
         ax.set_box_aspect(1)
@@ -1358,6 +1409,8 @@ class PlotEngine:
         ax.invert_yaxis()
         ax.xaxis.tick_bottom()
         ax.yaxis.tick_left()
+
+        ### [Phase 3] 축 이름 및 레이블 스타일 설정
         y_label_rotate = common.get("y_label_rotation", False)
         ax.set_xlabel(
             "nF2", fontsize=16, labelpad=13, fontweight="normal", fontfamily=axis_font
@@ -1430,6 +1483,7 @@ class PlotEngine:
         label_text_artists_red = []
         placed_labels = []
 
+        ### [Phase 4] 데이터 세트별(기준/비교) 렌더링 루프
         for df_curr, ds_type, file_name, curr_filter_state, cfg in [
             (df_blue, "blue", name_blue, filter_state_blue or {}, blue_cfg),
             (df_red, "red", name_red, filter_state_red or {}, red_cfg),

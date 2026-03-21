@@ -292,14 +292,21 @@ class LabelMoveTool:
 
     def detach(self):
         if self.canvas:
-            if self.cid_press:
-                self.canvas.mpl_disconnect(self.cid_press)
-            if self.cid_motion:
-                self.canvas.mpl_disconnect(self.cid_motion)
-            if self.cid_release:
-                self.canvas.mpl_disconnect(self.cid_release)
+            try:
+                if self.cid_press:
+                    self.canvas.mpl_disconnect(self.cid_press)
+                if self.cid_motion:
+                    self.canvas.mpl_disconnect(self.cid_motion)
+                if self.cid_release:
+                    self.canvas.mpl_disconnect(self.cid_release)
+            except (RuntimeError, AttributeError, TypeError, ReferenceError):
+                # Qt C++ 객체가 이미 파괴된 경우 종료 중 예외를 무시
+                pass
             if self.cursor_changed:
-                self.canvas.unsetCursor()
+                try:
+                    self.canvas.unsetCursor()
+                except (RuntimeError, AttributeError, TypeError, ReferenceError):
+                    pass
                 self.cursor_changed = False
         self.cid_press = self.cid_motion = self.cid_release = None
         self.dragging = None

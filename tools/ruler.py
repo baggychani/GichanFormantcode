@@ -160,17 +160,24 @@ class RulerTool:
 
     def detach(self):
         if self.canvas:
-            if self.cid_click:
-                self.canvas.mpl_disconnect(self.cid_click)
-            if self.cid_move:
-                self.canvas.mpl_disconnect(self.cid_move)
-            if self.cid_key:
-                self.canvas.mpl_disconnect(self.cid_key)
-            if self.cid_release:
-                self.canvas.mpl_disconnect(self.cid_release)
+            try:
+                if self.cid_click:
+                    self.canvas.mpl_disconnect(self.cid_click)
+                if self.cid_move:
+                    self.canvas.mpl_disconnect(self.cid_move)
+                if self.cid_key:
+                    self.canvas.mpl_disconnect(self.cid_key)
+                if self.cid_release:
+                    self.canvas.mpl_disconnect(self.cid_release)
+            except (RuntimeError, AttributeError, TypeError, ReferenceError):
+                # Qt C++ 객체가 이미 파괴된 경우 종료 중 예외를 무시
+                pass
 
             if self.cursor_changed:
-                self.canvas.unsetCursor()
+                try:
+                    self.canvas.unsetCursor()
+                except (RuntimeError, AttributeError, TypeError, ReferenceError):
+                    pass
                 self.cursor_changed = False
 
         self.cid_click = self.cid_move = self.cid_key = self.cid_release = None
