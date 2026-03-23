@@ -659,6 +659,30 @@ class LayerDockWidget(QWidget):
                 return r
         return None
 
+    def _is_main_draw_object(self, obj: object) -> bool:
+        return getattr(obj, "type", "") != "area_label"
+
+    def _get_main_draw_indices(
+        self, draw_objects: list[object] | None = None
+    ) -> list[int]:
+        objs = (
+            draw_objects
+            if draw_objects is not None
+            else self.draw_manager.get_draw_objects()
+        )
+        if not objs:
+            return []
+        return [i for i, o in enumerate(objs) if self._is_main_draw_object(o)]
+
+    def _get_visible_draw_indices(self) -> list[int]:
+        rows = getattr(self, "_draw_layer_rows", None) or []
+        indices: list[int] = []
+        for r in rows:
+            idx = getattr(r, "draw_index", None)
+            if isinstance(idx, int) and idx >= 0:
+                indices.append(idx)
+        return indices
+
     def _sync_draw_row_controls(self, draw_index: int, obj: object):
         row = self._get_draw_row_by_index(draw_index)
         if row is None:
@@ -848,14 +872,18 @@ class LayerDockWidget(QWidget):
             objs = self.draw_manager.get_draw_objects()
             if not rows or not objs:
                 return
-            n = min(len(objs), len(rows))
-            all_off = all(not getattr(objs[i], "visible", True) for i in range(n))
+            draw_indices = self._get_visible_draw_indices()
+            if not draw_indices:
+                return
+            all_off = all(not getattr(objs[i], "visible", True) for i in draw_indices)
             # all_off == True  → 모두 꺼져 있었으므로 이번엔 모두 켜기(True)
             # all_off == False → 하나라도 켜져 있었으므로 이번엔 모두 끄기(False)
-            for i in range(n):
+            for i in draw_indices:
                 objs[i].visible = all_off
-            for i in range(n):
-                r = rows[i]
+            for r in rows:
+                i = getattr(r, "draw_index", None)
+                if i is None or not (0 <= i < len(objs)):
+                    continue
                 if hasattr(r, "eye_btn"):
                     r.eye_btn.blockSignals(True)
                     r.eye_btn.setChecked(objs[i].visible)
@@ -869,12 +897,16 @@ class LayerDockWidget(QWidget):
             objs = self.draw_manager.get_draw_objects()
             if not rows or not objs:
                 return
-            n = min(len(objs), len(rows))
-            all_semi = all(getattr(objs[i], "semi", False) for i in range(n))
-            for i in range(n):
+            draw_indices = self._get_visible_draw_indices()
+            if not draw_indices:
+                return
+            all_semi = all(getattr(objs[i], "semi", False) for i in draw_indices)
+            for i in draw_indices:
                 objs[i].semi = not all_semi
-            for i in range(n):
-                r = rows[i]
+            for r in rows:
+                i = getattr(r, "draw_index", None)
+                if i is None or not (0 <= i < len(objs)):
+                    continue
                 if hasattr(r, "semi_btn"):
                     r.semi_btn.blockSignals(True)
                     r.semi_btn.setChecked(objs[i].semi)
@@ -891,7 +923,7 @@ class LayerDockWidget(QWidget):
 
     def _build_draw_layer_row(self, draw_index, obj, draw_objects):
         """그리기 레이어 한 행. 라벨 행과 동일 구조: 눈(32), 반투명(54), 이름, X(삭제)(32), 잠금(32).
-        draw_index: draw_objects 상의 인덱스. area_label도 행으로 만들고, 이름에 ↳를 붙이고 expand_btn을 숨김."""
+        draw_index: draw_objects 상의 인덱스."""
         row = _DrawLayerRowFrame(self, draw_index)
         row.setProperty("drawRow", True)
         row.setProperty("drawIndex", draw_index)
@@ -973,7 +1005,6 @@ class LayerDockWidget(QWidget):
             draw_index in getattr(self, "_selected_draw_indices", set())
         )
 
-        is_area_label = getattr(obj, "type", "") == "area_label"
         expand_btn = QPushButton("▶")
         expand_btn.setFixedSize(22, 22)
         expand_btn.setCheckable(True)
@@ -983,11 +1014,8 @@ class LayerDockWidget(QWidget):
             "QPushButton { border: none; background: transparent; color: #909399; font-size: 10px; } "
             "QPushButton:hover { color: #409EFF; }"
         )
-        if is_area_label:
-            expand_btn.setVisible(False)
-        else:
-            # 세부 설정 유무에 따라 _rebuild_draw_effects에서 결정될 것이므로 일단 숨김
-            expand_btn.setVisible(False)
+        # 세부 설정 유무에 따라 _rebuild_draw_effects에서 결정될 것이므로 일단 숨김
+        expand_btn.setVisible(False)
 
         name_layout.addWidget(name_btn, 1)
         name_layout.addWidget(expand_btn)
@@ -1034,13 +1062,15 @@ class LayerDockWidget(QWidget):
         effects_container.setVisible(False)  # 초기에는 접힌 상태로 설정
         row_vbox.addWidget(effects_container)
 
-        idx = draw_index
-
         def on_eye_toggled(checked):
-            self.draw_item_state_changed.emit(idx, "visible", bool(checked))
+            idx = getattr(row, "draw_index", -1)
+            if idx >= 0:
+                self.draw_item_state_changed.emit(idx, "visible", bool(checked))
 
         def on_semi_toggled(checked):
-            self.draw_item_state_changed.emit(idx, "semi", bool(checked))
+            idx = getattr(row, "draw_index", -1)
+            if idx >= 0:
+                self.draw_item_state_changed.emit(idx, "semi", bool(checked))
 
         def on_name_clicked(arg=None):
             self._last_modifier = self._get_modifiers_from_arg(arg)
@@ -1051,15 +1081,21 @@ class LayerDockWidget(QWidget):
                     r.name_btn.setChecked(False)
                 r.style().unpolish(r)
                 r.style().polish(r)
-            self._toggle_select_draw_index(draw_index, name_btn)
+            idx = getattr(row, "draw_index", -1)
+            if idx >= 0:
+                self._toggle_select_draw_index(idx, name_btn)
             self._sync_draw_design_panel_to_selection()
 
         def on_x_clicked():
-            self._selected_draw_indices = {idx}
-            self._on_draw_delete()
+            idx = getattr(row, "draw_index", -1)
+            if idx >= 0:
+                self._selected_draw_indices = {idx}
+                self._on_draw_delete()
 
         def on_lock_toggled(checked):
-            self.draw_item_state_changed.emit(idx, "locked", bool(checked))
+            idx = getattr(row, "draw_index", -1)
+            if idx >= 0:
+                self.draw_item_state_changed.emit(idx, "locked", bool(checked))
 
         row._click_forwarder = _RowClickForwarder(on_name_clicked, col_name)
         col_name.installEventFilter(row._click_forwarder)
@@ -1095,6 +1131,7 @@ class LayerDockWidget(QWidget):
         row.effects_container = effects_container
         row.effects_layout = effects_layout
         row.draw_index = draw_index
+        row._draw_index = draw_index
         return row
 
     def _update_global_row_state(self):
@@ -1223,9 +1260,8 @@ class LayerDockWidget(QWidget):
         objs = self.draw_manager.get_draw_objects()
         if 0 <= draw_index < len(objs):
             self._draw_drop_target = (draw_index, after)
-            rows = getattr(self, "_draw_layer_rows", None) or []
-            if 0 <= draw_index < len(rows) and hasattr(self, "_draw_drop_indicator"):
-                row = rows[draw_index]
+            row = self._get_draw_row_by_index(draw_index)
+            if row is not None and hasattr(self, "_draw_drop_indicator"):
                 rect = row.geometry()
                 y = rect.bottom() if after else rect.top()
                 self._draw_drop_indicator.setGeometry(
@@ -1263,66 +1299,78 @@ class LayerDockWidget(QWidget):
         objs = self.draw_manager.get_draw_objects()
         if not objs or target_index is None:
             return
+        if not (0 <= target_index < len(objs)):
+            return
+        if not self._is_main_draw_object(objs[target_index]):
+            return
         selected_obj_ids = {
             id(objs[i])
             for i in getattr(self, "_selected_draw_indices", set())
-            if 0 <= i < len(objs)
+            if 0 <= i < len(objs) and self._is_main_draw_object(objs[i])
         }
         anchor_idx = getattr(self, "_anchor_draw_index", None)
         anchor_obj_id = (
             id(objs[anchor_idx])
-            if anchor_idx is not None and 0 <= anchor_idx < len(objs)
+            if (
+                anchor_idx is not None
+                and 0 <= anchor_idx < len(objs)
+                and self._is_main_draw_object(objs[anchor_idx])
+            )
             else None
         )
-        dragged_list = [objs[i] for i in sorted(dragged_indices) if 0 <= i < len(objs)]
-        drop_target = objs[target_index]
-        new_order = compute_order_after_drop(objs, dragged_list, drop_target, after)
-        if new_order is None:
+        main_objs = [o for o in objs if self._is_main_draw_object(o)]
+        dragged_list = [
+            objs[i]
+            for i in sorted(set(dragged_indices))
+            if 0 <= i < len(objs) and self._is_main_draw_object(objs[i])
+        ]
+        if not dragged_list:
             return
+        drop_target = objs[target_index]
+        new_main_order = compute_order_after_drop(
+            main_objs, dragged_list, drop_target, after
+        )
+        if new_main_order is None:
+            return
+        reordered = rebuild_area_labels_for_polygons(new_main_order)
+        if reordered is None:
+            reordered = new_main_order
 
-        # 부모-자식(PolygonObject - AreaLabelObject) 인접 유지: 부모 이동 시 자식도 바로 뒤에 붙여서 함께 이동
-        # 1) 부모 폴리곤 id → [자식 area_label 리스트] 맵 구성
-        polygon_ids = {
-            getattr(o, "id", None)
-            for o in new_order
-            if getattr(o, "type", "") == "polygon"
-        }
-        child_by_parent = {}
-        for o in new_order:
-            if getattr(o, "type", "") == "area_label":
-                pid = getattr(o, "parent_id", None)
-                if pid in polygon_ids:
-                    child_by_parent.setdefault(pid, []).append(o)
-        # 2) 부모를 순회하면서 부모 바로 뒤에 자식을 붙이는 새 리스트 구성
-        reordered: list = []
-        for o in new_order:
-            if getattr(o, "type", "") == "area_label":
-                # 부모에서 이미 붙일 것이므로 여기서는 건너뜀
-                continue
-            reordered.append(o)
-            if getattr(o, "type", "") == "polygon":
-                pid = getattr(o, "id", None)
-                if pid in child_by_parent:
-                    reordered.extend(child_by_parent[pid])
-
-        # 선택/앵커를 "인덱스"가 아닌 "객체" 기준으로 재매핑하여 재정렬 후에도 유지한다.
+        # 선택/앵커를 "객체" 기준으로 재매핑하여 재정렬 후에도 유지한다.
         if selected_obj_ids:
             self._selected_draw_indices = {
-                i for i, o in enumerate(reordered) if id(o) in selected_obj_ids
+                i
+                for i, o in enumerate(reordered)
+                if self._is_main_draw_object(o) and id(o) in selected_obj_ids
             }
         else:
             self._selected_draw_indices = set()
         if anchor_obj_id is not None:
             self._anchor_draw_index = next(
-                (i for i, o in enumerate(reordered) if id(o) == anchor_obj_id), None
+                (
+                    i
+                    for i, o in enumerate(reordered)
+                    if self._is_main_draw_object(o) and id(o) == anchor_obj_id
+                ),
+                None,
             )
+        elif self._selected_draw_indices:
+            self._anchor_draw_index = min(self._selected_draw_indices)
+        else:
+            self._anchor_draw_index = None
 
         self.draw_manager.set_draw_objects(reordered)
         self._hide_draw_drop_indicator()
         self.draw_manager.redraw()
         self.update_draw_layer_list(reordered)
+        return
 
     def _toggle_select_draw_index(self, draw_index, name_btn):
+        if draw_index is None or draw_index < 0:
+            return
+        objs = self.draw_manager.get_draw_objects()
+        if draw_index >= len(objs) or not self._is_main_draw_object(objs[draw_index]):
+            return
         mod = getattr(self, "_last_modifier", None)
         if mod == Qt.KeyboardModifier.ControlModifier:
             if draw_index in self._selected_draw_indices:
@@ -1331,16 +1379,31 @@ class LayerDockWidget(QWidget):
                 self._selected_draw_indices.add(draw_index)
         elif mod == Qt.KeyboardModifier.ShiftModifier:
             anchor = getattr(self, "_anchor_draw_index", None)
-            if anchor is None:
+            visible_indices = self._get_visible_draw_indices()
+            if draw_index not in visible_indices:
+                visible_indices.append(draw_index)
+            if anchor not in visible_indices:
                 anchor = draw_index
-            start, end = min(anchor, draw_index), max(anchor, draw_index)
-            self._selected_draw_indices = set(range(start, end + 1))
+            a_pos = visible_indices.index(anchor)
+            b_pos = visible_indices.index(draw_index)
+            start, end = (a_pos, b_pos) if a_pos <= b_pos else (b_pos, a_pos)
+            self._selected_draw_indices = set(visible_indices[start : end + 1])
         else:
             if self._selected_draw_indices == {draw_index}:
                 self._selected_draw_indices = set()
             else:
                 self._selected_draw_indices = {draw_index}
                 self._anchor_draw_index = draw_index
+        valid_main_indices = set(self._get_main_draw_indices(objs))
+        self._selected_draw_indices = {
+            i for i in self._selected_draw_indices if i in valid_main_indices
+        }
+        if self._anchor_draw_index not in valid_main_indices:
+            self._anchor_draw_index = (
+                min(self._selected_draw_indices)
+                if self._selected_draw_indices
+                else None
+            )
         self._last_modifier = None
         rows = getattr(self, "_draw_layer_rows", None) or []
         for r in rows:
@@ -1363,33 +1426,29 @@ class LayerDockWidget(QWidget):
         objs = self.draw_manager.get_draw_objects()
         if not objs:
             return
-        to_remove = sorted(self._selected_draw_indices, reverse=True)
-        if not to_remove:
+        main_indices = self._get_main_draw_indices(objs)
+        if not main_indices:
             return
-        removed_parent_ids = {
-            getattr(objs[i], "id", None)
-            for i in to_remove
-            if 0 <= i < len(objs) and getattr(objs[i], "type", "") == "polygon"
-        }
-        removed_parent_ids.discard(None)
-        min_idx = min(to_remove)
-        for i in to_remove:
-            if 0 <= i < len(objs):
-                objs.pop(i)
-        new_list = [
-            o
-            for o in objs
-            if not (
-                getattr(o, "type", "") == "area_label"
-                and getattr(o, "parent_id", None) in removed_parent_ids
-            )
-        ]
+        selected_set = set(getattr(self, "_selected_draw_indices", set()))
+        to_remove_main = [i for i in main_indices if i in selected_set]
+        if not to_remove_main:
+            return
+        removed_main_pos = [p for p, i in enumerate(main_indices) if i in selected_set]
+        min_main_pos = min(removed_main_pos) if removed_main_pos else 0
+        kept_main = [objs[i] for i in main_indices if i not in selected_set]
+        new_list = rebuild_area_labels_for_polygons(kept_main)
+        if new_list is None:
+            new_list = kept_main
         self.draw_manager.set_draw_objects(new_list)
-        if new_list:
-            new_idx = min(min_idx, len(new_list) - 1)
+        new_main_indices = self._get_main_draw_indices(new_list)
+        if new_main_indices:
+            new_pos = min(min_main_pos, len(new_main_indices) - 1)
+            new_idx = new_main_indices[new_pos]
             self._selected_draw_indices = {new_idx}
+            self._anchor_draw_index = new_idx
         else:
             self._selected_draw_indices = set()
+            self._anchor_draw_index = None
         self.draw_manager.redraw()
         self.update_draw_layer_list(new_list)
         self._draw_list_placeholder.setFocus(Qt.FocusReason.OtherFocusReason)
@@ -1399,8 +1458,11 @@ class LayerDockWidget(QWidget):
         row = getattr(self, "_draw_global_row", None)
         if row is None or not objs:
             return
-        any_visible = any(getattr(o, "visible", True) for o in objs)
-        all_semi = all(getattr(o, "semi", False) for o in objs)
+        main_objs = [o for o in objs if self._is_main_draw_object(o)]
+        if not main_objs:
+            return
+        any_visible = any(getattr(o, "visible", True) for o in main_objs)
+        all_semi = all(getattr(o, "semi", False) for o in main_objs)
         row.eye_btn.blockSignals(True)
         row.semi_btn.blockSignals(True)
         row.eye_btn.setChecked(any_visible)
@@ -1768,7 +1830,7 @@ class LayerDockWidget(QWidget):
             self._sync_design_controls_to_selection()
 
     def update_draw_layer_list(self, draw_objects):
-        """그리기 탭 목록 최적화: 위젯 재사용 및 레이아웃 갱신 최소화."""
+        """그리기 탭 목록 갱신: area_label은 제외하고 메인 객체만 행으로 표시."""
         # 애니메이션을 위한 이전 위치 저장
         old_pos_map = {}
         for r in getattr(self, "_draw_layer_rows", []):
@@ -1789,12 +1851,19 @@ class LayerDockWidget(QWidget):
                     ):
                         w.deleteLater()
 
-            if not draw_objects:
+            main_entries = [
+                (i, obj)
+                for i, obj in enumerate(draw_objects or [])
+                if self._is_main_draw_object(obj)
+            ]
+            if not main_entries:
                 if getattr(self, "_draw_global_row", None) is not None:
                     self._draw_global_row.hide()
                     self._draw_global_row.deleteLater()
                     self._draw_global_row = None
                 self._draw_layer_rows = []
+                self._selected_draw_indices = set()
+                self._anchor_draw_index = None
                 return
 
             if getattr(self, "_draw_global_row", None) is None:
@@ -1802,21 +1871,45 @@ class LayerDockWidget(QWidget):
             self._draw_list_layout.addWidget(self._draw_global_row)
             self._draw_global_row.show()
 
+            # 기존 선택/앵커를 객체 기준으로 보존한 뒤, 메인 객체 인덱스로 재매핑한다.
+            prev_selected_obj_ids = {
+                id(draw_objects[i])
+                for i in getattr(self, "_selected_draw_indices", set())
+                if 0 <= i < len(draw_objects)
+                and self._is_main_draw_object(draw_objects[i])
+            }
+            prev_anchor_obj_id = None
+            prev_anchor_idx = getattr(self, "_anchor_draw_index", None)
+            if (
+                prev_anchor_idx is not None
+                and 0 <= prev_anchor_idx < len(draw_objects)
+                and self._is_main_draw_object(draw_objects[prev_anchor_idx])
+            ):
+                prev_anchor_obj_id = id(draw_objects[prev_anchor_idx])
+            remapped_selected = {
+                i
+                for i, o in enumerate(draw_objects)
+                if self._is_main_draw_object(o) and id(o) in prev_selected_obj_ids
+            }
+            self._selected_draw_indices = set(remapped_selected)
+
+            old_rows_by_oid = {}
+            for row in old_rows:
+                oid = getattr(row, "object_id", None)
+                if oid:
+                    old_rows_by_oid[oid] = row
+
             self._draw_layer_rows = []
-            for i, obj in enumerate(draw_objects):
-                # 기존 위젯이 있다면 재사용 (단순 인덱스 기반 매칭)
-                if i < len(old_rows):
-                    row = old_rows[i]
+            for i, obj in main_entries:
+                oid = getattr(obj, "id", None) or f"obj_{id(obj)}"
+                row = old_rows_by_oid.pop(oid, None)
+                if row is not None:
                     row.setProperty("drawIndex", i)
                     row.draw_index = i
-                    oid = getattr(obj, "id", None)
-                    if not oid and getattr(obj, "type", "") == "area_label":
-                        oid = f"label_{getattr(obj, 'parent_id', '')}"
+                    row._draw_index = i
                     row.object_id = oid
-
                     is_selected = i in getattr(self, "_selected_draw_indices", set())
                     row.setProperty("selected", is_selected)
-                    # 이름 등 최소한의 정보만 업데이트
                     if hasattr(row, "name_btn"):
                         full_name = _draw_object_display_name(
                             draw_objects,
@@ -1826,12 +1919,9 @@ class LayerDockWidget(QWidget):
                                 getattr(self.popup, "fixed_plot_params", None) or {}
                             ).get("normalization"),
                         )
-                        prefix = (
-                            "  ↳ " if getattr(obj, "type", "") == "area_label" else ""
-                        )
                         row.name_btn.setText(
                             QFontMetrics(row.name_btn.font()).elidedText(
-                                prefix + full_name, Qt.TextElideMode.ElideRight, 200
+                                full_name, Qt.TextElideMode.ElideRight, 200
                             )
                         )
                         row.name_btn.setChecked(is_selected)
@@ -1851,14 +1941,29 @@ class LayerDockWidget(QWidget):
                     row.style().polish(row)
                 else:
                     row = self._build_draw_layer_row(i, obj, draw_objects)
-                oid = getattr(obj, "id", None)
-                if not oid and getattr(obj, "type", "") == "area_label":
-                    oid = f"label_{getattr(obj, 'parent_id', '')}"
                 row.object_id = oid
-
                 self._draw_list_layout.addWidget(row)
                 row.show()
                 self._draw_layer_rows.append(row)
+
+            # 사용되지 않은 이전 행 제거
+            for stale_row in old_rows_by_oid.values():
+                stale_row.hide()
+                stale_row.deleteLater()
+
+            if prev_anchor_obj_id is not None:
+                self._anchor_draw_index = next(
+                    (
+                        i
+                        for i, o in enumerate(draw_objects)
+                        if self._is_main_draw_object(o) and id(o) == prev_anchor_obj_id
+                    ),
+                    None,
+                )
+            elif self._selected_draw_indices:
+                self._anchor_draw_index = min(self._selected_draw_indices)
+            else:
+                self._anchor_draw_index = None
 
             self._rebuild_draw_effects()
         finally:
@@ -1870,9 +1975,7 @@ class LayerDockWidget(QWidget):
             idx = getattr(row, "draw_index", -1)
             if 0 <= idx < len(draw_objects):
                 obj = draw_objects[idx]
-                oid = getattr(obj, "id", None)
-                if not oid and getattr(obj, "type", "") == "area_label":
-                    oid = f"label_{getattr(obj, 'parent_id', '')}"
+                oid = getattr(obj, "id", None) or f"obj_{id(obj)}"
 
                 if oid in old_pos_map:
                     old_pos = old_pos_map[oid]

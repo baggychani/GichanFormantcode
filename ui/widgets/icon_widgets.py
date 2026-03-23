@@ -15,6 +15,8 @@ from PySide6.QtGui import (
     QPainterPath,
     QCursor,
 )
+import os
+import config
 
 
 def create_font_style_icon(is_serif=False):
@@ -963,7 +965,22 @@ class ShortcutButton(QPushButton):
     def __init__(self, icon_path, text, parent=None):
         super().__init__(text, parent)
         self.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-        self._icon_pixmap = QIcon(icon_path).pixmap(QSize(28, 28))
+
+        # PyInstaller 빌드 환경 대응을 위해 경로 보정
+        if not os.path.isabs(icon_path):
+            # "assets/"로 시작하면 제거 (config.ASSETS_DIR가 이미 /assets를 포함할 수 있으므로 중복 방지)
+            if icon_path.startswith("assets/"):
+                relative_path = icon_path[len("assets/") :]
+            elif icon_path.startswith("assets\\"):
+                relative_path = icon_path[len("assets\\") :]
+            else:
+                relative_path = icon_path
+
+            resolved_path = os.path.join(config.ASSETS_DIR, relative_path)
+        else:
+            resolved_path = icon_path
+
+        self._icon_pixmap = QIcon(resolved_path).pixmap(QSize(28, 28))
 
     def paintEvent(self, event):
         # 1. Qt가 버튼의 배경, 테두리, 그리고 네이티브 "텍스트"를 그리도록 함

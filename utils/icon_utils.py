@@ -4,6 +4,7 @@ import base64
 import math
 import os
 import tempfile
+import config
 from PySide6.QtGui import QIcon, QPixmap, QPainter, QPen, QColor, QPainterPath, QBrush
 from PySide6.QtCore import Qt, QPointF, QRectF
 
@@ -19,8 +20,8 @@ def get_icon_path():
     1. 현재 작업 디렉토리의 icon.ico가 있으면 그 경로를 반환합니다.
     2. 없으면 Base64 데이터를 임시 파일로 저장하고 그 경로를 반환합니다.
     """
-    # 1. 물리 파일 우선 확인 (실행 파일 위치 또는 작업 디렉토리)
-    project_icon = os.path.join(os.getcwd(), "icon.ico")
+    # 1. 물리 파일 우선 확인 (실행 파일 위치 또는 프로젝트 폴더)
+    project_icon = os.path.join(config.ROOT_DIR, "icon.ico")
     if os.path.exists(project_icon):
         return project_icon
 

@@ -83,7 +83,7 @@ def warm_up(splash=None, context=None):
     _update_msg("Verifying App Resources...")
     important_files = [
         os.path.join(config.ASSETS_DIR, "GichanFormant_SplashScreen.jpg"),
-        "icon.ico",
+        os.path.join(config.ROOT_DIR, "icon.ico"),
     ]
     for f in important_files:
         if not os.path.exists(f):

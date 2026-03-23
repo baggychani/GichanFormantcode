@@ -1337,15 +1337,25 @@ class PlotPopup(BasePlotWindow):
         return None
 
     def _is_area_label_focused(self, obj):
-        """해당 넓이 텍스트 레이어가 레이어 도크에서 포커스(단일 선택)되어 있을 때만 True."""
-        idx = self._area_label_draw_index(obj)
-        if idx is None:
+        """부모 영역(polygon) 레이어가 도크에서 단일 선택일 때만 True."""
+        parent_id = getattr(obj, "parent_id", None)
+        if not parent_id:
             return False
+        objs = self._get_current_draw_objects()
         dock = getattr(self, "_layer_dock_content", None)
         if not dock:
             return False
         sel = getattr(dock, "_selected_draw_indices", set())
-        return len(sel) == 1 and idx in sel
+        if len(sel) != 1:
+            return False
+        sel_idx = next(iter(sel))
+        if not (0 <= sel_idx < len(objs)):
+            return False
+        sel_obj = objs[sel_idx]
+        return (
+            getattr(sel_obj, "type", "") == "polygon"
+            and getattr(sel_obj, "id", None) == parent_id
+        )
 
     def _area_label_reset_to_centroid(self, obj):
         """넓이 텍스트를 부모 폴리곤 무게중심으로 되돌린 뒤 화면·레이어 목록 갱신."""

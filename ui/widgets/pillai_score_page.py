@@ -396,6 +396,7 @@ class PillaiScorePage(QWidget):
         self.multi_table.verticalHeader().setVisible(False)
         self.multi_table.setEditTriggers(QTableWidget.EditTrigger.NoEditTriggers)
         self.multi_table.setAlternatingRowColors(True)
+        self.multi_table.setSelectionMode(QTableWidget.SelectionMode.NoSelection)
         self.multi_table.setFocusPolicy(Qt.FocusPolicy.NoFocus)  # Focus Rect 제거
         self.multi_table.setCurrentCell(-1, -1)  # 초기 포커스 셀 제거
         self.multi_table.setShowGrid(True)
@@ -412,7 +413,6 @@ class PillaiScorePage(QWidget):
             }}
             QTableWidget::item:hover, QTableWidget::item:selected {{ 
                 background-color: #F5F9FF; 
-                color: #303133; 
             }} 
             {MODERN_SCROLLBAR_STYLE}
         """)
