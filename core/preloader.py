@@ -112,7 +112,8 @@ def warm_up(splash=None, context=None):
     # 3. 오래된 로그 정리 (7일 이상 경과)
     _update_msg("Cleaning Up Old Logs...")
     try:
-        log_dir = config.LOGS_DIR
+        from utils import logger_setup
+        log_dir = logger_setup.get_log_dir()
         if os.path.isdir(log_dir):
             now = datetime.datetime.now()
             retention_days = 7

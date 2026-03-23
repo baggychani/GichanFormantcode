@@ -11,25 +11,34 @@ import platform
 from logging.handlers import TimedRotatingFileHandler
 
 
+def get_log_dir():
+    """
+    애플리케이션이 로그를 저장할 안전한 디렉터리 경로를 반환합니다.
+    - Windows: AppData\Local\GichanFormant\logs
+    - 기타: 현재 작업 디렉터리의 logs
+    """
+    if platform.system() == "Windows":
+        # Windows의 경우 권한이 보장된 로컬 앱 데이터 폴더 사용
+        local_app_data = os.environ.get("LOCALAPPDATA")
+        if local_app_data:
+            return os.path.join(local_app_data, "GichanFormant", "logs")
+        else:
+            # 최악의 경우 절대 경로로 현재 폴더의 logs
+            return os.path.join(os.getcwd(), "logs")
+    else:
+        # 타 OS는 현재 폴더 logs 사용
+        return os.path.join(os.getcwd(), "logs")
+
+
 def setup_logging(log_dir=None):
     """
     애플리케이션 전역 로거를 초기화합니다.
-    - log_dir이 제공되지 않으면 Windows에서는 AppData\Local\GichanFormant\logs를 사용합니다.
+    - log_dir이 제공되지 않으면 get_log_dir()을 통해 안전한 경로를 사용합니다.
     Returns: logging.Logger
     """
     # 1. 로그 디렉터리 결정
     if log_dir is None:
-        if platform.system() == "Windows":
-            # Windows의 경우 권한이 보장된 로컬 앱 데이터 폴더 사용
-            local_app_data = os.environ.get("LOCALAPPDATA")
-            if local_app_data:
-                log_dir = os.path.join(local_app_data, "GichanFormant", "logs")
-            else:
-                # 최악의 경우 절대 경로로 현재 폴더의 logs 시도
-                log_dir = os.path.join(os.getcwd(), "logs")
-        else:
-            # 타 OS는 현재 폴더 logs 사용
-            log_dir = "logs"
+        log_dir = get_log_dir()
 
     # 2. 디렉터리 생성 (하드코딩된 'logs' 제거하고 넘겨받은 log_dir 사용)
     os.makedirs(log_dir, exist_ok=True)
