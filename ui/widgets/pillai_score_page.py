@@ -75,6 +75,18 @@ MODERN_SCROLLBAR_STYLE = """
 """
 
 
+class PillaiResultTable(QTableWidget):
+    """Pillai Score 결과 테이블에서 선택된 셀을 다시 누르면 선택을 해제하는 기능을 제공."""
+
+    def mousePressEvent(self, event):
+        item = self.itemAt(event.pos())
+        if item and item.isSelected():
+            self.setCurrentItem(None)
+            item.setSelected(False)
+        else:
+            super().mousePressEvent(event)
+
+
 class PillaiHelpTooltip(QWidget):
     """Pillai Score 설명을 위한 커스텀 고퀄리티 툴팁 위젯."""
 
@@ -326,7 +338,7 @@ class PillaiScorePage(QWidget):
         single_layout.addWidget(lbl_pillai_title)
         self.lbl_pillai_val = QLabel("-")
         self.lbl_pillai_val.setStyleSheet(
-            "font-size: 48px; font-weight: bold; color: #409EFF; background: transparent; border: none;"
+            "font-size: 48px; font-weight: bold; color: #303133; background: transparent; border: none;"
         )
         self.lbl_pillai_val.setAlignment(Qt.AlignmentFlag.AlignCenter)
         single_layout.addWidget(self.lbl_pillai_val)
@@ -356,7 +368,7 @@ class PillaiScorePage(QWidget):
         )
         multi_layout.addWidget(self.lbl_multi_header)
 
-        self.multi_table = QTableWidget()
+        self.multi_table = PillaiResultTable()
         self.multi_table.setColumnCount(3)
         self.multi_table.setHorizontalHeaderLabels(
             ["모음 조합", "Pillai Score", "p-value"]
@@ -365,10 +377,11 @@ class PillaiScorePage(QWidget):
             0, QHeaderView.ResizeMode.Interactive
         )
         self.multi_table.horizontalHeader().setSectionResizeMode(
-            1, QHeaderView.ResizeMode.Stretch
+            1, QHeaderView.ResizeMode.Interactive
         )
+        self.multi_table.horizontalHeader().resizeSection(1, 140)
         self.multi_table.horizontalHeader().setSectionResizeMode(
-            2, QHeaderView.ResizeMode.ResizeToContents
+            2, QHeaderView.ResizeMode.Stretch
         )
         self.multi_table.horizontalHeader().setStyleSheet("""
             QHeaderView::section { 
@@ -444,6 +457,12 @@ class PillaiScorePage(QWidget):
         v1, v2 = vowels
         self.lbl_vowels_2.setText(f"{v1}  vs  {v2}")
         score, p_val = self._calc_pillai(v1, v2)
+
+        # 유의미한 분리 (p < 0.05 AND score >= 0.3) 인 경우에만 강조
+        is_highlight = (
+            score is not None and p_val is not None and p_val < 0.05 and score >= 0.3
+        )
+
         if score is not None:
             self.lbl_pillai_val.setText(f"{score:.4f}")
             if p_val is not None:
@@ -453,6 +472,22 @@ class PillaiScorePage(QWidget):
         else:
             self.lbl_pillai_val.setText("N/A")
             self.lbl_p_value.setText("")
+
+        # 색상 적용
+        if is_highlight:
+            self.lbl_pillai_val.setStyleSheet(
+                "font-size: 48px; font-weight: bold; color: #409EFF; background: transparent; border: none;"
+            )
+            self.lbl_p_value.setStyleSheet(
+                "font-size: 14px; color: #67C23A; background: transparent; border: none; margin-top: 4px;"
+            )
+        else:
+            self.lbl_pillai_val.setStyleSheet(
+                "font-size: 48px; font-weight: bold; color: #303133; background: transparent; border: none;"
+            )
+            self.lbl_p_value.setStyleSheet(
+                "font-size: 14px; color: #909399; background: transparent; border: none; margin-top: 4px;"
+            )
 
     def _handle_multi_pairs(self, vowels):
         pairs = list(itertools.combinations(vowels, 2))
@@ -469,15 +504,18 @@ class PillaiScorePage(QWidget):
             it_score = QTableWidgetItem(score_text)
             it_score.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
             it_score.setFont(QFont("Arial", 10, QFont.Weight.Bold))
-            if score is not None and score > 0.8:  # 분리도가 높은 경우 강조
-                it_score.setForeground(QColor("#409EFF"))
-
             it_pval = QTableWidgetItem(p_val_text)
             it_pval.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
-            if p_val is not None and p_val < 0.05:
-                it_pval.setForeground(
-                    QColor("#67C23A")
-                )  # 유의미한 경우 녹색 (Element UI Success 색상)
+
+            # 유의미한 분리 (p < 0.05 AND score >= 0.3) 인 경우에만 강조
+            if (
+                score is not None
+                and p_val is not None
+                and p_val < 0.05
+                and score >= 0.3
+            ):
+                it_score.setForeground(QColor("#409EFF"))
+                it_pval.setForeground(QColor("#67C23A"))
 
             self.multi_table.setItem(i, 0, it_pair)
             self.multi_table.setItem(i, 1, it_score)
