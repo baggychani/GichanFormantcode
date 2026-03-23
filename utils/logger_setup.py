@@ -7,14 +7,26 @@ Python 표준 logging 모듈을 사용한 백그라운드 전역 로깅 설정.
 
 import logging
 import os
+import platform
 from logging.handlers import TimedRotatingFileHandler
 
 
-def setup_logging(log_dir="logs"):
+def setup_logging(log_dir=None):
     """
     애플리케이션 전역 로거를 초기화합니다.
+    - log_dir이 제공되지 않으면 Windows에서는 AppData\Local\GichanFormant\logs를 사용합니다.
     Returns: logging.Logger
     """
+    if log_dir is None:
+        if platform.system() == "Windows":
+            local_app_data = os.environ.get("LOCALAPPDATA")
+            if local_app_data:
+                log_dir = os.path.join(local_app_data, "GichanFormant", "logs")
+            else:
+                log_dir = "logs"
+        else:
+            log_dir = "logs"
+
     os.makedirs(log_dir, exist_ok=True)
     log_file = os.path.join(log_dir, "app.log")
 
