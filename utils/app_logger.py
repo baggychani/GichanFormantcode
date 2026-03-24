@@ -16,9 +16,8 @@ WARNING = 2
 ERROR = 3
 
 _ui = None
-_log_file_path = None
 _console = False
-# 콘솔/파일에 기록할 최소 레벨 (이 레벨 이상만 기록). 기본 DEBUG (터미널용)
+# 콘솔에 기록할 최소 레벨 (이 레벨 이상만 기록). 기본 DEBUG (터미널용)
 _min_level = DEBUG
 # GUI에 기록할 최소 레벨. DEBUG는 GUI에 안 넣음
 _gui_min_level = INFO
@@ -31,12 +30,6 @@ def set_ui(ui):
     """메인 창 UI(append_log 메서드 보유)를 등록합니다. 로그는 해당 위젯에 출력됩니다."""
     global _ui
     _ui = ui
-
-
-def set_log_file(path):
-    """로그를 추가로 기록할 파일 경로를 설정합니다. None이면 파일 기록 안 함."""
-    global _log_file_path
-    _log_file_path = path
 
 
 def set_console(enabled):
@@ -73,22 +66,15 @@ def _write(msg, level):
     _logger.log(lvl_map.get(level, 20), msg)
 
     # 2. [GUI/기존 로직] 기존 출력 방식 유지 (포맷 100% 동일 보장)
-    line = msg.rstrip() + "\n"
     # GUI: INFO 이상만
     if level >= _gui_min_level and _ui is not None and hasattr(_ui, "append_log"):
         try:
             _ui.append_log(msg)
         except Exception:
             pass
-    # 콘솔/파일: _min_level 이상만
+    # 콘솔: _min_level 이상만
     if level < _min_level:
         return
-    if _log_file_path:
-        try:
-            with open(_log_file_path, "a", encoding="utf-8") as f:
-                f.write(line)
-        except Exception:
-            pass
     if _console:
         try:
             print(msg, end="" if msg.endswith("\n") else "\n")

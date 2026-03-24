@@ -109,23 +109,33 @@ def warm_up(splash=None, context=None):
         except Exception as e:
             app_logger.debug(f"[Startup] Update check trigger failed: {e}")
 
-    # 3. 오래된 로그 정리 (7일 이상 경과)
+    # 4. 오래된 로그 정리 (7일 이상 경과)
     _update_msg("Cleaning Up Old Logs...")
     try:
         from utils import logger_setup
+
         log_dir = logger_setup.get_log_dir()
         if os.path.isdir(log_dir):
             now = datetime.datetime.now()
             retention_days = 7
             for filename in os.listdir(log_dir):
                 file_path = os.path.join(log_dir, filename)
+                # 4번: 파일 삭제 시 권한 오류나 '사용 중' 오류를 더 안전하게 처리
                 if os.path.isfile(file_path) and filename.endswith(".log"):
-                    mtime = datetime.datetime.fromtimestamp(os.path.getmtime(file_path))
-                    if (now - mtime).days > retention_days:
-                        os.remove(file_path)
-                        app_logger.debug(f"[Startup] Removed old log: {filename}")
+                    try:
+                        mtime = datetime.datetime.fromtimestamp(
+                            os.path.getmtime(file_path)
+                        )
+                        if (now - mtime).days > retention_days:
+                            os.remove(file_path)
+                            app_logger.debug(f"[Startup] Removed old log: {filename}")
+                    except (PermissionError, OSError) as e:
+                        # 파일이 사용 중이거나 권한이 없는 경우 조용히 넘어감
+                        app_logger.debug(
+                            f"[Startup] Could not remove log {filename}: {e}"
+                        )
     except Exception as e:
-        app_logger.debug(f"[Startup] Log cleanup failed: {e}")
+        app_logger.debug(f"[Startup] Log cleanup process failed: {e}")
 
     # 4. 라이브러리 병렬 임포트 (ThreadPoolExecutor 활용)
     _update_msg("Optimizing Library Loading...")

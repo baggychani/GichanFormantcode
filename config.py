@@ -33,7 +33,19 @@ else:
     BASE_DIR = ROOT_DIR
 
 ASSETS_DIR = os.path.join(BASE_DIR, "assets")
-LOGS_DIR = os.path.join(ROOT_DIR, "logs")
+
+import platform
+
+# 1번: 로그 저장 폴더를 AppData/Local로 변경 (권한 문제 해결)
+# 윈도우 표준에 따라 %LOCALAPPDATA% 폴더를 사용합니다.
+if platform.system() == "Windows":
+    _default_appdata = os.environ.get("LOCALAPPDATA", os.path.expanduser("~"))
+elif platform.system() == "Darwin":  # macOS
+    _default_appdata = os.path.expanduser("~/Library/Application Support")
+else:  # Linux 등
+    _default_appdata = os.path.expanduser("~")
+
+LOGS_DIR = os.path.join(_default_appdata, "GichanFormant", "logs")
 
 # Sentry 플래그 파일 경로는 반드시 ROOT_DIR(exe가 있는 곳)로 설정해야 인스톨러가 만든 파일을 찾을 수 있습니다.
 SENTRY_FLAG_PATH = os.path.join(ROOT_DIR, "sentry_opt_in.config")
