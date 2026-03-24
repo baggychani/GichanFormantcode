@@ -1,4 +1,8 @@
-# 🎙️ GichanFormant
+# 🎙️ GichanFormant (Code)
+
+> [!NOTE]
+> 이 레포지토리는 GichanFormant의 **소스 코드 전용** 저장소입니다. 
+> 실행 파일(.exe) 다운로드를 원하시면 [GichanFormant 배포용 레포지토리](https://github.com/baggychani/GichanFormant)를 방문해 주세요.
 
 ![Python](https://img.shields.io/badge/python-3670A0?style=for-the-badge&logo=python&logoColor=ffdd54)
 ![PySide6](https://img.shields.io/badge/PySide6-41CD52?style=for-the-badge&logo=Qt&logoColor=white)

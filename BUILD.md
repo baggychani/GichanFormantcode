@@ -5,6 +5,11 @@
 - 사용: `pyinstaller GichanFormant.spec`
 - 결과: `dist/GichanFormant` (실행 파일)
 
+## 배포 (Deployment)
+
+1. 빌드된 `.exe` 파일을 [GichanFormant 배포용 레포지토리](https://github.com/baggychani/GichanFormant)의 **Releases** 섹션에 업로드합니다.
+2. `config.py`의 `APP_VERSION`과 GitHub의 Tag 이름을 일치시켜야 업데이트 알림이 정상적으로 작동합니다.
+
 ## 아이콘 (macOS)
 
 - **런타임(창 아이콘)**: macOS에서 `.icns`를 쓰려면 다음 중 한 곳에 두면 됩니다.
