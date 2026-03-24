@@ -9,6 +9,9 @@
 #define MyBasePath SourcePath
 #define MyOutputDir GetEnv("USERPROFILE") + "\Desktop"
 #define MyBuildDir "dist\GichanFormant"
+
+; 사용할 라이트 모드 테마 파일 지정
+#define VCLStyle "Light.vsf"
 ; ==============================================================================
 
 [Setup]
@@ -57,6 +60,10 @@ Source: "{#MyBasePath}\{#MyBuildDir}\*"; DestDir: "{app}"; Flags: ignoreversion 
 ; Sentry 설정 파일 (체크박스 동의 시에만 설치 폴더로 복사)
 Source: "{#MyBasePath}\sentry_opt_in.config"; DestDir: "{app}"; Check: IsSentryAgreed; Flags: ignoreversion
 
+; === VCL Styles 적용을 위한 플러그인 및 테마 파일 (설치/제거 공통) ===
+Source: "{#MyBasePath}\VclStylesinno.dll"; DestDir: "{app}"; Flags: uninsneveruninstall dontcopy
+Source: "{#MyBasePath}\{#VCLStyle}"; DestDir: "{app}"; Flags: uninsneveruninstall dontcopy
+
 [Icons]
 Name: "{autoprograms}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"
 Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Tasks: desktopicon
@@ -65,7 +72,7 @@ Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Tasks: de
 Filename: "{app}\{#MyAppExeName}"; Description: "{cm:LaunchProgram,{#StringChange(MyAppName, '&', '&&')}}"; Flags: nowait postinstall skipifsilent
 
 ; ==============================================================================
-; [Code] 섹션: Sentry 동의 UI 구성 (플러그인 관련 내용 제거)
+; [Code] 섹션: 테마 적용 로직 및 Sentry 동의 UI 구성
 ; ==============================================================================
 [Code]
 var
@@ -73,12 +80,44 @@ var
   SentryMemo: TNewMemo;
   SentryCheckBox: TNewCheckBox;
 
+// === 1. VCL Style 함수 임포트 ===
+procedure LoadVCLStyle(VClStyleFile: String); external 'LoadVCLStyleW@files:VclStylesInno.dll stdcall setuponly';
+procedure LoadVCLStyle_UnInstall(VClStyleFile: String); external 'LoadVCLStyleW@{app}\VclStylesInno.dll stdcall uninstallonly';
+procedure UnLoadVCLStyles; external 'UnLoadVCLStyles@files:VclStylesInno.dll stdcall setuponly';
+procedure UnLoadVCLStyles_UnInstall; external 'UnLoadVCLStyles@{app}\VclStylesInno.dll stdcall uninstallonly';
+
+// === 2. 설치(Setup) 시 테마 로드 및 해제 ===
+function InitializeSetup(): Boolean;
+begin
+  ExtractTemporaryFile('{#VCLStyle}');
+  LoadVCLStyle(ExpandConstant('{tmp}\{#VCLStyle}'));
+  Result := True;
+end;
+
+procedure DeinitializeSetup();
+begin
+  UnLoadVCLStyles;
+end;
+
+// === 3. 제거(Uninstall) 시 테마 로드 및 해제 ===
+function InitializeUninstall(): Boolean;
+begin
+  LoadVCLStyle_UnInstall(ExpandConstant('{app}\{#VCLStyle}'));
+  Result := True;
+end;
+
+procedure DeinitializeUninstall();
+begin
+  UnLoadVCLStyles_UnInstall;
+end;
+
+// === 4. 기존 Sentry 동의 창 로직 ===
 procedure InitializeWizard;
 begin
-  // 1. 커스텀 페이지 생성
+  // 커스텀 페이지 생성
   SentryPage := CreateCustomPage(wpSelectTasks, '데이터 수집 동의', '프로그램 개선을 위한 오류 로그 전송에 동의해 주세요.');
 
-  // 2. 안내 내용을 담을 글상자(Memo) 생성
+  // 안내 내용을 담을 글상자(Memo) 생성
   SentryMemo := TNewMemo.Create(WizardForm);
   SentryMemo.Parent := SentryPage.Surface;
   SentryMemo.Left := 0;
@@ -95,7 +134,7 @@ begin
                      '동의를 거부하셔도 포먼트 분석 등의 핵심 기능은' + #13#10 +
                      '정상적으로 이용하실 수 있습니다.';
 
-  // 3. 동의 체크박스 생성
+  // 동의 체크박스 생성
   SentryCheckBox := TNewCheckBox.Create(WizardForm);
   SentryCheckBox.Parent := SentryPage.Surface;
   SentryCheckBox.Left := 0;
