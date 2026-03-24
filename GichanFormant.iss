@@ -10,8 +10,7 @@
 #define MyOutputDir GetEnv("USERPROFILE") + "\Desktop"
 #define MyBuildDir "dist\GichanFormant"
 
-; 사용할 라이트 모드 테마 파일 지정
-#define VCLStyle "Light.vsf"
+#define VCLStyle "light.vsf"
 ; ==============================================================================
 
 [Setup]
@@ -46,6 +45,11 @@ AppMutex={#MyAppName}
 [Languages]
 Name: "korean"; MessagesFile: "compiler:Languages\Korean.isl"
 
+; === 완료 페이지 문구 깔끔하게 정리 ===
+[Messages]
+InfoAfterLabel=GichanFormant 설치 완료 안내 및 릴리즈 노트를 확인해 주십시오.
+InfoAfterClickLabel=
+
 [Tasks]
 Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"
 
@@ -72,7 +76,7 @@ Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Tasks: de
 Filename: "{app}\{#MyAppExeName}"; Description: "{cm:LaunchProgram,{#StringChange(MyAppName, '&', '&&')}}"; Flags: nowait postinstall skipifsilent
 
 ; ==============================================================================
-; [Code] 섹션: 테마 적용 로직 및 Sentry 동의 UI 구성
+; [Code] 섹션: 테마 적용 로직 및 커스텀 UI 구성
 ; ==============================================================================
 [Code]
 var
@@ -111,22 +115,26 @@ begin
   UnLoadVCLStyles_UnInstall;
 end;
 
-// === 4. 기존 Sentry 동의 창 로직 ===
+// === 4. 마법사 초기화 (Sentry 동의 창 및 완료 페이지 수정) ===
 procedure InitializeWizard;
 begin
-  // 커스텀 페이지 생성
-  SentryPage := CreateCustomPage(wpSelectTasks, '데이터 수집 동의', '프로그램 개선을 위한 오류 로그 전송에 동의해 주세요.');
+  // --- A. 완료 페이지(InfoAfter) UI 개선 ---
+  WizardForm.InfoAfterMemo.BorderStyle := bsSingle; // 테두리 강제 생성 (에러 유발 코드 삭제)
+  WizardForm.InfoAfterMemo.Cursor := crArrow;       // 마우스 커서를 일반 화살표로 변경
 
-  // 안내 내용을 담을 글상자(Memo) 생성
+  // --- B. Sentry 커스텀 페이지 ---
+  SentryPage := CreateCustomPage(wpSelectTasks, '데이터 수집 동의', '현재 GichanFormant는 개발 초기 상태로 오류가 발생할 수 있습니다. 프로그램 개선을 위해 오류 로그 전송에 동의해 주시면 감사하겠습니다.');
+
   SentryMemo := TNewMemo.Create(WizardForm);
   SentryMemo.Parent := SentryPage.Surface;
   SentryMemo.Left := 0;
   SentryMemo.Top := 0;
   SentryMemo.Width := SentryPage.SurfaceWidth;
-  SentryMemo.Height := SentryPage.SurfaceHeight - 35; // 체크박스 공간 확보
+  SentryMemo.Height := SentryPage.SurfaceHeight - 35; 
   SentryMemo.ScrollBars := ssVertical;
   SentryMemo.ReadOnly := True;
   SentryMemo.Color := clWindow;
+  
   SentryMemo.Text := 'GichanFormant는 프로그램의 버그 수정 및 품질 개선을 위해' + #13#10 +
                      '오류 발생 시 익명의 크래시 로그를 자동 전송합니다.' + #13#10 + #13#10 +
                      '- 수집되는 정보: 오류 발생 시점의 스택 트레이스 등' + #13#10 +
@@ -134,14 +142,17 @@ begin
                      '동의를 거부하셔도 포먼트 분석 등의 핵심 기능은' + #13#10 +
                      '정상적으로 이용하실 수 있습니다.';
 
-  // 동의 체크박스 생성
   SentryCheckBox := TNewCheckBox.Create(WizardForm);
   SentryCheckBox.Parent := SentryPage.Surface;
   SentryCheckBox.Left := 0;
   SentryCheckBox.Top := SentryPage.SurfaceHeight - 20;
   SentryCheckBox.Width := SentryPage.SurfaceWidth;
   SentryCheckBox.Caption := '프로그램 개선을 위한 오류 로그 자동 전송에 동의합니다.';
-  SentryCheckBox.Checked := True; // 기본값으로 체크
+  SentryCheckBox.Checked := True;
+
+  // 취소 버튼 삐뚤어짐 버그 해결
+  WizardForm.CancelButton.Top := WizardForm.NextButton.Top;
+  WizardForm.CancelButton.Height := WizardForm.NextButton.Height;
 end;
 
 function IsSentryAgreed: Boolean;
