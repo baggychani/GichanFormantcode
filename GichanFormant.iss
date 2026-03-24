@@ -11,7 +11,6 @@
 #define MyBuildDir "dist\GichanFormant"
 
 #define VCLStyle "light.vsf"
-; ==============================================================================
 
 [Setup]
 AppId={{F199E4AB-BB95-4C52-BF2D-B799E62A30E5}
@@ -64,9 +63,9 @@ Source: "{#MyBasePath}\{#MyBuildDir}\*"; DestDir: "{app}"; Flags: ignoreversion 
 ; Sentry 설정 파일 (체크박스 동의 시에만 설치 폴더로 복사)
 Source: "{#MyBasePath}\sentry_opt_in.config"; DestDir: "{app}"; Check: IsSentryAgreed; Flags: ignoreversion
 
-; === VCL Styles 적용을 위한 플러그인 및 테마 파일 (설치/제거 공통) ===
-Source: "{#MyBasePath}\VclStylesinno.dll"; DestDir: "{app}"; Flags: uninsneveruninstall dontcopy
-Source: "{#MyBasePath}\{#VCLStyle}"; DestDir: "{app}"; Flags: uninsneveruninstall dontcopy
+; === VCL Styles 적용을 위한 플러그인 및 테마 파일 (dontcopy 제거) ===
+Source: "{#MyBasePath}\VclStylesInno.dll"; DestDir: "{app}"; Flags: ignoreversion
+Source: "{#MyBasePath}\{#VCLStyle}"; DestDir: "{app}"; Flags: ignoreversion
 
 [Icons]
 Name: "{autoprograms}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"
@@ -119,8 +118,8 @@ end;
 procedure InitializeWizard;
 begin
   // --- A. 완료 페이지(InfoAfter) UI 개선 ---
-  WizardForm.InfoAfterMemo.BorderStyle := bsSingle; // 테두리 강제 생성 (에러 유발 코드 삭제)
-  WizardForm.InfoAfterMemo.Cursor := crArrow;       // 마우스 커서를 일반 화살표로 변경
+  WizardForm.InfoAfterMemo.BorderStyle := bsSingle;
+  WizardForm.InfoAfterMemo.Cursor := crArrow;
 
   // --- B. Sentry 커스텀 페이지 ---
   SentryPage := CreateCustomPage(wpSelectTasks, '데이터 수집 동의', '현재 GichanFormant는 개발 초기 상태로 오류가 발생할 수 있습니다. 프로그램 개선을 위해 오류 로그 전송에 동의해 주시면 감사하겠습니다.');
@@ -130,7 +129,7 @@ begin
   SentryMemo.Left := 0;
   SentryMemo.Top := 0;
   SentryMemo.Width := SentryPage.SurfaceWidth;
-  SentryMemo.Height := SentryPage.SurfaceHeight - 35; 
+  SentryMemo.Height := SentryPage.SurfaceHeight - 35;
   SentryMemo.ScrollBars := ssVertical;
   SentryMemo.ReadOnly := True;
   SentryMemo.Color := clWindow;
@@ -150,7 +149,7 @@ begin
   SentryCheckBox.Caption := '프로그램 개선을 위한 오류 로그 자동 전송에 동의합니다.';
   SentryCheckBox.Checked := True;
 
-  // 취소 버튼 삐뚤어짐 버그 해결
+  // 취소 버튼 위치 수정
   WizardForm.CancelButton.Top := WizardForm.NextButton.Top;
   WizardForm.CancelButton.Height := WizardForm.NextButton.Height;
 end;
