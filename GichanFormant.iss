@@ -2,7 +2,7 @@
 ; [환경 변수 정의] 
 ; ==============================================================================
 #define MyAppName "GichanFormant"
-#define MyAppVersion "2.3.4"
+#define MyAppVersion "2.3.4.1"
 #define MyAppPublisher "Bae Gichan"
 
 #define MyAppExeName "GichanFormant.exe" 

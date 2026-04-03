@@ -4,6 +4,7 @@ import pandas as pd
 import os
 
 import config
+from utils import app_logger
 
 # 텍스트 파일 로드 시 시도할 인코딩 순서 (UTF-16 BOM, UTF-8, 한글 Windows, 기타)
 ENCODINGS = ["utf-8", "utf-16", "utf-16-le", "utf-16-be", "cp949", "euc-kr", "latin-1"]
@@ -71,7 +72,7 @@ class DataProcessor:
 
             except Exception as e:
                 msg = f"{type(e).__name__}: {e}"
-                print(f"[DataProcessor] 파일 로드 오류 ({path}): {msg}")
+                app_logger.error(f"[DataProcessor] 파일 로드 오류 ({path}): {msg}")
                 errors.append((path, msg))
 
         if dfs:

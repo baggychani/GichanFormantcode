@@ -1,11 +1,11 @@
-# main.py — 진입점
+﻿# main.py — 진입점
 
 import sys
 import platform
 import os
 import sentry_sdk
 from PySide6.QtWidgets import QApplication, QSplashScreen
-from PySide6.QtGui import QPixmap, QFont, QColor
+from PySide6.QtGui import QPixmap, QFont, QColor, QPainter
 from PySide6.QtCore import Qt
 
 import config
@@ -42,10 +42,6 @@ if __name__ == "__main__":
     app = QApplication(sys.argv)
 
     # 1. 스플래시 스크린 즉시 설정 (가장 최우선 순위로 실행하여 시각적 반응성 극대화)
-    import os
-    from PySide6.QtGui import QPixmap, QFont, QColor
-    from PySide6.QtCore import Qt
-
     SPLASH_WIDTH = 450
     splash_path = os.path.join(config.ASSETS_DIR, "GichanFormant_SplashScreen.jpg")
     splash_pix = QPixmap(splash_path)
@@ -54,7 +50,6 @@ if __name__ == "__main__":
     if splash_pix.isNull():
         splash_pix = QPixmap(SPLASH_WIDTH, int(SPLASH_WIDTH * 0.6))
         splash_pix.fill(QColor("#1976D2"))
-        from PySide6.QtGui import QPainter
 
         painter = QPainter(splash_pix)
         painter.setPen(QColor("white"))
@@ -195,9 +190,6 @@ if __name__ == "__main__":
     # UI 로딩 상태를 스플래시에 중계하기 위한 콜백 함수
     def status_callback(msg):
         if splash:
-            from PySide6.QtCore import Qt
-            from PySide6.QtGui import QColor
-
             splash.showMessage(
                 msg,
                 Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignBottom,

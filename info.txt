@@ -16,12 +16,12 @@ VSVersionInfo(
         '041204b0',
         [StringStruct('CompanyName', 'Bae Gichan'),
         StringStruct('FileDescription', 'Formant Analysis Tool by Bae Gichan'),
-        StringStruct('FileVersion', '2.3.4'),
+        StringStruct('FileVersion', '2.3.4.1'),
         StringStruct('InternalName', 'GichanFormant'),
         StringStruct('LegalCopyright', 'Copyright (c) 2026 Bae Gichan. All rights reserved.'),
         StringStruct('OriginalFilename', 'GichanFormant.exe'),
         StringStruct('ProductName', 'GichanFormant'),
-        StringStruct('ProductVersion', '2.3.4')])
+        StringStruct('ProductVersion', '2.3.4.1')])
       ]),
     VarFileInfo([VarStruct('Translation', [1042, 1200])])
   ]

@@ -196,3 +196,48 @@ def get_pillai_icon(size=128, color_hex="#555555"):
     if cache_key not in _ICON_CACHE:
         _ICON_CACHE[cache_key] = create_pillai_icon(size, color_hex)
     return _ICON_CACHE[cache_key]
+
+
+def create_euclidean_icon(size=128, color_hex="#555555"):
+    """무게중심 간 거리: 축 위 두 점과 연결선(유클리드 거리 페이지 버튼용)."""
+    pixmap = QPixmap(size, size)
+    pixmap.fill(Qt.GlobalColor.transparent)
+
+    painter = QPainter(pixmap)
+    painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+
+    margin = size * 0.18
+    w = size - margin * 2
+    h = size - margin * 2
+    base_y = size - margin
+
+    axis_pen = QPen(
+        QColor(color_hex), 2, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap
+    )
+    painter.setPen(axis_pen)
+    painter.drawLine(int(margin), int(margin), int(margin), int(base_y))
+    painter.drawLine(int(margin), int(base_y), int(size - margin), int(base_y))
+
+    line_pen = QPen(QColor(color_hex), 2.5, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap)
+    painter.setPen(line_pen)
+    x1 = margin + w * 0.22
+    y1 = margin + h * 0.62
+    x2 = margin + w * 0.72
+    y2 = margin + h * 0.28
+    painter.drawLine(int(x1), int(y1), int(x2), int(y2))
+
+    dot_r = max(3.0, size * 0.045)
+    painter.setBrush(QBrush(QColor(color_hex)))
+    painter.setPen(Qt.PenStyle.NoPen)
+    painter.drawEllipse(QRectF(x1 - dot_r, y1 - dot_r, dot_r * 2, dot_r * 2))
+    painter.drawEllipse(QRectF(x2 - dot_r, y2 - dot_r, dot_r * 2, dot_r * 2))
+
+    painter.end()
+    return QIcon(pixmap)
+
+
+def get_euclidean_icon(size=128, color_hex="#555555"):
+    cache_key = f"euclidean_{size}_{color_hex}"
+    if cache_key not in _ICON_CACHE:
+        _ICON_CACHE[cache_key] = create_euclidean_icon(size, color_hex)
+    return _ICON_CACHE[cache_key]

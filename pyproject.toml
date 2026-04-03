@@ -1,6 +1,6 @@
 [project]
 name = "gichan-formant"
-version = "2.3.4"
+version = "2.3.4.1"
 description = "A formant picture generator"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -17,8 +17,14 @@ dependencies = [
 [dependency-groups]
 dev = [
     "pyinstaller>=6.19.0",
+    "pytest>=8.0.0",
     "ruff>=0.15.6",
 ]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+addopts = "-q"
 
 [tool.ruff]
 line-length = 88

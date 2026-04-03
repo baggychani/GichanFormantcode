@@ -21,7 +21,8 @@ from PySide6.QtCore import Qt, QStandardPaths, QSize
 from PySide6.QtGui import QBrush, QColor, QFont, QPen, QKeySequence
 import pandas as pd
 from ui.widgets.pillai_score_page import PillaiScorePage
-from utils.icon_utils import get_app_icon, get_formant_icon, get_pillai_icon
+from ui.widgets.euclidean_distance_page import EuclideanDistancePage
+from utils.icon_utils import get_app_icon, get_formant_icon, get_pillai_icon, get_euclidean_icon
 from utils.math_utils import calc_f2_prime
 from ui.widgets.display_utils import truncate_display_name, MAX_DISPLAY_NAME_LEN
 from utils.vowel_stats import (
@@ -141,14 +142,19 @@ def _outlier_suffix_from_params(plot_params):
     return "_이상치 제거 2σ"
 
 
-def _analysis_base_name(file_name, plot_params, is_pillai=False):
-    """저장 시 사용할 기본 이름 (확장자 제거 + 이상치 접미사 + 정규화 접미사 + _analysis/_pillai_analysis)."""
+def _analysis_base_name(file_name, plot_params, is_pillai=False, is_euclidean=False):
+    """저장 시 사용할 기본 이름 (확장자 제거 + 이상치 접미사 + 정규화 접미사 + 분석 종류 접미사)."""
     base = os.path.splitext(file_name)[0]
     base += _outlier_suffix_from_params(plot_params)
     norm = (plot_params or {}).get("normalization")
     if norm:
         base += f"_{norm}"
-    suffix = "_pillai_analysis" if is_pillai else "_analysis"
+    if is_pillai:
+        suffix = "_pillai_analysis"
+    elif is_euclidean:
+        suffix = "_euclidean_analysis"
+    else:
+        suffix = "_analysis"
     return base + suffix
 
 
@@ -269,8 +275,20 @@ class VowelAnalysisDialog(QDialog):
         """)
         self.btn_page_pillai.clicked.connect(lambda: self._switch_page(1))
 
+        self.btn_page_euclidean = QPushButton()
+        self.btn_page_euclidean.setIcon(get_euclidean_icon())
+        self.btn_page_euclidean.setIconSize(QSize(30, 30))
+        self.btn_page_euclidean.setFixedSize(40, 36)
+        self.btn_page_euclidean.setToolTip("무게중심 간 유클리드 거리")
+        self.btn_page_euclidean.setStyleSheet("""
+            QPushButton { background-color: white; border: 1px solid #DCDFE6; border-radius: 4px; }
+            QPushButton:hover { background-color: #F5F7FA; border-color: #409EFF; }
+        """)
+        self.btn_page_euclidean.clicked.connect(lambda: self._switch_page(2))
+
         btn_row.addWidget(self.btn_page_formant)
         btn_row.addWidget(self.btn_page_pillai)
+        btn_row.addWidget(self.btn_page_euclidean)
 
         btn_row.addStretch()
         self.btn_excel = QPushButton("엑셀 저장")
@@ -317,8 +335,7 @@ class VowelAnalysisDialog(QDialog):
             self.btn_csv.setEnabled(True)
             self.btn_excel.setToolTip("")
             self.btn_csv.setToolTip("")
-        else:
-            # Pillai 페이지는 3개 이상 선택 시에만 활성화
+        elif stack.currentIndex() == 1:
             pillai_page = stack.currentWidget()
             if isinstance(pillai_page, PillaiScorePage):
                 is_valid = pillai_page.selection_count >= 3
@@ -331,6 +348,25 @@ class VowelAnalysisDialog(QDialog):
                 else:
                     self.btn_excel.setToolTip("")
                     self.btn_csv.setToolTip("")
+            else:
+                self.btn_excel.setEnabled(False)
+                self.btn_csv.setEnabled(False)
+        else:
+            euclid_page = stack.currentWidget()
+            if isinstance(euclid_page, EuclideanDistancePage):
+                is_valid = euclid_page.selection_count >= 3
+                self.btn_excel.setEnabled(is_valid)
+                self.btn_csv.setEnabled(is_valid)
+                if not is_valid:
+                    msg = "모음을 3개 이상 선택해야 저장할 수 있습니다."
+                    self.btn_excel.setToolTip(msg)
+                    self.btn_csv.setToolTip(msg)
+                else:
+                    self.btn_excel.setToolTip("")
+                    self.btn_csv.setToolTip("")
+            else:
+                self.btn_excel.setEnabled(False)
+                self.btn_csv.setEnabled(False)
 
     def _run_analysis(self):
         """비정규화: Hz df로 F1·X축 통계, Bark 기준 중심-개별 거리. 정규화: 정규화 df로 nF1·nX축 통계, 정규화 단위 기준 중심-개별 거리."""
@@ -524,6 +560,16 @@ class VowelAnalysisDialog(QDialog):
         pillai_page.selectionStateChanged.connect(self._update_save_buttons_state)
         stack.addWidget(pillai_page)
 
+        euclid_page = EuclideanDistancePage(
+            df,
+            x_col="x_norm" if norm else "x_hz",
+            y_col="F1",
+            label_col="Label" if "Label" in df.columns else "label",
+            fixed_plot_params=self.fixed_plot_params,
+        )
+        euclid_page.selectionStateChanged.connect(self._update_save_buttons_state)
+        stack.addWidget(euclid_page)
+
         layout.addWidget(stack)
         self._stacked_widgets.append(stack)
         self.tabs.addTab(w, truncate_display_name(tab_label, MAX_DISPLAY_NAME_LEN))
@@ -534,13 +580,6 @@ class VowelAnalysisDialog(QDialog):
         tab_idx = self.tabs.currentIndex()
         if tab_idx < 0 or tab_idx >= len(self._analysis_results):
             return None, None
-
-        stack = self._stacked_widgets[tab_idx]
-        if stack.currentIndex() == 1:
-            # Pillai Score 결과 저장을 위해 특수 데이터 반환 예정 (후속 작업에서 보완 가능)
-            # 여기서는 일단 기존 result를 반환하되, Pillai 전용 저장 로직이 _save_excel 내부에 필요함
-            pass
-
         return self._analysis_results[tab_idx]
 
     def _initial_save_dir(self):
@@ -561,7 +600,9 @@ class VowelAnalysisDialog(QDialog):
 
         current_tab_idx = self.tabs.currentIndex()
         stack = self._stacked_widgets[current_tab_idx]
-        is_pillai = stack.currentIndex() == 1
+        page_idx = stack.currentIndex()
+        is_pillai = page_idx == 1
+        is_euclidean = page_idx == 2
 
         if is_pillai:
             # Pillai Score 조합 결과 저장
@@ -578,6 +619,33 @@ class VowelAnalysisDialog(QDialog):
                 # Suffix: _pillai_analysis
                 base_name = _analysis_base_name(
                     name, self.fixed_plot_params, is_pillai=True
+                )
+                path, _ = QFileDialog.getSaveFileName(
+                    self,
+                    "엑셀 저장",
+                    os.path.join(self._initial_save_dir(), base_name + ".xlsx"),
+                    "Excel Files (*.xlsx)",
+                )
+                if path:
+                    df.to_excel(path, index=False)
+                    if hasattr(self.controller, "set_last_save_dir"):
+                        self.controller.set_last_save_dir(os.path.dirname(path))
+                    QMessageBox.information(
+                        self, "저장 완료", f"저장되었습니다:\n{path}"
+                    )
+                return
+
+        if is_euclidean:
+            euclid_page = stack.currentWidget()
+            if (
+                isinstance(euclid_page, EuclideanDistancePage)
+                and euclid_page.selection_count >= 3
+            ):
+                data = euclid_page.get_combination_results()
+                distance_col = euclid_page.get_distance_column_name()
+                df = pd.DataFrame(data, columns=["모음 조합", distance_col])
+                base_name = _analysis_base_name(
+                    name, self.fixed_plot_params, is_euclidean=True
                 )
                 path, _ = QFileDialog.getSaveFileName(
                     self,
@@ -629,7 +697,9 @@ class VowelAnalysisDialog(QDialog):
 
         current_tab_idx = self.tabs.currentIndex()
         stack = self._stacked_widgets[current_tab_idx]
-        is_pillai = stack.currentIndex() == 1
+        page_idx = stack.currentIndex()
+        is_pillai = page_idx == 1
+        is_euclidean = page_idx == 2
 
         if is_pillai:
             # Pillai Score 조합 결과 저장
@@ -646,6 +716,33 @@ class VowelAnalysisDialog(QDialog):
                 # Suffix: _pillai_analysis
                 base_name = _analysis_base_name(
                     name, self.fixed_plot_params, is_pillai=True
+                )
+                path, _ = QFileDialog.getSaveFileName(
+                    self,
+                    "CSV 저장",
+                    os.path.join(self._initial_save_dir(), base_name + ".csv"),
+                    "CSV Files (*.csv)",
+                )
+                if path:
+                    df.to_csv(path, index=False, encoding="utf-8-sig")
+                    if hasattr(self.controller, "set_last_save_dir"):
+                        self.controller.set_last_save_dir(os.path.dirname(path))
+                    QMessageBox.information(
+                        self, "저장 완료", f"저장되었습니다:\n{path}"
+                    )
+                return
+
+        if is_euclidean:
+            euclid_page = stack.currentWidget()
+            if (
+                isinstance(euclid_page, EuclideanDistancePage)
+                and euclid_page.selection_count >= 3
+            ):
+                data = euclid_page.get_combination_results()
+                distance_col = euclid_page.get_distance_column_name()
+                df = pd.DataFrame(data, columns=["모음 조합", distance_col])
+                base_name = _analysis_base_name(
+                    name, self.fixed_plot_params, is_euclidean=True
                 )
                 path, _ = QFileDialog.getSaveFileName(
                     self,
