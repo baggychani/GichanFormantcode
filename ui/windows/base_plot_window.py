@@ -16,6 +16,7 @@ from draw import DrawMode
 from draw.draw_common import polygon_area, AreaLabelObject
 from utils.math_utils import hz_to_bark
 from draw import draw_line, draw_polygon, draw_reference
+from engine.plot_engine import PlotEngine
 
 
 class BasePlotWindow(QMainWindow):
@@ -771,7 +772,8 @@ class BasePlotWindow(QMainWindow):
         y_scale = (params.get("f1_scale") or "linear").strip().lower()
         norm = getattr(self, "normalization", None) or params.get("normalization")
         if norm:
-            x_name = "nF2"
+            ptype = params.get("type") or "f1_f2"
+            x_name = PlotEngine.normalized_x_axis_label(ptype)
             y_name = "nF1"
         else:
             x_name = getattr(self, "x_axis_label", None) or "F2"

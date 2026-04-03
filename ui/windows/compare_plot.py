@@ -1212,7 +1212,10 @@ class ComparePlotPopup(BasePlotWindow):
         if hasattr(self, "lbl_f1_axis"):
             self.lbl_f1_axis.setText("nF1:")
         if hasattr(self, "lbl_x_axis"):
-            self.x_axis_label = "nF2"
+            ptype = (getattr(self, "fixed_plot_params", None) or {}).get(
+                "type", "f1_f2"
+            )
+            self.x_axis_label = PlotEngine.normalized_x_axis_label(ptype)
             self.lbl_x_axis.setText(f"{self.x_axis_label}:")
         if hasattr(self, "lbl_f1_unit"):
             self.lbl_f1_unit.setText("")
@@ -1370,7 +1373,13 @@ class ComparePlotPopup(BasePlotWindow):
 
             norm = getattr(self, "normalization", None)
             y_name = "nF1" if norm else "F1"
-            x_name = "nF2" if norm else self.x_axis_label
+            if norm:
+                ptype = (getattr(self, "fixed_plot_params", None) or {}).get(
+                    "type", "f1_f2"
+                )
+                x_name = PlotEngine.normalized_x_axis_label(ptype)
+            else:
+                x_name = self.x_axis_label
             if y_min >= y_max:
                 QMessageBox.warning(
                     self,

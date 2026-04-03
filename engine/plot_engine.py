@@ -180,6 +180,7 @@ class PlotEngine:
             x_raw = f2p - df_plot["F1"]
         else:
             x_raw = df_plot["F2"]
+        df_plot["x_raw"] = x_raw
         df_plot["x_val"] = self._apply_scale(x_raw, plot_params["f2_scale"])
         return df_plot
 
@@ -386,15 +387,15 @@ class PlotEngine:
                         t.set_fontfamily(font_family)
 
                 if not is_semi:
-                    for px, py, f1_orig, f2_orig in zip(
-                        x, y, subset["F1"], subset["F2"]
+                    for px, py, f1_orig, x_hz in zip(
+                        x, y, subset["F1"], subset["x_raw"]
                     ):
                         snapping_data.append(
                             {
                                 "x": px,
                                 "y": py,
                                 "raw_f1": f1_orig,
-                                "raw_f2": f2_orig,
+                                "raw_f2": x_hz,
                                 "label": vowel,
                                 "type": "raw",
                                 "color": "red",
@@ -424,7 +425,8 @@ class PlotEngine:
                 )
 
             mean_x, mean_y = x.mean(), y.mean()
-            raw_f1_mean, raw_f2_mean = subset["F1"].mean(), subset["F2"].mean()
+            raw_f1_mean = subset["F1"].mean()
+            raw_f2_mean = subset["x_raw"].mean()
 
             # 모음 중심점 표시 및 스냅 동기화
             if show_centroid:
@@ -844,6 +846,7 @@ class PlotEngine:
             else:
                 x_raw = df_plot["F2"]
 
+            df_plot["x_raw"] = x_raw
             df_plot["x_val"] = self._apply_scale(x_raw, plot_params["f2_scale"])
 
             vowels = df_plot["Label"].unique()
@@ -939,15 +942,15 @@ class PlotEngine:
                             t.set_fontfamily(font_family)
 
                     if not is_semi:
-                        for px, py, f1_orig, f2_orig in zip(
-                            x, y, subset["F1"], subset["F2"]
+                        for px, py, f1_orig, x_hz in zip(
+                            x, y, subset["F1"], subset["x_raw"]
                         ):
                             snapping_data.append(
                                 {
                                     "x": px,
                                     "y": py,
                                     "raw_f1": f1_orig,
-                                    "raw_f2": f2_orig,
+                                    "raw_f2": x_hz,
                                     "label": f"{vowel} - {file_name}",
                                     "type": "raw",
                                     "color": point_color,
@@ -979,7 +982,8 @@ class PlotEngine:
                     )
 
                 mean_x, mean_y = x.mean(), y.mean()
-                raw_f1_mean, raw_f2_mean = subset["F1"].mean(), subset["F2"].mean()
+                raw_f1_mean = subset["F1"].mean()
+                raw_f2_mean = subset["x_raw"].mean()
 
                 if show_centroid:
                     mean_alpha = 0.2 if is_semi else 1.0
@@ -2003,6 +2007,18 @@ class PlotEngine:
             "f1_f2_prime_minus_f1": "F2' - F1",
         }
         return names.get(plot_type, "X-Axis")
+
+    @staticmethod
+    def normalized_x_axis_label(plot_type):
+        """정규화 플롯 UI·참조선 도구용 X축 표시 이름 (데이터 열은 여전히 F1/F2/F3 기반 정규화)."""
+        names = {
+            "f1_f2": "nF2",
+            "f1_f3": "nF3",
+            "f1_f2_prime": "nF2'",
+            "f1_f2_minus_f1": "nF2 - nF1",
+            "f1_f2_prime_minus_f1": "nF2' - nF1",
+        }
+        return names.get(plot_type, "nF2")
 
     def _draw_confidence_ellipse(self, x, y, ax, n_std=2.0, **kwargs):
         try:

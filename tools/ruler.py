@@ -483,8 +483,8 @@ class RulerTool:
             label = "Unknown"
 
         f1_orig = pt.get("raw_f1", 0)
-        f2_orig = pt.get("raw_f2", 0)
-        f3_orig = pt.get("raw_f3", 0)
+        # 스냅 데이터: raw_f2 = 플롯 X축 물리량(Hz). plot_type별 F2/F3/F2′/차분 등 (plot_engine과 동일)
+        x_hz_orig = pt.get("raw_f2", 0)
 
         use_bark = self.params.get("use_bark_units", False)
         is_norm = bool(self.params.get("normalization"))
@@ -496,26 +496,34 @@ class RulerTool:
         plot_type = self.params.get("type", "f1_f2")
 
         if is_norm:
-            y_name, x_name = "nF1", "nF2"
+            y_name = "nF1"
+            x_name = {
+                "f1_f2": "nF2",
+                "f1_f3": "nF3",
+                "f1_f2_prime": "nF2'",
+                "f1_f2_minus_f1": "nF2 - nF1",
+                "f1_f2_prime_minus_f1": "nF2' - nF1",
+            }.get(plot_type, "nF2")
             val_y, val_x = pt["y"], pt["x"]
         else:
             y_name = "F1"
             val_y = convert(f1_orig)
+            # 비정규화: pt["x"]/["y"]는 linear/log/bark 스케일 적용 후 좌표이므로 Hz 표기에 쓰면 안 됨
             if plot_type == "f1_f2_minus_f1":
                 x_name = "F2 - F1"
-                val_x = convert(f2_orig) - convert(f1_orig)
+                val_x = convert(x_hz_orig)
             elif plot_type == "f1_f3":
                 x_name = "F3"
-                val_x = convert(f3_orig) if f3_orig else pt["x"]
+                val_x = convert(x_hz_orig)
             elif plot_type == "f1_f2_prime":
                 x_name = "F2'"
-                val_x = pt["x"]
+                val_x = convert(x_hz_orig)
             elif plot_type == "f1_f2_prime_minus_f1":
                 x_name = "F2' - F1"
-                val_x = pt["x"]
+                val_x = convert(x_hz_orig)
             else:
                 x_name = "F2"
-                val_x = convert(f2_orig)
+                val_x = convert(x_hz_orig)
 
         if is_norm:
             info_text = f"[{label}]\n{y_name}: {val_y:.4g}\n{x_name}: {val_x:.4g}"
@@ -711,14 +719,15 @@ class RulerTool:
             if np.isnan(d):
                 return "—"
             return f"{d:.4g}"
-        f1a, f2a = p1["raw_f1"], p1["raw_f2"]
-        f1b, f2b = p2["raw_f1"], p2["raw_f2"]
+        # raw_f1=F1(Hz), raw_f2=X축 물리량(Hz): plot_type에 따라 F2/F3/F2′/차분 등 (plot_engine 스냅과 동일)
+        f1a, x_hz_a = p1["raw_f1"], p1["raw_f2"]
+        f1b, x_hz_b = p2["raw_f1"], p2["raw_f2"]
 
-        z1_f1, z1_f2 = hz_to_bark(f1a), hz_to_bark(f2a)
-        z2_f1, z2_f2 = hz_to_bark(f1b), hz_to_bark(f2b)
+        z1_f1, z1_x = hz_to_bark(f1a), hz_to_bark(x_hz_a)
+        z2_f1, z2_x = hz_to_bark(f1b), hz_to_bark(x_hz_b)
 
-        dist_hz = np.sqrt((f1a - f1b) ** 2 + (f2a - f2b) ** 2)
-        dist_bk = np.sqrt((z1_f1 - z2_f1) ** 2 + (z1_f2 - z2_f2) ** 2)
+        dist_hz = np.sqrt((f1a - f1b) ** 2 + (x_hz_a - x_hz_b) ** 2)
+        dist_bk = np.sqrt((z1_f1 - z2_f1) ** 2 + (z1_x - z2_x) ** 2)
         if np.isnan(dist_hz) or np.isnan(dist_bk):
             return "—"
 
