@@ -270,8 +270,6 @@ class PlotEngine:
         # 기본값(광역); 루프 내에서 layer_overrides로 덮어씀
         lbl_color = design_settings.get("lbl_color", "#FF0000")
         lbl_size = design_settings.get("lbl_size", 16)
-        "bold" if design_settings.get("lbl_bold", True) else "normal"
-        "italic" if design_settings.get("lbl_italic", False) else "normal"
 
         ell_thick = design_settings.get("ell_thick", 1.0)
         ell_style = design_settings.get("ell_style", "--")
@@ -639,7 +637,7 @@ class PlotEngine:
         x_lbl = self._get_axis_name(plot_type)
         if show_axis_units:
             x_lbl += f" ({x_unit})"
-        y_lbl = "F1"
+        y_lbl = config.PLOT_Y_AXIS_LABEL
         if show_axis_units:
             y_lbl += (
                 "\n({})".format(y_unit)
@@ -1228,7 +1226,7 @@ class PlotEngine:
         x_lbl = self._get_axis_name(plot_type)
         if show_axis_units:
             x_lbl += f" ({x_unit})"
-        y_lbl = "F1"
+        y_lbl = config.PLOT_Y_AXIS_LABEL
         if show_axis_units:
             y_lbl += (
                 "\n({})".format(y_unit)
@@ -1416,12 +1414,14 @@ class PlotEngine:
 
         ### [Phase 3] 축 이름 및 레이블 스타일 설정
         y_label_rotate = common.get("y_label_rotation", False)
+        _nx = config.PLOT_X_AXIS_LABEL_NORMALIZED.get("f1_f2", "nF2")
+        _ny = config.PLOT_Y_AXIS_LABEL_NORMALIZED
         ax.set_xlabel(
-            "nF2", fontsize=16, labelpad=13, fontweight="normal", fontfamily=axis_font
+            _nx, fontsize=16, labelpad=13, fontweight="normal", fontfamily=axis_font
         )
         if y_label_rotate:
             ax.set_ylabel(
-                "nF1",
+                _ny,
                 fontsize=16,
                 labelpad=18,
                 rotation=90,
@@ -1431,7 +1431,7 @@ class PlotEngine:
             )
         else:
             ax.set_ylabel(
-                "nF1",
+                _ny,
                 fontsize=16,
                 labelpad=20,
                 rotation=0,
@@ -1999,26 +1999,12 @@ class PlotEngine:
                         lbl_obj.set_color("gray")
 
     def _get_axis_name(self, plot_type):
-        names = {
-            "f1_f2": "F2",
-            "f1_f3": "F3",
-            "f1_f2_prime": "F2'",
-            "f1_f2_minus_f1": "F2 - F1",
-            "f1_f2_prime_minus_f1": "F2' - F1",
-        }
-        return names.get(plot_type, "X-Axis")
+        return config.PLOT_X_AXIS_LABEL.get(plot_type, "X-Axis")
 
     @staticmethod
     def normalized_x_axis_label(plot_type):
         """정규화 플롯 UI·참조선 도구용 X축 표시 이름 (데이터 열은 여전히 F1/F2/F3 기반 정규화)."""
-        names = {
-            "f1_f2": "nF2",
-            "f1_f3": "nF3",
-            "f1_f2_prime": "nF2'",
-            "f1_f2_minus_f1": "nF2 - nF1",
-            "f1_f2_prime_minus_f1": "nF2' - nF1",
-        }
-        return names.get(plot_type, "nF2")
+        return config.PLOT_X_AXIS_LABEL_NORMALIZED.get(plot_type, "nF2")
 
     def _draw_confidence_ellipse(self, x, y, ax, n_std=2.0, **kwargs):
         try:

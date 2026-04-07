@@ -53,7 +53,7 @@ jobs:
         shell: bash
         run: |
           if [[ "${{ runner.os }}" == "Windows" ]]; then
-            uv run pyinstaller --noconfirm --onefile --windowed --icon=icon.ico --name=GichanFormant main.py
+            uv run pyinstaller --noconfirm --onefile --windowed --icon=assets/icon.ico --name=GichanFormant main.py
           else
             # For macOS, PySide6 needs --collect-all for full Qt framework bundling
             uv run pyinstaller --noconfirm --windowed --name=GichanFormant --collect-all PySide6 main.py

@@ -21,14 +21,15 @@ AppPublisher={#MyAppPublisher}
 DefaultDirName={autopf}\{#MyAppName}
 UninstallDisplayIcon={app}\{#MyAppExeName}
 
-InfoAfterFile={#MyOutputDir}\complete.txt
+; 완료 페이지 본문: 컴파일 시점에 이 경로에서 읽어 설치기에 포함됨 (OutputDir과 무관)
+InfoAfterFile={#MyBasePath}\complete.txt
 
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 
 OutputDir={#MyOutputDir}
 OutputBaseFilename={#MyAppName}_v{#MyAppVersion}_Setup
-SetupIconFile={#MyBasePath}\icon.ico
+SetupIconFile={#MyBasePath}\assets\icon.ico
 
 ; === UI 및 에셋 설정 ===
 WizardStyle=modern

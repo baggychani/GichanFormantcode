@@ -261,14 +261,7 @@ class MainController:
 
     def _get_x_axis_label(self, plot_type):
         """플롯 타입에 맞는 X축 라벨 문자열 반환."""
-        x_axis_labels = {
-            "f1_f2": "F2",
-            "f1_f3": "F3",
-            "f1_f2_prime": "F2'",
-            "f1_f2_minus_f1": "F2 - F1",
-            "f1_f2_prime_minus_f1": "F2' - F1",
-        }
-        return x_axis_labels.get(plot_type, "X-Axis")
+        return config.PLOT_X_AXIS_LABEL.get(plot_type, "X-Axis")
 
     def _get_axis_units_from_params(self, plot_params):
         """플롯 파라미터에서 F1/F2 단위를 계산해 반환."""
@@ -609,7 +602,11 @@ class MainController:
                 "f1_f2_prime_minus_f1": "F2'-F1",
             }
             x_name = x_names.get(params["type"], "F2")
-            line2 = f"F1({f1_scale.capitalize()}, {u1}) / {x_name}({f2_scale.capitalize()}, {u2})"
+            disp_f1, disp_f2 = self.ui.get_display_scale_for_preview()
+            line2 = (
+                f"F1({disp_f1.capitalize()}, {u1}) / "
+                f"{x_name}({disp_f2.capitalize()}, {u2})"
+            )
             outlier_mode = self.ui.get_outlier_mode()
             if outlier_mode == "1sigma":
                 line2 += " / 이상치 제거 : 1σ"

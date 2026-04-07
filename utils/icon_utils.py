@@ -17,13 +17,16 @@ ICON_BASE64 = "AAABAAEAAAAAAAEAIABz9QAAFgAAAIlQTkcNChoKAAAADUlIRFIAAAEAAAABAAgGA
 def get_icon_path():
     """
     아이콘 파일의 경로를 반환합니다.
-    1. 현재 작업 디렉토리의 icon.ico가 있으면 그 경로를 반환합니다.
-    2. 없으면 Base64 데이터를 임시 파일로 저장하고 그 경로를 반환합니다.
+    1. assets/icon.ico (번들·개발 공통, ASSETS_DIR)
+    2. 프로젝트 루트 icon.ico (구버전 호환)
+    3. 없으면 Base64를 임시 파일로 저장한 경로
     """
-    # 1. 물리 파일 우선 확인 (실행 파일 위치 또는 프로젝트 폴더)
-    project_icon = os.path.join(config.ROOT_DIR, "icon.ico")
-    if os.path.exists(project_icon):
-        return project_icon
+    for project_icon in (
+        os.path.join(config.ASSETS_DIR, "icon.ico"),
+        os.path.join(config.ROOT_DIR, "icon.ico"),
+    ):
+        if os.path.exists(project_icon):
+            return project_icon
 
     # 2. Base64 백업 사용
     temp_dir = tempfile.gettempdir()
@@ -218,7 +221,9 @@ def create_euclidean_icon(size=128, color_hex="#555555"):
     painter.drawLine(int(margin), int(margin), int(margin), int(base_y))
     painter.drawLine(int(margin), int(base_y), int(size - margin), int(base_y))
 
-    line_pen = QPen(QColor(color_hex), 2.5, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap)
+    line_pen = QPen(
+        QColor(color_hex), 2.5, Qt.PenStyle.SolidLine, Qt.PenCapStyle.RoundCap
+    )
     painter.setPen(line_pen)
     x1 = margin + w * 0.22
     y1 = margin + h * 0.62

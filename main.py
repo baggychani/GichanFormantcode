@@ -1,4 +1,4 @@
-﻿# main.py — 진입점
+# main.py — 진입점
 
 import sys
 import platform

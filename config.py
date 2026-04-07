@@ -156,6 +156,24 @@ PLOT_DESCS = {
     ),
 }
 
+# plot_type → 그래프·표·눈금자 등에 쓰는 축 표시 이름 (한 곳에서만 수정)
+PLOT_X_AXIS_LABEL = {
+    "f1_f2": "F2",
+    "f1_f3": "F3",
+    "f1_f2_prime": "F2'",
+    "f1_f2_minus_f1": "F2 - F1",
+    "f1_f2_prime_minus_f1": "F2' - F1",
+}
+PLOT_X_AXIS_LABEL_NORMALIZED = {
+    "f1_f2": "nF2",
+    "f1_f3": "nF3",
+    "f1_f2_prime": "nF2'",
+    "f1_f2_minus_f1": "nF2 - nF1",
+    "f1_f2_prime_minus_f1": "nF2' - nF1",
+}
+PLOT_Y_AXIS_LABEL = "F1"
+PLOT_Y_AXIS_LABEL_NORMALIZED = "nF1"
+
 
 # =============================================================================
 # 6. 축 범위(Range) 기본값 (Hz / Bark)

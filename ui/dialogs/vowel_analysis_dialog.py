@@ -22,7 +22,12 @@ from PySide6.QtGui import QBrush, QColor, QFont, QPen, QKeySequence
 import pandas as pd
 from ui.widgets.pillai_score_page import PillaiScorePage
 from ui.widgets.euclidean_distance_page import EuclideanDistancePage
-from utils.icon_utils import get_app_icon, get_formant_icon, get_pillai_icon, get_euclidean_icon
+from utils.icon_utils import (
+    get_app_icon,
+    get_formant_icon,
+    get_pillai_icon,
+    get_euclidean_icon,
+)
 from utils.math_utils import calc_f2_prime
 from ui.widgets.display_utils import truncate_display_name, MAX_DISPLAY_NAME_LEN
 from utils.vowel_stats import (
@@ -31,6 +36,7 @@ from utils.vowel_stats import (
     calculate_point_distances_from_centroid_bark,
 )
 from utils.vowel_sorting import get_vowel_sort_key
+import config
 
 # 열 너비 (px)
 VOWEL_COL_WIDTH = 58
@@ -95,24 +101,6 @@ class _DataRowVerticalLineDelegate(QStyledItemDelegate):
             painter.restore()
 
 
-# X축 타입 → 표시 라벨 (controller와 동일)
-X_AXIS_LABELS = {
-    "f1_f2": "F2",
-    "f1_f3": "F3",
-    "f1_f2_prime": "F2'",
-    "f1_f2_minus_f1": "F2 - F1",
-    "f1_f2_prime_minus_f1": "F2' - F1",
-}
-# 정규화 시 n 접두사
-X_AXIS_LABELS_NORM = {
-    "f1_f2": "nF2",
-    "f1_f3": "nF3",
-    "f1_f2_prime": "nF2'",
-    "f1_f2_minus_f1": "nF2 - nF1",
-    "f1_f2_prime_minus_f1": "nF2' - nF1",
-}
-
-
 def _build_x_hz(df, plot_type):
     """plot_type에 따라 Hz 단위 X축 벡터 반환. 실패 시 None."""
     if plot_type == "f1_f2":
@@ -161,6 +149,10 @@ def _analysis_base_name(file_name, plot_params, is_pillai=False, is_euclidean=Fa
 class VowelAnalysisDialog(QDialog):
     """모음 상세 분석 결과를 표로 보여주고, 엑셀/CSV 저장을 제공하는 다이얼로그."""
 
+    PAGE_FORMANT = "formant"
+    PAGE_EUCLIDEAN = "euclidean"
+    PAGE_PILLAI = "pillai"
+
     def __init__(
         self,
         parent,
@@ -181,9 +173,11 @@ class VowelAnalysisDialog(QDialog):
         self._normalization = self.fixed_plot_params.get("normalization")
         plot_type = self.fixed_plot_params.get("type", "f1_f2")
         if self._normalization:
-            self._x_axis_label = X_AXIS_LABELS_NORM.get(plot_type, "nF2")
+            self._x_axis_label = config.PLOT_X_AXIS_LABEL_NORMALIZED.get(
+                plot_type, "nF2"
+            )
         else:
-            self._x_axis_label = X_AXIS_LABELS.get(plot_type, "F2")
+            self._x_axis_label = config.PLOT_X_AXIS_LABEL.get(plot_type, "F2")
         self.setWindowTitle(f"Analysis - {title_suffix}")
         self.setMinimumWidth(DIALOG_WIDTH)
         self.setMinimumHeight(460)
@@ -194,7 +188,7 @@ class VowelAnalysisDialog(QDialog):
         self._set_initial_tab()
         self._update_save_buttons_state()  # 초기 상태 반영
         # 탭 변경 시 디폴트(포먼트) 화면으로 리셋
-        self.tabs.currentChanged.connect(lambda: self._switch_page(0))
+        self.tabs.currentChanged.connect(lambda: self._switch_page(self.PAGE_FORMANT))
 
         # 창을 닫을 때 메모리에서 즉시 해제되도록 설정 (Memory Leak 방지)
         self.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
@@ -253,42 +247,48 @@ class VowelAnalysisDialog(QDialog):
         btn_row = QHBoxLayout()
 
         # Page navigation buttons (Bottom Left)
-        self.btn_page_formant = QPushButton()
-        self.btn_page_formant.setIcon(get_formant_icon())
-        self.btn_page_formant.setIconSize(QSize(30, 30))
-        self.btn_page_formant.setFixedSize(40, 36)
-        self.btn_page_formant.setToolTip("포먼트 및 중심-개별 유클리드 거리")
-        self.btn_page_formant.setStyleSheet("""
+        self._page_order = [self.PAGE_FORMANT, self.PAGE_EUCLIDEAN, self.PAGE_PILLAI]
+        self._page_index_by_key = {k: i for i, k in enumerate(self._page_order)}
+        self._page_key_by_index = {i: k for k, i in self._page_index_by_key.items()}
+
+        common_btn_style = """
             QPushButton { background-color: white; border: 1px solid #DCDFE6; border-radius: 4px; }
             QPushButton:hover { background-color: #F5F7FA; border-color: #409EFF; }
-        """)
-        self.btn_page_formant.clicked.connect(lambda: self._switch_page(0))
+        """
 
-        self.btn_page_pillai = QPushButton()
-        self.btn_page_pillai.setIcon(get_pillai_icon())
-        self.btn_page_pillai.setIconSize(QSize(30, 30))
-        self.btn_page_pillai.setFixedSize(40, 36)
-        self.btn_page_pillai.setToolTip("Pillai Score")
-        self.btn_page_pillai.setStyleSheet("""
-            QPushButton { background-color: white; border: 1px solid #DCDFE6; border-radius: 4px; }
-            QPushButton:hover { background-color: #F5F7FA; border-color: #409EFF; }
-        """)
-        self.btn_page_pillai.clicked.connect(lambda: self._switch_page(1))
+        def _make_page_btn(icon, tooltip, page_key):
+            b = QPushButton()
+            b.setIcon(icon)
+            b.setIconSize(QSize(30, 30))
+            b.setFixedSize(40, 36)
+            b.setToolTip(tooltip)
+            b.setStyleSheet(common_btn_style)
+            b.clicked.connect(lambda: self._switch_page(page_key))
+            return b
 
-        self.btn_page_euclidean = QPushButton()
-        self.btn_page_euclidean.setIcon(get_euclidean_icon())
-        self.btn_page_euclidean.setIconSize(QSize(30, 30))
-        self.btn_page_euclidean.setFixedSize(40, 36)
-        self.btn_page_euclidean.setToolTip("무게중심 간 유클리드 거리")
-        self.btn_page_euclidean.setStyleSheet("""
-            QPushButton { background-color: white; border: 1px solid #DCDFE6; border-radius: 4px; }
-            QPushButton:hover { background-color: #F5F7FA; border-color: #409EFF; }
-        """)
-        self.btn_page_euclidean.clicked.connect(lambda: self._switch_page(2))
+        self.btn_page_formant = _make_page_btn(
+            get_formant_icon(),
+            "포먼트 및 중심-개별 유클리드 거리",
+            self.PAGE_FORMANT,
+        )
+        self.btn_page_euclidean = _make_page_btn(
+            get_euclidean_icon(),
+            "무게중심 간 유클리드 거리",
+            self.PAGE_EUCLIDEAN,
+        )
+        self.btn_page_pillai = _make_page_btn(
+            get_pillai_icon(),
+            "Pillai Score",
+            self.PAGE_PILLAI,
+        )
 
-        btn_row.addWidget(self.btn_page_formant)
-        btn_row.addWidget(self.btn_page_pillai)
-        btn_row.addWidget(self.btn_page_euclidean)
+        for key in self._page_order:
+            if key == self.PAGE_FORMANT:
+                btn_row.addWidget(self.btn_page_formant)
+            elif key == self.PAGE_EUCLIDEAN:
+                btn_row.addWidget(self.btn_page_euclidean)
+            elif key == self.PAGE_PILLAI:
+                btn_row.addWidget(self.btn_page_pillai)
 
         btn_row.addStretch()
         self.btn_excel = QPushButton("엑셀 저장")
@@ -311,8 +311,9 @@ class VowelAnalysisDialog(QDialog):
         btn_row.addWidget(self.btn_csv)
         layout.addLayout(btn_row)
 
-    def _switch_page(self, index):
+    def _switch_page(self, page_key):
         """모든 탭의 페이지를 전환합니다."""
+        index = self._page_index_by_key.get(page_key, 0)
         for stack in self._stacked_widgets:
             stack.setCurrentIndex(index)
             # 탭(파일) 전환 시 기존 선택/포커스 초기화
@@ -329,32 +330,19 @@ class VowelAnalysisDialog(QDialog):
             return
 
         stack = self._stacked_widgets[current_tab_idx]
-        if stack.currentIndex() == 0:
+        current_page_key = self._page_key_by_index.get(
+            stack.currentIndex(), self.PAGE_FORMANT
+        )
+        if current_page_key == self.PAGE_FORMANT:
             # Formant 페이지는 항상 활성화
             self.btn_excel.setEnabled(True)
             self.btn_csv.setEnabled(True)
             self.btn_excel.setToolTip("")
             self.btn_csv.setToolTip("")
-        elif stack.currentIndex() == 1:
-            pillai_page = stack.currentWidget()
-            if isinstance(pillai_page, PillaiScorePage):
-                is_valid = pillai_page.selection_count >= 3
-                self.btn_excel.setEnabled(is_valid)
-                self.btn_csv.setEnabled(is_valid)
-                if not is_valid:
-                    msg = "모음을 3개 이상 선택해야 저장할 수 있습니다."
-                    self.btn_excel.setToolTip(msg)
-                    self.btn_csv.setToolTip(msg)
-                else:
-                    self.btn_excel.setToolTip("")
-                    self.btn_csv.setToolTip("")
-            else:
-                self.btn_excel.setEnabled(False)
-                self.btn_csv.setEnabled(False)
         else:
-            euclid_page = stack.currentWidget()
-            if isinstance(euclid_page, EuclideanDistancePage):
-                is_valid = euclid_page.selection_count >= 3
+            page = stack.currentWidget()
+            if isinstance(page, (PillaiScorePage, EuclideanDistancePage)):
+                is_valid = page.selection_count >= 3
                 self.btn_excel.setEnabled(is_valid)
                 self.btn_csv.setEnabled(is_valid)
                 if not is_valid:
@@ -489,7 +477,9 @@ class VowelAnalysisDialog(QDialog):
 
         # Row 0: 빈칸 | F1 또는 nF1 | X축 라벨 | 중심-개별 거리 (정규화 시 (Bark) 생략)
         norm = getattr(self, "_normalization", None)
-        y_label = "nF1" if norm else "F1"
+        y_label = (
+            config.PLOT_Y_AXIS_LABEL_NORMALIZED if norm else config.PLOT_Y_AXIS_LABEL
+        )
         dist_label = "중심-개별 거리" if norm else "중심-개별 거리(Bark)"
         set_header_item(0, 0, "")
         set_header_item(0, 1, y_label)
@@ -548,9 +538,8 @@ class VowelAnalysisDialog(QDialog):
         layout.setSpacing(0)
 
         stack = QStackedWidget()
-        stack.addWidget(table)  # Page 0: Formant Table
+        stack.addWidget(table)  # Page: Formant Table (always index 0 in our order)
 
-        # Page 1: Pillai Score Interactive Page
         pillai_page = PillaiScorePage(
             df,
             x_col="x_norm" if norm else "x_hz",
@@ -558,7 +547,6 @@ class VowelAnalysisDialog(QDialog):
             label_col="Label" if "Label" in df.columns else "label",
         )
         pillai_page.selectionStateChanged.connect(self._update_save_buttons_state)
-        stack.addWidget(pillai_page)
 
         euclid_page = EuclideanDistancePage(
             df,
@@ -568,7 +556,15 @@ class VowelAnalysisDialog(QDialog):
             fixed_plot_params=self.fixed_plot_params,
         )
         euclid_page.selectionStateChanged.connect(self._update_save_buttons_state)
-        stack.addWidget(euclid_page)
+
+        # stack에 추가되는 순서를 _page_order로 통일 (매직넘버 제거)
+        for key in self._page_order:
+            if key == self.PAGE_FORMANT:
+                continue  # table already added
+            if key == self.PAGE_EUCLIDEAN:
+                stack.addWidget(euclid_page)
+            elif key == self.PAGE_PILLAI:
+                stack.addWidget(pillai_page)
 
         layout.addWidget(stack)
         self._stacked_widgets.append(stack)
@@ -600,9 +596,9 @@ class VowelAnalysisDialog(QDialog):
 
         current_tab_idx = self.tabs.currentIndex()
         stack = self._stacked_widgets[current_tab_idx]
-        page_idx = stack.currentIndex()
-        is_pillai = page_idx == 1
-        is_euclidean = page_idx == 2
+        page_key = self._page_key_by_index.get(stack.currentIndex(), self.PAGE_FORMANT)
+        is_euclidean = page_key == self.PAGE_EUCLIDEAN
+        is_pillai = page_key == self.PAGE_PILLAI
 
         if is_pillai:
             # Pillai Score 조합 결과 저장
@@ -697,9 +693,9 @@ class VowelAnalysisDialog(QDialog):
 
         current_tab_idx = self.tabs.currentIndex()
         stack = self._stacked_widgets[current_tab_idx]
-        page_idx = stack.currentIndex()
-        is_pillai = page_idx == 1
-        is_euclidean = page_idx == 2
+        page_key = self._page_key_by_index.get(stack.currentIndex(), self.PAGE_FORMANT)
+        is_euclidean = page_key == self.PAGE_EUCLIDEAN
+        is_pillai = page_key == self.PAGE_PILLAI
 
         if is_pillai:
             # Pillai Score 조합 결과 저장
@@ -828,7 +824,9 @@ def _result_to_dataframe(result, x_axis_label, normalized=False):
     stats = result.get("statistics") or {}
     point_dist = result.get("point_distances") or {}
     vowels = sorted(stats.keys(), key=get_vowel_sort_key)
-    y_pre = "nF1" if normalized else "F1"
+    y_pre = (
+        config.PLOT_Y_AXIS_LABEL_NORMALIZED if normalized else config.PLOT_Y_AXIS_LABEL
+    )
     dist_mean_col = "중심-개별 거리 평균" if normalized else "중심-개별 거리(Bark) 평균"
     dist_sd_col = "중심-개별 거리 SD" if normalized else "중심-개별 거리(Bark) SD"
     rows = []

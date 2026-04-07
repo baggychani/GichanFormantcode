@@ -250,7 +250,8 @@ class EuclideanDistancePage(QWidget):
         self.multi_table.setCurrentCell(-1, -1)
         self.multi_table.setShowGrid(True)
         self.multi_table.setGridStyle(Qt.PenStyle.SolidLine)
-        self.multi_table.setStyleSheet("""
+        self.multi_table.setStyleSheet(
+            """
             QTableWidget {
                 border: 1px solid #E4E7ED;
                 background-color: transparent;
@@ -261,7 +262,9 @@ class EuclideanDistancePage(QWidget):
             QTableWidget::item:hover, QTableWidget::item:selected {
                 background-color: #F5F9FF;
             }
-        """ + MODERN_SCROLLBAR_STYLE)
+        """
+            + MODERN_SCROLLBAR_STYLE
+        )
         multi_layout.addWidget(self.multi_table)
         self.result_stack.addWidget(self.multi_page)
 

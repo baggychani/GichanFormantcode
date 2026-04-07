@@ -87,12 +87,18 @@ class UpdateManager(QObject):
             body = data.get("body", "")
 
             app_logger.debug(
-                f"[UpdateManager] Current: {current_version}, Latest: {latest_version}"
+                "[UpdateManager] 버전 비교: "
+                f"앱={current_version}, GitHub 최신 릴리스 태그={latest_tag!r} "
+                f"(비교용 문자열={latest_version!r})"
             )
 
             if self._is_newer(current_version, latest_version):
-                app_logger.debug("[UpdateManager] New version detected!")
+                app_logger.debug(
+                    "[UpdateManager] 릴리스가 앱보다 높음 → 업데이트 알림을 띄웁니다."
+                )
                 self.update_available.emit(latest_version, html_url, body)
+            else:
+                app_logger.debug("[UpdateManager] 업데이트 없음: 최신 릴리스가 앱보다 높지 않습니다.")
 
         except Exception as e:
             app_logger.debug(

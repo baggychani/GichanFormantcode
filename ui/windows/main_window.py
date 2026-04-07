@@ -175,6 +175,7 @@ class MainUI(QMainWindow):
         self.main_v_layout.setSpacing(8)
 
         _report("Building Workspace...")
+        self._integer_bark_scale_backup = None
         self._build_top_workspace()
         _report("Readying System Logs...")
         self._build_bottom_log()
@@ -183,7 +184,7 @@ class MainUI(QMainWindow):
         self.f1_scale_group.buttonClicked.connect(self._on_scale_changed)
         self.f2_scale_group.buttonClicked.connect(self._on_scale_changed)
         self.origin_group.buttonClicked.connect(self._draw_preview)
-        self.chk_bark_units.stateChanged.connect(self._draw_preview)
+        self.chk_bark_units.toggled.connect(self._on_bark_units_toggled)
         self.plot_type_group.buttonClicked.connect(self._on_plot_type_changed)
         self.outlier_group.buttonClicked.connect(self._on_outlier_changed)
 
@@ -373,8 +374,14 @@ class MainUI(QMainWindow):
         chk_layout = QHBoxLayout(chk_container)
         chk_layout.setContentsMargins(6, 0, 0, 0)  # 6px 왼쪽 여백
         chk_layout.setSpacing(0)
-        self.chk_bark_units = QCheckBox("정수 Bark 단위 눈금 사용")
+        self.chk_bark_units = QCheckBox("Bark를 표시 단위로 사용")
         self.chk_bark_units.setFont(QFont(self.ui_font_name, 8))
+        self.chk_bark_units.setStyleSheet(
+            """
+            QCheckBox { color: #333333; }
+            QCheckBox:disabled { color: #bbbbbb; }
+            """
+        )
         chk_layout.addWidget(self.chk_bark_units)
         scale_grid.addWidget(chk_container, 3, 1, 1, 3)
 
@@ -584,17 +591,61 @@ class MainUI(QMainWindow):
         self.lbl_x_axis.setText(lbl_map.get(ptype, "X-Axis Scale"))
         _, desc_text = config.PLOT_DESCS.get(ptype, ("", ""))
         self.lbl_plot_desc.setText(desc_text)
-        self._draw_preview()
-
-    def _on_scale_changed(self, btn):
         self._update_bark_checkbox_state()
         self._draw_preview()
 
+    def _on_scale_changed(self, btn):
+        if self.chk_bark_units.isChecked():
+            self._apply_integer_bark_display_and_lock()
+        self._draw_preview()
+
+    def _set_all_scale_buttons_enabled(self, enabled: bool):
+        for b in self.f1_scale_group.buttons():
+            b.setEnabled(enabled)
+        for b in self.f2_scale_group.buttons():
+            b.setEnabled(enabled)
+
+    def _apply_integer_bark_display_and_lock(self):
+        """정수 Bark 모드: 화면상 스케일은 Linear+Linear로 고정, 버튼 비활성."""
+        self.f1_scale_group.blockSignals(True)
+        self.f2_scale_group.blockSignals(True)
+        self.f1_scale_group.buttons()[0].setChecked(True)
+        self.f2_scale_group.buttons()[0].setChecked(True)
+        self.f1_scale_group.blockSignals(False)
+        self.f2_scale_group.blockSignals(False)
+        self._set_all_scale_buttons_enabled(False)
+
+    def _release_integer_bark_lock_and_restore_scales(self):
+        self._set_all_scale_buttons_enabled(True)
+        if self._integer_bark_scale_backup:
+            f1v, f2v = self._integer_bark_scale_backup
+            self.f1_scale_group.blockSignals(True)
+            self.f2_scale_group.blockSignals(True)
+            for b in self.f1_scale_group.buttons():
+                b.setChecked(b.property("val") == f1v)
+            for b in self.f2_scale_group.buttons():
+                b.setChecked(b.property("val") == f2v)
+            self.f1_scale_group.blockSignals(False)
+            self.f2_scale_group.blockSignals(False)
+        self._integer_bark_scale_backup = None
+
+    def _on_bark_units_toggled(self, checked: bool):
+        if checked:
+            b1 = self.f1_scale_group.checkedButton()
+            b2 = self.f2_scale_group.checkedButton()
+            self._integer_bark_scale_backup = (
+                b1.property("val") if b1 else "linear",
+                b2.property("val") if b2 else "linear",
+            )
+            self._apply_integer_bark_display_and_lock()
+        else:
+            self._release_integer_bark_lock_and_restore_scales()
+        self._draw_preview()
+
     def _update_bark_checkbox_state(self):
-        active = self.get_f1_scale() == "bark" and self.get_f2_scale() == "bark"
-        self.chk_bark_units.setEnabled(active)
-        if not active:
-            self.chk_bark_units.setChecked(False)
+        """플롯 타입 변경 등 이후에도 정수 Bark 모드면 스케일 잠금 유지."""
+        if self.chk_bark_units.isChecked():
+            self._apply_integer_bark_display_and_lock()
 
     def toggle_f3_options(self, has_f3):
         has_files = self.controller.get_plot_data_count() > 0
@@ -614,16 +665,31 @@ class MainUI(QMainWindow):
         return self.plot_type_group.checkedButton().property("val")
 
     def get_f1_scale(self):
-        return self.f1_scale_group.checkedButton().property("val")
+        if self.chk_bark_units.isChecked():
+            return "bark"
+        btn = self.f1_scale_group.checkedButton()
+        return btn.property("val") if btn else "linear"
 
     def get_f2_scale(self):
-        return self.f2_scale_group.checkedButton().property("val")
+        if self.chk_bark_units.isChecked():
+            return "bark"
+        btn = self.f2_scale_group.checkedButton()
+        return btn.property("val") if btn else "linear"
 
     def get_origin(self):
         return self.origin_group.checkedButton().property("val")
 
     def get_use_bark_units(self):
         return self.chk_bark_units.isChecked()
+
+    def get_display_scale_for_preview(self):
+        """LIVE 하단 문구용: AXIS SCALES 버튼에 보이는 스케일(linear/log/bark)."""
+        b1 = self.f1_scale_group.checkedButton()
+        b2 = self.f2_scale_group.checkedButton()
+        return (
+            b1.property("val") if b1 else "linear",
+            b2.property("val") if b2 else "linear",
+        )
 
     def get_outlier_mode(self):
         """이상치 제거 모드: None(해제), '1sigma', '2sigma'"""
@@ -654,6 +720,11 @@ class MainUI(QMainWindow):
         )
 
     def reset_ui_state(self):
+        self.chk_bark_units.blockSignals(True)
+        self.chk_bark_units.setChecked(False)
+        self.chk_bark_units.blockSignals(False)
+        self._integer_bark_scale_backup = None
+        self._set_all_scale_buttons_enabled(True)
         self.plot_type_group.buttons()[0].setChecked(True)
         self.f1_scale_group.buttons()[0].setChecked(True)
         self.f2_scale_group.buttons()[2].setChecked(True)
@@ -662,7 +733,6 @@ class MainUI(QMainWindow):
             for b in self.outlier_group.buttons():
                 b.setChecked(False)
         self._on_plot_type_changed(self.plot_type_group.buttons()[0])
-        self._update_bark_checkbox_state()
         self._set_settings_locked(True)
         self.update_file_status(0)
         self._draw_preview()

@@ -3,6 +3,7 @@
 import logging
 import numpy as np
 import platform
+import config
 from PySide6.QtCore import Qt
 from utils.math_utils import hz_to_bark
 
@@ -496,34 +497,15 @@ class RulerTool:
         plot_type = self.params.get("type", "f1_f2")
 
         if is_norm:
-            y_name = "nF1"
-            x_name = {
-                "f1_f2": "nF2",
-                "f1_f3": "nF3",
-                "f1_f2_prime": "nF2'",
-                "f1_f2_minus_f1": "nF2 - nF1",
-                "f1_f2_prime_minus_f1": "nF2' - nF1",
-            }.get(plot_type, "nF2")
+            y_name = config.PLOT_Y_AXIS_LABEL_NORMALIZED
+            x_name = config.PLOT_X_AXIS_LABEL_NORMALIZED.get(plot_type, "nF2")
             val_y, val_x = pt["y"], pt["x"]
         else:
-            y_name = "F1"
+            y_name = config.PLOT_Y_AXIS_LABEL
             val_y = convert(f1_orig)
             # 비정규화: pt["x"]/["y"]는 linear/log/bark 스케일 적용 후 좌표이므로 Hz 표기에 쓰면 안 됨
-            if plot_type == "f1_f2_minus_f1":
-                x_name = "F2 - F1"
-                val_x = convert(x_hz_orig)
-            elif plot_type == "f1_f3":
-                x_name = "F3"
-                val_x = convert(x_hz_orig)
-            elif plot_type == "f1_f2_prime":
-                x_name = "F2'"
-                val_x = convert(x_hz_orig)
-            elif plot_type == "f1_f2_prime_minus_f1":
-                x_name = "F2' - F1"
-                val_x = convert(x_hz_orig)
-            else:
-                x_name = "F2"
-                val_x = convert(x_hz_orig)
+            x_name = config.PLOT_X_AXIS_LABEL.get(plot_type, "F2")
+            val_x = convert(x_hz_orig)
 
         if is_norm:
             info_text = f"[{label}]\n{y_name}: {val_y:.4g}\n{x_name}: {val_x:.4g}"
