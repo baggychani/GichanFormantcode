@@ -250,24 +250,31 @@ jobs:
       - name: List release files
         run: find dist-upload -type f | sort
 
-      - name: Create Release on deploy repo (앱 업데이트·배포용)
-        uses: softprops/action-gh-release@v2
-        with:
-          token: ${{ secrets.DEPLOY_REPO_TOKEN }}
-          repository: baggychani/GichanFormant
-          tag_name: ${{ needs.prepare.outputs.tag }}
-          name: GichanFormant ${{ needs.prepare.outputs.version }}
-          # 다른 레포일 때 generate_release_notes 는 GITHUB_TOKEN(통합)으로 API 호출 → 403
-          generate_release_notes: false
-          body: |
-            ## GichanFormant ${{ needs.prepare.outputs.version }}
+      - name: Create Release on deploy repo (gh CLI, PAT only)
+        env:
+          GH_TOKEN: ${{ secrets.DEPLOY_REPO_TOKEN }}
+        run: |
+          set -euo pipefail
+          TAG="${{ needs.prepare.outputs.tag }}"
+          VER="${{ needs.prepare.outputs.version }}"
+          REPO="baggychani/GichanFormant"
+          mapfile -t FILES < <(find dist-upload -type f \( -name '*.exe' -o -name '*.zip' \))
+          if [ "${#FILES[@]}" -eq 0 ]; then
+            echo "::error::dist-upload 에 exe/zip 이 없습니다."
+            exit 1
+          fi
+          echo "Uploading ${#FILES[@]} file(s) to ${REPO} ${TAG}"
+          if gh release view "$TAG" --repo "$REPO" >/dev/null 2>&1; then
+            gh release delete "$TAG" --repo "$REPO" --yes --cleanup-tag
+          fi
+          gh release create "$TAG" "${FILES[@]}" \
+            --repo "$REPO" \
+            --title "GichanFormant ${VER}" \
+            --notes "## GichanFormant ${VER}
 
-            - Windows: `*_Setup.exe`, portable zip
-            - macOS: arm64 / Intel zip
-          files: dist-upload/**/*
-          fail_on_unmatched_files: true
-          overwrite: true
-          make_latest: true
+          - Windows: Setup.exe, portable zip
+          - macOS: arm64 / Intel zip" \
+            --latest
 
   publish-code-repo:
     name: Publish → GichanFormantcode (optional)

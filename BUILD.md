@@ -90,6 +90,9 @@ uv run python scripts/sync_version.py --check
 - **Publish → baggychani/GichanFormant** job이 배포 레포에 `v2.3.4.2` + exe/zip 4개를 올립니다.  
 - 코드 레포에도 올리려면 Run workflow 시 **「코드 레포에도 Release」** 체크 (기본 끔).
 
+**중요:** 실패한 run에서 **Re-run failed jobs** 를 누르면 **옛 워크플로 파일**로 다시 돌아갑니다.  
+수정 반영 후에는 반드시 **Actions → Release → Run workflow** 로 **새 run** 을 시작하세요.
+
 **다운로드**
 
 - 사용자·업데이트: [GichanFormant Releases](https://github.com/baggychani/GichanFormant/releases)  
