@@ -252,15 +252,22 @@ jobs:
 
       - name: Create Release on deploy repo (앱 업데이트·배포용)
         uses: softprops/action-gh-release@v2
-        env:
-          GITHUB_TOKEN: ${{ secrets.DEPLOY_REPO_TOKEN }}
         with:
+          token: ${{ secrets.DEPLOY_REPO_TOKEN }}
           repository: baggychani/GichanFormant
           tag_name: ${{ needs.prepare.outputs.tag }}
           name: GichanFormant ${{ needs.prepare.outputs.version }}
-          generate_release_notes: true
+          # 다른 레포일 때 generate_release_notes 는 GITHUB_TOKEN(통합)으로 API 호출 → 403
+          generate_release_notes: false
+          body: |
+            ## GichanFormant ${{ needs.prepare.outputs.version }}
+
+            - Windows: `*_Setup.exe`, portable zip
+            - macOS: arm64 / Intel zip
           files: dist-upload/**/*
           fail_on_unmatched_files: true
+          overwrite: true
+          make_latest: true
 
   publish-code-repo:
     name: Publish → GichanFormantcode (optional)
