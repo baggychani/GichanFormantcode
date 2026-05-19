@@ -54,9 +54,7 @@ uv run python scripts/sync_version.py --check
 2. 테스트
 3. **Windows**: onedir 빌드 → **Inno Setup 설치 프로그램** + portable zip
 4. **macOS**: arm64 / Intel 각각 `.app` zip
-5. 이 레포(**GichanFormantcode**)에 GitHub Release 생성·첨부
-
-**다운로드**: Actions 실행 완료 → **Artifacts** 또는 **Releases**
+5. **배포 레포** [baggychani/GichanFormant](https://github.com/baggychani/GichanFormant) 에 GitHub Release·바이너리 자동 업로드 (설정 시)
 
 | Artifacts / Release 파일 | 설명 |
 |------------------------|------|
@@ -65,11 +63,37 @@ uv run python scripts/sync_version.py --check
 | `GichanFormant-macos-arm64-vX.Y.Z.W.zip` | Apple Silicon |
 | `GichanFormant-macos-intel-vX.Y.Z.W.zip` | Intel Mac |
 
-### 사용자 배포 레포
+태그 이름은 `v` + `APP_VERSION` (예: `v2.3.4.2`)과 맞추세요.  
+앱 내 자동 업데이트(`config.GITHUB_*`)도 **GichanFormant** Releases를 봅니다.
 
-자동 업데이트 API는 [baggychani/**GichanFormant**](https://github.com/baggychani/GichanFormant) Releases를 봅니다.  
-code 레포 Release를 그대로 쓰거나, Setup/zip을 **GichanFormant** Releases에 다시 올리면 됩니다.  
-태그 이름은 `v` + `APP_VERSION` (예: `v2.3.4.2`)과 맞추세요.
+### 배포 레포 자동 업로드 (코드 레포 ≠ 배포 레포)
+
+| 레포 | 용도 |
+|------|------|
+| **GichanFormantcode** (비공개 권장) | 소스·CI·빌드 |
+| **[baggychani/GichanFormant](https://github.com/baggychani/GichanFormant)** | 실행 파일만 공개·배포 |
+
+기본 `GITHUB_TOKEN`은 **다른 레포에 Release를 만들 수 없습니다.**  
+배포 레포 전용 **PAT**를 코드 레포 Secrets에 넣어야 합니다.
+
+**1회 설정**
+
+1. GitHub → **Settings** → **Developer settings** → **Fine-grained tokens** → Generate  
+2. **Repository access**: Only **GichanFormant**  
+3. **Permissions**: **Contents** → Read and write  
+4. **GichanFormantcode** → Settings → Secrets and variables → Actions → **New secret**  
+   - Name: `DEPLOY_REPO_TOKEN`  
+   - Value: 위 PAT
+
+**Release 실행 시**
+
+- **Publish → baggychani/GichanFormant** job이 배포 레포에 `v2.3.4.2` + exe/zip 4개를 올립니다.  
+- 코드 레포에도 올리려면 Run workflow 시 **「코드 레포에도 Release」** 체크 (기본 끔).
+
+**다운로드**
+
+- 사용자·업데이트: [GichanFormant Releases](https://github.com/baggychani/GichanFormant/releases)  
+- 개발자 백업: Actions **Artifacts** (code 레포)
 
 ---
 

@@ -12,10 +12,15 @@ on:
         required: false
         type: string
       create_github_release:
-        description: "GitHub Release에 바이너리 업로드"
+        description: "배포 레포 baggychani/GichanFormant 에 Release·바이너리 업로드 (권장)"
         required: false
         type: boolean
         default: true
+      publish_to_code_repo:
+        description: "(선택) 코드 레포(GichanFormantcode)에도 Release 업로드"
+        required: false
+        type: boolean
+        default: false
 
 permissions:
   contents: write
@@ -211,14 +216,26 @@ jobs:
           name: ${{ matrix.artifact }}-release
           path: ${{ matrix.artifact }}-v*.zip
 
-  github-release:
-    name: Publish GitHub Release
+  publish-deploy:
+    name: Publish → baggychani/GichanFormant
     needs: [prepare, build-windows, build-macos]
     runs-on: ubuntu-latest
     if: >-
-      (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v'))
-      || (github.event_name == 'workflow_dispatch' && inputs.create_github_release)
+      needs.prepare.result == 'success' &&
+      needs.build-windows.result == 'success' &&
+      needs.build-macos.result == 'success' &&
+      (
+        (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v'))
+        || (github.event_name == 'workflow_dispatch' && inputs.create_github_release)
+      )
     steps:
+      - name: Require deploy repo token
+        run: |
+          if [ -z "${{ secrets.DEPLOY_REPO_TOKEN }}" ]; then
+            echo "::error::Secrets에 DEPLOY_REPO_TOKEN 이 없습니다. BUILD.md 의 배포 레포 자동 업로드 절을 참고하세요."
+            exit 1
+          fi
+
       - uses: actions/download-artifact@v6
         with:
           pattern: "*-release"
@@ -232,6 +249,40 @@ jobs:
 
       - name: List release files
         run: find dist-upload -type f | sort
+
+      - name: Create Release on deploy repo (앱 업데이트·배포용)
+        uses: softprops/action-gh-release@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.DEPLOY_REPO_TOKEN }}
+        with:
+          repository: baggychani/GichanFormant
+          tag_name: ${{ needs.prepare.outputs.tag }}
+          name: GichanFormant ${{ needs.prepare.outputs.version }}
+          generate_release_notes: true
+          files: dist-upload/**/*
+          fail_on_unmatched_files: true
+
+  publish-code-repo:
+    name: Publish → GichanFormantcode (optional)
+    needs: [prepare, build-windows, build-macos]
+    runs-on: ubuntu-latest
+    if: >-
+      needs.prepare.result == 'success' &&
+      needs.build-windows.result == 'success' &&
+      needs.build-macos.result == 'success' &&
+      github.event_name == 'workflow_dispatch' &&
+      inputs.publish_to_code_repo
+    steps:
+      - uses: actions/download-artifact@v6
+        with:
+          pattern: "*-release"
+          merge-multiple: true
+          path: dist-upload
+
+      - uses: actions/download-artifact@v6
+        with:
+          name: windows-release
+          path: dist-upload
 
       - uses: softprops/action-gh-release@v2
         with:
