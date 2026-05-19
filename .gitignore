@@ -250,6 +250,7 @@ compile_*.txt
 # Build and packaging
 dist/
 build/
+release/
 *.spec
 
 # Python env

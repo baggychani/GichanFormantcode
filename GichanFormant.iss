@@ -7,7 +7,10 @@
 
 #define MyAppExeName "GichanFormant.exe" 
 #define MyBasePath SourcePath
-#define MyOutputDir GetEnv("USERPROFILE") + "\Desktop"
+; 로컬: 바탕화면. CI/릴리스: ISCC /DMyOutputDir="...\release" 로 덮어씀
+#ifndef MyOutputDir
+  #define MyOutputDir GetEnv("USERPROFILE") + "\Desktop"
+#endif
 #define MyBuildDir "dist\GichanFormant"
 
 #define VCLStyle "light.vsf"

@@ -1,4 +1,4 @@
-name: CI/CD
+name: CI
 
 on:
   push:
@@ -10,75 +10,92 @@ on:
   workflow_dispatch:
 
 jobs:
+  test:
+    name: Test & version check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version-file: .python-version
+
+      - uses: astral-sh/setup-uv@v7
+
+      - run: uv sync --locked --all-extras --dev
+
+      - name: Version files match config.APP_VERSION
+        run: uv run python scripts/sync_version.py --check
+
+      - name: Pytest
+        run: uv run pytest tests/ -q
+
   build:
-    name: Build for ${{ matrix.os }} (${{ matrix.arch }})
+    name: Build (${{ matrix.label }})
+    needs: test
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
         include:
           - os: windows-latest
-            arch: x86_64
+            label: windows-x64
             artifact_name: GichanFormant-windows-x64
-          - os: macos-15-intel # Intel Mac
-            arch: x86_64
+          - os: macos-15-intel
+            label: macos-intel
             artifact_name: GichanFormant-macos-intel
-          - os: macos-latest # Apple Silicon Mac
-            arch: arm64
+          - os: macos-latest
+            label: macos-arm64
             artifact_name: GichanFormant-macos-arm64
 
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v6
+      - uses: actions/checkout@v6
 
-      - name: Set up Python
-        uses: actions/setup-python@v6
+      - uses: actions/setup-python@v6
         with:
           python-version-file: .python-version
 
-      - name: Install uv
-        uses: astral-sh/setup-uv@v7
+      - uses: astral-sh/setup-uv@v7
 
-      - name: Install the project
-        run: uv sync --locked --all-extras --dev
+      - run: uv sync --locked --all-extras --dev
 
-      - name: Run tests
-        run: uv run python -m unittest discover tests
+      - name: Sync iss / info.txt from config
+        run: uv run python scripts/sync_version.py
 
       - name: Set Short SHA
         shell: bash
         run: echo "SHORT_SHA=$(git rev-parse --short HEAD)" >> $GITHUB_ENV
 
-      - name: Build executable
-        shell: bash
-        run: |
-          if [[ "${{ runner.os }}" == "Windows" ]]; then
-            uv run pyinstaller --noconfirm --onefile --windowed --icon=assets/icon.ico --name=GichanFormant main.py
-          else
-            # For macOS, PySide6 needs --collect-all for full Qt framework bundling
-            uv run pyinstaller --noconfirm --windowed --name=GichanFormant --collect-all PySide6 main.py
-          fi
-
-      - name: Package artifacts (Windows)
+      - name: Build (Windows onedir)
         if: runner.os == 'Windows'
-        shell: bash
+        shell: pwsh
         run: |
-          # The binary is in dist/GichanFormant.exe
-          mv dist/GichanFormant.exe ${{ matrix.artifact_name }}.exe
+          uv run pyinstaller --noconfirm --windowed `
+            --icon=assets/icon.ico `
+            --name=GichanFormant `
+            --version-file=info.txt `
+            --collect-all PySide6 `
+            --add-data "assets;assets" `
+            main.py
+          Compress-Archive -Path "dist\GichanFormant\*" `
+            -DestinationPath "${{ matrix.artifact_name }}-${env:SHORT_SHA}.zip" -Force
 
-      - name: Package artifacts (macOS)
+      - name: Build (macOS)
         if: runner.os == 'macOS'
         shell: bash
         run: |
-          # The .app is in dist/GichanFormant.app
+          uv run pyinstaller --noconfirm --windowed \
+            --name=GichanFormant \
+            --version-file=info.txt \
+            --collect-all PySide6 \
+            --add-data "assets:assets" \
+            main.py
           cd dist
-          # Use ditto to preserve symlinks and app bundle integrity
-          ditto -c -k --sequesterRsrc --keepParent GichanFormant.app ../${{ matrix.artifact_name }}.zip
+          ditto -c -k --sequesterRsrc --keepParent GichanFormant.app \
+            "../${{ matrix.artifact_name }}-${SHORT_SHA}.zip"
           cd ..
 
-      - name: Upload Artifacts
-        uses: actions/upload-artifact@v6
+      - uses: actions/upload-artifact@v6
         with:
           name: ${{ matrix.artifact_name }}-${{ env.SHORT_SHA }}
-          path: |
-            ${{ matrix.artifact_name }}.*
+          path: ${{ matrix.artifact_name }}-*

@@ -1,0 +1,224 @@
+# 태그 push 또는 수동 실행 → 테스트 → Win/mac 빌드 → GitHub Release 게시
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "릴리스 버전 (비우면 config.APP_VERSION 사용, 예: 2.3.4.2)"
+        required: false
+        type: string
+      create_github_release:
+        description: "GitHub Release에 바이너리 업로드"
+        required: false
+        type: boolean
+        default: true
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  prepare:
+    name: Version sync & validate
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.out.outputs.version }}
+      tag: ${{ steps.out.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: astral-sh/setup-uv@v7
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version-file: .python-version
+
+      - name: Resolve version
+        id: out
+        shell: bash
+        run: |
+          if [[ "${{ github.event_name }}" == "push" && "${{ github.ref }}" == refs/tags/v* ]]; then
+            VER="${GITHUB_REF#refs/tags/v}"
+          elif [[ -n "${{ inputs.version }}" ]]; then
+            VER="${{ inputs.version }}"
+          else
+            VER=$(uv run python -c "import re; t=open('config.py',encoding='utf-8').read(); print(re.search(r'APP_VERSION = \"([^\"]+)\"', t).group(1))")
+          fi
+          echo "version=${VER}" >> "$GITHUB_OUTPUT"
+          echo "tag=v${VER}" >> "$GITHUB_OUTPUT"
+          echo "Resolved version: ${VER}"
+
+      - name: Sync version files from config / tag
+        run: uv run python scripts/sync_version.py --set "${{ steps.out.outputs.version }}"
+
+      - name: Verify version consistency
+        run: uv run python scripts/sync_version.py --check
+
+      - name: Upload synced metadata
+        uses: actions/upload-artifact@v6
+        with:
+          name: version-metadata
+          path: |
+            config.py
+            GichanFormant.iss
+            info.txt
+            complete.txt
+            pyproject.toml
+
+  test:
+    name: Tests
+    needs: prepare
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: astral-sh/setup-uv@v7
+      - uses: actions/setup-python@v6
+        with:
+          python-version-file: .python-version
+      - run: uv sync --locked --all-extras --dev
+      - run: uv run pytest tests/ -q
+
+  build-windows:
+    name: Windows (Setup + portable)
+    needs: [prepare, test]
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Download synced version files
+        uses: actions/download-artifact@v6
+        with:
+          name: version-metadata
+
+      - uses: astral-sh/setup-uv@v7
+      - uses: actions/setup-python@v6
+        with:
+          python-version-file: .python-version
+
+      - run: uv sync --locked --all-extras --dev
+
+      - name: PyInstaller (onedir, Inno Setup 호환)
+        shell: pwsh
+        run: |
+          uv run pyinstaller --noconfirm --windowed `
+            --icon=assets/icon.ico `
+            --name=GichanFormant `
+            --version-file=info.txt `
+            --collect-all PySide6 `
+            --add-data "assets;assets" `
+            main.py
+          if (-not (Test-Path "dist\GichanFormant\GichanFormant.exe")) {
+            throw "PyInstaller output not found at dist\GichanFormant\GichanFormant.exe"
+          }
+
+      - name: Install Inno Setup
+        run: choco install innosetup -y --no-progress
+
+      - name: Compile installer
+        shell: pwsh
+        env:
+          VERSION: ${{ needs.prepare.outputs.version }}
+        run: |
+          New-Item -ItemType Directory -Force -Path release | Out-Null
+          $iscc = "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe"
+          if (-not (Test-Path $iscc)) { throw "ISCC.exe not found: $iscc" }
+          & $iscc "/DMyOutputDir=$PWD\release" "GichanFormant.iss"
+          $setup = Get-ChildItem -Path release -Filter "GichanFormant_v${env:VERSION}_Setup.exe" | Select-Object -First 1
+          if (-not $setup) { throw "Setup exe not found under release\" }
+          Write-Host "Built installer: $($setup.FullName)"
+
+      - name: Zip portable onedir
+        shell: pwsh
+        run: |
+          Compress-Archive -Path "dist\GichanFormant\*" -DestinationPath "GichanFormant-windows-x64-portable-v${{ needs.prepare.outputs.version }}.zip" -Force
+
+      - uses: actions/upload-artifact@v6
+        with:
+          name: windows-release
+          path: |
+            release/GichanFormant_v*_Setup.exe
+            GichanFormant-windows-x64-portable-v*.zip
+
+  build-macos:
+    name: macOS (${{ matrix.label }})
+    needs: [prepare, test]
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest
+            label: arm64
+            artifact: GichanFormant-macos-arm64
+          - os: macos-15-intel
+            label: intel
+            artifact: GichanFormant-macos-intel
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/download-artifact@v6
+        with:
+          name: version-metadata
+
+      - uses: astral-sh/setup-uv@v7
+      - uses: actions/setup-python@v6
+        with:
+          python-version-file: .python-version
+
+      - run: uv sync --locked --all-extras --dev
+
+      - name: PyInstaller
+        env:
+          VERSION: ${{ needs.prepare.outputs.version }}
+        run: |
+          uv run pyinstaller --noconfirm --windowed \
+            --name=GichanFormant \
+            --version-file=info.txt \
+            --collect-all PySide6 \
+            --add-data "assets:assets" \
+            main.py
+          cd dist
+          ditto -c -k --sequesterRsrc --keepParent GichanFormant.app "../${{ matrix.artifact }}-v${VERSION}.zip"
+          cd ..
+
+      - uses: actions/upload-artifact@v6
+        with:
+          name: ${{ matrix.artifact }}-release
+          path: ${{ matrix.artifact }}-v*.zip
+
+  github-release:
+    name: Publish GitHub Release
+    needs: [prepare, build-windows, build-macos]
+    runs-on: ubuntu-latest
+    if: >-
+      (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v'))
+      || (github.event_name == 'workflow_dispatch' && inputs.create_github_release)
+    steps:
+      - uses: actions/download-artifact@v6
+        with:
+          pattern: "*-release"
+          merge-multiple: true
+          path: dist-upload
+
+      - uses: actions/download-artifact@v6
+        with:
+          name: windows-release
+          path: dist-upload
+
+      - name: List release files
+        run: find dist-upload -type f | sort
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ needs.prepare.outputs.tag }}
+          name: GichanFormant ${{ needs.prepare.outputs.version }}
+          generate_release_notes: true
+          files: dist-upload/**/*
+          fail_on_unmatched_files: true
