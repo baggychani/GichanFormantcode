@@ -43,6 +43,76 @@ def calc_f2_prime(
 
 
 # ---------------------------------------------------------
+# 모음 라벨 정규화 (한글 → 음성학 코드 매핑)
+# ---------------------------------------------------------
+
+# 한글 단모음/이중모음 → IPA/로마자 모음 코드.
+# Lobanov/Gerstman/Nearey1는 라벨에 무관하지만, Watt&Fabricius(2mW&F)는
+# 코너 모음 'i', 'a' 라벨이 필요하므로 한글 라벨도 음성학적 코드로 매핑합니다.
+# 이중모음은 단순 활음(j/w) + 단모음 결합으로 표기해 'a', 'i' 등과 섞이지 않도록 합니다.
+KOREAN_TO_PHONETIC_VOWEL = {
+    "ㅏ": "a",
+    "ㅑ": "ja",
+    "ㅓ": "ʌ",
+    "ㅕ": "jʌ",
+    "ㅗ": "o",
+    "ㅛ": "jo",
+    "ㅜ": "u",
+    "ㅠ": "ju",
+    "ㅡ": "ɯ",
+    "ㅣ": "i",
+    "ㅔ": "e",
+    "ㅖ": "je",
+    "ㅐ": "æ",
+    "ㅒ": "jæ",
+    "ㅟ": "y",
+    "ㅚ": "ø",
+    "ㅘ": "wa",
+    "ㅝ": "wʌ",
+    "ㅙ": "wæ",
+    "ㅞ": "we",
+    "ㅢ": "ɰi",
+}
+
+
+def to_phonetic_vowel(label) -> str:
+    """라벨 → 음성학적 모음 코드 (W&F 정규화 등에서 'i', 'a' 코너 모음 식별용).
+
+    한글 모음은 KOREAN_TO_PHONETIC_VOWEL 매핑을 사용하고,
+    그 외 문자열은 strip() 후 lower() 결과를 그대로 사용합니다.
+    """
+    if label is None:
+        return ""
+    s = str(label).strip()
+    if not s:
+        return ""
+    if s in KOREAN_TO_PHONETIC_VOWEL:
+        return KOREAN_TO_PHONETIC_VOWEL[s]
+    return s.lower()
+
+
+# ---------------------------------------------------------
+# F3 종속 플롯 필터 (F3 값이 없는 행은 F3 기반 플롯에서 제외)
+# ---------------------------------------------------------
+
+# 계산식에 F3가 필요한 플롯 타입들. F3=NaN(측정 없음) 행은 이 플롯들에서 제외해야 한다.
+F3_REQUIRED_PLOT_TYPES = frozenset({"f1_f3", "f1_f2_prime", "f1_f2_prime_minus_f1"})
+
+
+def filter_for_plot_type(df, plot_type):
+    """plot_type 계산에 필요한 컬럼이 모두 유효한 행만 남긴 DataFrame을 반환한다.
+
+    - F3 종속 플롯에서 F3가 NaN인 행은 제외한다 (F3=0 → NaN으로 변환된 행 포함).
+    - 그 외 플롯에서는 df를 그대로 반환한다.
+    """
+    if df is None or df.empty:
+        return df
+    if plot_type in F3_REQUIRED_PLOT_TYPES and "F3" in df.columns:
+        return df.dropna(subset=["F3"])
+    return df
+
+
+# ---------------------------------------------------------
 # 정규화 알고리즘 (Normalization Methods)
 # ---------------------------------------------------------
 
@@ -233,11 +303,28 @@ def remove_outliers_mahalanobis(df, plot_type, sigma_option):
     모음 라벨별로 마할라노비스 거리 기반 이상치 제거.
     - sigma_option: '1sigma' (68.27% 유지, 상위 ~31.73% 컷오프) 또는 '2sigma' (95.45% 유지, 상위 ~4.55% 컷오프).
     - 라벨당 5개 미만이면 해당 라벨은 건너뛰고 원본 유지.
+    - F3 종속 플롯에서는 F3=NaN(측정 없음) 행은 이상치 판정 대상에서 제외하되,
+      원본 df에서는 해당 행을 유지한다 (F1/F2 플롯용).
     반환: (filtered_df, total_removed_count, per_label_removed_dict, meta_dict).
       * per_label_removed_dict: {label: removed_count}
       * meta_dict: {"labels_too_small": set([...]), "labels_tested": set([...])}
     """
-    xy_df, y_col, x_col = _ensure_xy_columns(df, plot_type)
+    if df is None or df.empty:
+        return (
+            df.copy() if df is not None else df,
+            0,
+            {},
+            {
+                "labels_too_small": set(),
+                "labels_tested": set(),
+            },
+        )
+
+    df_work = filter_for_plot_type(df, plot_type)
+    if df_work is None or df_work.empty:
+        return df.copy(), 0, {}, {"labels_too_small": set(), "labels_tested": set()}
+
+    xy_df, y_col, x_col = _ensure_xy_columns(df_work, plot_type)
     if xy_df is None or y_col is None or x_col is None:
         return df.copy(), 0, {}, {"labels_too_small": set(), "labels_tested": set()}
 
@@ -281,7 +368,8 @@ def remove_outliers_mahalanobis(df, plot_type, sigma_option):
             idx_in_df = group.index
             keep_mask[idx_in_df] = ~remove_in_group
 
-    filtered_df = df.loc[keep_mask].copy()
-    total_removed = int((~keep_mask).sum())
+    drop_indices = df_work.index[~keep_mask]
+    filtered_df = df.drop(index=drop_indices, errors="ignore").copy()
+    total_removed = int(len(drop_indices))
     meta = {"labels_too_small": labels_too_small, "labels_tested": labels_tested}
     return filtered_df, total_removed, per_label_removed, meta

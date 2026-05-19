@@ -1,6 +1,7 @@
 # data_processor.py
 
 import pandas as pd
+import numpy as np
 import os
 
 import config
@@ -8,6 +9,11 @@ from utils import app_logger
 
 # 텍스트 파일 로드 시 시도할 인코딩 순서 (UTF-16 BOM, UTF-8, 한글 Windows, 기타)
 ENCODINGS = ["utf-8", "utf-16", "utf-16-le", "utf-16-be", "cp949", "euc-kr", "latin-1"]
+
+# 마지막 열을 라벨로 쓸 때, 값의 절반 이상이 숫자로 파싱되면 라벨 열이 아닌 것으로 본다.
+_LABEL_NUMERIC_RATIO_MAX = 0.5
+# F3 열 후보: 100Hz를 넘는 값이 하나라도 있어야 F3로 인정 (기존 휴리스틱 유지)
+_F3_MIN_HZ_HINT = 100
 
 
 def _read_csv_with_encoding(path):
@@ -26,6 +32,48 @@ def _read_csv_with_encoding(path):
     raise ValueError("파일을 읽을 수 있는 인코딩을 찾지 못했습니다.")
 
 
+def _extract_label_series(col_data: pd.Series) -> pd.Series | None:
+    """마지막 열에서 모음 라벨 문자열을 추출한다.
+
+    - /모음/ 형식이 있으면 내부 기호만 사용 (공식 가이드 형식).
+    - 그 외 짧은 비숫자 텍스트(o, u, ɯ, ㅏ 등)도 인식한다 (편의; 가이드 문구는 변경하지 않음).
+    - 열 값의 과반이 숫자로 파싱되면 라벨 열이 아닌 것으로 보고 None을 반환한다.
+    """
+    str_data = col_data.astype(str).str.strip()
+    str_data = str_data.replace({"nan": "", "None": "", "<NA>": ""})
+
+    nonempty = str_data[str_data != ""]
+    if nonempty.empty:
+        return None
+
+    numeric_ratio = pd.to_numeric(nonempty, errors="coerce").notna().mean()
+    if numeric_ratio > _LABEL_NUMERIC_RATIO_MAX:
+        return None
+
+    if str_data.str.contains(r"/.+/", regex=True).any():
+        extracted = str_data.str.extract(r"/([^/]+)/")[0]
+        labels = extracted.fillna(str_data).str.strip()
+    else:
+        labels = str_data
+
+    labels = labels.replace("", np.nan)
+    if labels.notna().sum() == 0:
+        return None
+    return labels
+
+
+def _try_parse_f3_column(col_data: pd.Series) -> pd.Series | None:
+    """중간 열이 F3인지 판별하고, 0은 측정 없음(NaN)으로 변환한 Series를 반환한다."""
+    numeric_data = pd.to_numeric(col_data, errors="coerce")
+    if not numeric_data.notna().all():
+        return None
+    if not (numeric_data > _F3_MIN_HZ_HINT).any():
+        return None
+    f3 = numeric_data.astype(float)
+    f3 = f3.mask(f3 == 0, np.nan)
+    return f3
+
+
 class DataProcessor:
     def __init__(self):
         # 전체 병합된 포먼트 데이터 (F1, F2, F3, Label 등)
@@ -40,7 +88,8 @@ class DataProcessor:
         열의 위치(Index)를 기준으로 포먼트 데이터를 엄격하게 매핑합니다.
         - Col 0: F1
         - Col 1: F2
-        - Col 2: F3 (단, 유효 조건 충족 시)
+        - Col 2 ~ 마지막-1: F3 후보(첫 번째로 인정되는 숫자 열)
+        - 마지막 Col: 모음 라벨(IPA 등)
         """
         dfs = []
         errors = []
@@ -83,10 +132,10 @@ class DataProcessor:
             self.df_all["F1"] = self.df_all["F1"].astype(float)
             self.df_all["F2"] = self.df_all["F2"].astype(float)
 
-            # 유효한 F3 데이터가 존재하는 경우 타입 변환 및 상태 업데이트
+            # 유효한 F3 값(측정 있음)이 하나라도 있을 때만 F3 사용 가능
             if "F3" in self.df_all.columns:
                 self.df_all["F3"] = self.df_all["F3"].astype(float)
-                self.has_f3 = True
+                self.has_f3 = bool(self.df_all["F3"].notna().any())
             else:
                 self.has_f3 = False
 
@@ -98,7 +147,8 @@ class DataProcessor:
         """
         데이터프레임의 열을 분석하여 포먼트 및 라벨을 추출합니다.
         - Col 0: F1, Col 1: F2 (필수)
-        - Col 2~: 순서대로 첫 번째 숫자 열은 F3(선택), 첫 번째 /.../ 패턴 열은 라벨로 인식. F4 등 추가 포먼트는 지원하지 않음.
+        - 마지막 열: 모음 라벨 (/.../ 또는 짧은 IPA·한글 기호)
+        - 그 사이 열: 순서대로 첫 F3 후보 열만 F3로 사용 (F3=0 → NaN, 측정 없음)
         반환: (결과 DataFrame 또는 None, 실패 시 오류 메시지 또는 None, 제거된 행 리포트 또는 None)
         """
         # 분석에 필요한 최소 열 개수 검증
@@ -121,60 +171,50 @@ class DataProcessor:
 
         # 2. 결과 데이터프레임 초기화
         final_df = pd.DataFrame()
-        final_df["F1"] = f1_numeric[valid_idx]
-        final_df["F2"] = f2_numeric[valid_idx]
+        final_df["F1"] = f1_numeric[valid_idx].astype(float).values
+        final_df["F2"] = f2_numeric[valid_idx].astype(float).values
 
-        # 3. F3 및 Label 탐색
-        remaining_cols = range(2, len(df.columns))
-        found_f3 = False
-        found_label = False
+        ncols = len(df.columns)
+        label_col_idx = ncols - 1 if ncols >= 3 else None
 
-        for i in remaining_cols:
-            col_data = df.iloc[:, i]
+        # 3. F3: 마지막 열 직전까지 순서대로 첫 후보만
+        if label_col_idx is not None and label_col_idx > 2:
+            for i in range(2, label_col_idx):
+                f3_series = _try_parse_f3_column(df.iloc[:, i])
+                if f3_series is not None:
+                    final_df["F3"] = f3_series.values
+                    break
 
-            # 숫자형 데이터 검증
-            numeric_data = pd.to_numeric(col_data, errors="coerce")
-            is_numeric = numeric_data.notna().all()
+        # 4. 라벨: 마지막 열 (열이 3개 이상일 때만; 2열 파일은 라벨 열 없음)
+        if label_col_idx is not None:
+            labels = _extract_label_series(df.iloc[:, label_col_idx])
+            if labels is not None:
+                final_df["Label"] = labels.values
 
-            if is_numeric and not found_f3:
-                # 음향 데이터의 특성을 반영하여 100Hz 초과 값 존재 여부로 실제 F3 판단
-                if (numeric_data > 100).any():
-                    final_df["F3"] = numeric_data
-                    found_f3 = True
-
-            elif not found_label:
-                # 라벨 패턴 정규식 매칭 (/Label/ 형식)
-                str_data = col_data.astype(str)
-                if str_data.str.contains(r"/.+/").any():
-                    extracted = str_data.str.extract(r"/([^/]+)/")[0]
-                    final_df["Label"] = extracted.str.strip()
-                    found_label = True
-
-        # 라벨 열이 발견되지 않은 경우 기본값 할당
         if "Label" not in final_df.columns:
             final_df["Label"] = "Unknown"
 
-        # 라벨이 누락된 행 제거
         final_df.dropna(subset=["Label"], inplace=True)
 
         # ------------------------------------------------------------------
-        # F1>0, F1<F2, (F3 존재 시) F2<F3 및 F3>0 조건을 만족하지 않는 행 제거
-        # 제거된 행에 대해서는 라벨별 누락 개수를 drop_report로 반환한다.
+        # F1>0, F2>F1 필수.
+        # F3가 유효한 행(>0, >F2)만 F3 조건 적용; F3=NaN(측정 없음) 행은 F1·F2만 검사.
         # ------------------------------------------------------------------
         drop_report = None
         if not final_df.empty:
+            base_ok = (final_df["F1"] > 0) & (final_df["F2"] > final_df["F1"])
+
             if "F3" in final_df.columns:
-                cond = (
-                    (final_df["F1"] > 0)
-                    & (final_df["F2"] > final_df["F1"])
-                    & (final_df["F3"] > final_df["F2"])
-                    & (final_df["F3"] > 0)
+                f3_valid = final_df["F3"].notna()
+                f3_ok = (
+                    f3_valid & (final_df["F3"] > 0) & (final_df["F3"] > final_df["F2"])
                 )
+                cond = base_ok & ((~f3_valid) | f3_ok)
             else:
-                cond = (final_df["F1"] > 0) & (final_df["F2"] > final_df["F1"])
+                cond = base_ok
+
             invalid_rows = final_df[~cond]
             if not invalid_rows.empty:
-                # 라벨별 누락 개수 집계
                 drop_report = invalid_rows["Label"].value_counts().to_dict()
             final_df = final_df[cond]
 

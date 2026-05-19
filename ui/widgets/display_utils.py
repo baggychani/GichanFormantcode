@@ -27,6 +27,14 @@ def truncate_display_name(name: str, max_len: int = MAX_DISPLAY_NAME_LEN) -> str
     return name[: max_len - 3] + "..."
 
 
+def apply_file_indicator_style(label, data_item) -> None:
+    """플롯 상단 n/m 파일 인디케이터 라벨 스타일. Combined는 강조색."""
+    if data_item and data_item.get("is_combined"):
+        label.setStyleSheet("color: #409EFF; font-weight: bold; border: none;")
+    else:
+        label.setStyleSheet("color: #1976D2; border: none;")
+
+
 def format_file_label(
     n: int, m: int, name: str, max_len: int = MAX_FILE_LABEL_LEN
 ) -> str:

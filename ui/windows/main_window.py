@@ -493,11 +493,17 @@ class MainUI(QMainWindow):
     def update_file_status(self, count):
         self.lbl_file_count.setText(f"Loaded Files (Total: {count})")
         self.table_files.setRowCount(0)
+        # 파일 테이블은 실제 화자 파일만 보여준다 (Combined는 파생 항목이므로 제외).
+        # row(시각 행 번호)와 i(plot_data_list 인덱스, 삭제용)는 항상 일치하지만
+        # 방어적으로 분리해서 관리한다.
+        row = 0
         for i, data in enumerate(self.controller.get_plot_data_list()):
-            self.table_files.insertRow(i)
+            if data.get("is_combined"):
+                continue
+            self.table_files.insertRow(row)
             item = QTableWidgetItem(data["name"])
             item.setFlags(item.flags() ^ Qt.ItemFlag.ItemIsEditable)
-            self.table_files.setItem(i, 0, item)
+            self.table_files.setItem(row, 0, item)
 
             btn_del = QPushButton("×")
             btn_del.setFixedSize(22, 22)
@@ -516,7 +522,8 @@ class MainUI(QMainWindow):
             h_layout.addWidget(btn_del)
             h_layout.setContentsMargins(0, 0, 0, 0)
             h_layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            self.table_files.setCellWidget(i, 1, container)
+            self.table_files.setCellWidget(row, 1, container)
+            row += 1
 
         self._set_settings_locked(count == 0)
 

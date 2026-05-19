@@ -46,7 +46,11 @@ from ui.widgets.tool_indicator import ToolStatusIndicator
 from ui.widgets.layer_dock import LayerDockWidget
 from draw import DrawModeIndicator
 import ui.widgets.layout_constants as layout
-from ui.widgets.display_utils import format_file_label
+from ui.widgets.display_utils import (
+    apply_file_indicator_style,
+    format_file_label,
+    strip_gichan_prefix,
+)
 from utils.math_utils import hz_to_bark, bark_to_hz
 
 
@@ -379,6 +383,8 @@ class PlotPopup(BasePlotWindow):
             and len(plot_data_snapshot) >= 1
         ):
             self.btn_vowel_analysis.setEnabled(True)
+        if plot_data_snapshot and 0 <= current_idx < len(plot_data_snapshot):
+            self._update_combined_txt_export_visibility(plot_data_snapshot[current_idx])
 
     def set_draw_result(self, snapping_data, label_data, label_text_artists, plot_key):
         """draw_plot 직후 호출. 스냅/라벨/플롯키를 명시적으로 주입."""
@@ -618,6 +624,7 @@ class PlotPopup(BasePlotWindow):
         font_normal = QFont(self.ui_font_name, 9)
 
         nav_group = QVBoxLayout()
+        nav_group.setSpacing(8)
         self.lbl_info = QLabel("Loading...")
         self.lbl_info.setFont(font_bold)
         self.lbl_info.setStyleSheet("color: #1976D2; border: none;")
@@ -625,6 +632,7 @@ class PlotPopup(BasePlotWindow):
         nav_group.addWidget(self.lbl_info)
 
         btn_h = QHBoxLayout()
+        btn_h.setSpacing(6)
         self.btn_prev = QPushButton("◀ 이전")
         self.btn_next = QPushButton("다음 ▶")
 
@@ -646,6 +654,40 @@ class PlotPopup(BasePlotWindow):
         btn_h.addWidget(self.btn_prev)
         btn_h.addWidget(self.btn_next)
         nav_group.addLayout(btn_h)
+
+        self._combined_export_block = QWidget()
+        export_block_layout = QVBoxLayout(self._combined_export_block)
+        export_block_layout.setContentsMargins(0, 2, 0, 0)
+        export_block_layout.setSpacing(0)
+        self.btn_export_combined_txt = QPushButton("Combined txt 저장")
+        self.btn_export_combined_txt.setFixedHeight(30)
+        font_export = QFont(self.ui_font_name, 8)
+        self.btn_export_combined_txt.setFont(font_export)
+        self.btn_export_combined_txt.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.btn_export_combined_txt.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self.btn_export_combined_txt.setToolTip(
+            "합쳐진 포먼트 데이터를 GichanFormant 입력 형식(.txt)으로 저장합니다."
+        )
+        self._combined_export_btn_style = """
+            QPushButton {
+                background-color: #FAFBFC;
+                border: 1px solid #E4E7ED;
+                border-radius: 4px;
+                color: #606266;
+                padding: 0 10px;
+            }
+            QPushButton:hover {
+                background-color: #F5F7FA;
+                color: #409EFF;
+                border-color: #DCDFE6;
+            }
+        """
+        self.btn_export_combined_txt.setStyleSheet(self._combined_export_btn_style)
+        self.btn_export_combined_txt.clicked.connect(self._on_export_combined_txt)
+        export_block_layout.addWidget(self.btn_export_combined_txt)
+        self._combined_export_block.setVisible(False)
+        nav_group.addWidget(self._combined_export_block)
+
         layout.addLayout(nav_group)
 
         self.line1 = QFrame()
@@ -974,13 +1016,31 @@ class PlotPopup(BasePlotWindow):
         self._design_timer.start(150)
 
     def _update_window_title(self, file_name):
-        base = f"Plot Result - {file_name}"
+        base = f"Plot Result - {strip_gichan_prefix(file_name)}"
         mode = self.controller.get_outlier_mode()
         if mode == "1sigma":
             base += " (이상치 제거 : 1σ)"
         elif mode == "2sigma":
             base += " (이상치 제거 : 2σ)"
         self.setWindowTitle(base)
+
+    def _update_combined_txt_export_visibility(self, data_item=None):
+        block = getattr(self, "_combined_export_block", None)
+        if block is None:
+            return
+        if data_item is None:
+            data_list = (
+                getattr(self, "plot_data_snapshot", None)
+                or self.controller.get_plot_data_list()
+            )
+            idx = getattr(self, "current_idx", self.controller.get_current_index())
+            data_item = (
+                data_list[idx] if data_list and 0 <= idx < len(data_list) else {}
+            )
+        block.setVisible(bool(data_item.get("is_combined")))
+
+    def _on_export_combined_txt(self):
+        self.controller.prompt_save_combined_txt(parent_window=self, parent_widget=self)
 
     def _safe_cancel_ruler_or_draw(self):
         if self._is_input_focused():
@@ -1196,6 +1256,8 @@ class PlotPopup(BasePlotWindow):
         self.lbl_info.setText(
             format_file_label(idx + 1, len(data_list), current_data["name"])
         )
+        apply_file_indicator_style(self.lbl_info, current_data)
+        self._update_combined_txt_export_visibility(current_data)
 
         if self.filter_panel is not None and self.filter_panel.isVisible():
             self.filter_panel.close()

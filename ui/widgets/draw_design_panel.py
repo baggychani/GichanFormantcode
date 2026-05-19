@@ -11,8 +11,9 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import Qt, QSize, Signal
 from PySide6.QtGui import QFont, QCursor
 
-from ui.widgets.design_panel import ToggleSwitch, ColorPalette
-from ui.widgets.icon_widgets import LinePreviewButton, create_trajectory_icon
+from ui.widgets.design_panel import ToggleSwitch, ColorPalette, _field_caption
+from ui.widgets.icon_widgets import create_trajectory_icon
+from ui.widgets.segmented_control import create_line_preview_button_group
 
 
 # design_panel / layer_dock 과 동일한 선 스타일 매핑을 사용한다.
@@ -49,38 +50,12 @@ class DrawDesignPanel(QWidget):
         실선 / 긴 점선 / 짧은 점선 선택용 시각 버튼 그룹을 생성한다.
         반환값: (frame_widget, button_group)
         """
-        group = QButtonGroup(parent)
-
-        frame = QFrame()
-        frame.setStyleSheet(
-            "QFrame { background-color: white; border: 1px solid #DCDFE6; border-radius: 4px; }"
-        )
-        layout = QHBoxLayout(frame)
-        layout.setContentsMargins(2, 2, 2, 2)
-        layout.setSpacing(0)
-
-        # design_panel / layer_dock 의 스타일 정의를 그대로 따른다.
         options = [
             (2.0, Qt.PenStyle.SolidLine, "4px 0 0 4px", "실선"),
             (2.0, Qt.PenStyle.DashLine, "0px", "긴 점선"),
             (2.0, Qt.PenStyle.DotLine, "0 4px 4px 0", "짧은 점선"),
         ]
-
-        for i, opt in enumerate(options):
-            w, s, r, tooltip = opt
-            btn = LinePreviewButton(
-                line_width=w,
-                line_style=s,
-                radius_css=r,
-                tooltip=tooltip,
-            )
-            btn.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
-            group.addButton(btn, i)
-            layout.addWidget(btn)
-
-        if group.button(default_idx) is not None:
-            group.button(default_idx).setChecked(True)
-        return frame, group
+        return create_line_preview_button_group(parent, options, default_idx)
 
     def _add_separator(self, layout):
         line = QFrame()
@@ -105,7 +80,7 @@ class DrawDesignPanel(QWidget):
         # 선 타입
         row_style = QVBoxLayout()
         row_style.setSpacing(4)
-        row_style.addWidget(QLabel("선 타입:", font=font_normal))
+        row_style.addWidget(_field_caption("선 타입", font_normal))
         frame, group = self._create_line_style_group(page, default_idx=0)
         row_style.addWidget(frame)
         layout.addLayout(row_style)
@@ -113,7 +88,7 @@ class DrawDesignPanel(QWidget):
         # 화살표 타입 (2줄 구성: 1줄=none/end/all, 2줄=stealth/open/latex)
         arrow_mode_layout = QVBoxLayout()
         arrow_mode_layout.setSpacing(4)
-        arrow_mode_layout.addWidget(QLabel("화살표 타입:", font=font_normal))
+        arrow_mode_layout.addWidget(_field_caption("화살표 타입", font_normal))
         arrow_mode_frame = QFrame()
         arrow_mode_frame.setStyleSheet(
             "QFrame { background-color: white; border: 1px solid #DCDFE6; border-radius: 4px; }"
@@ -173,7 +148,7 @@ class DrawDesignPanel(QWidget):
         # 선 색상 (투명 불가)
         color_layout = QVBoxLayout()
         color_layout.setSpacing(6)
-        color_layout.addWidget(QLabel("선 색상:", font=font_normal))
+        color_layout.addWidget(_field_caption("선 색상", font_normal))
         color_picker = ColorPalette(
             default_color="#000000", allow_transparent=False, parent=page
         )
@@ -248,7 +223,7 @@ class DrawDesignPanel(QWidget):
         # 외곽선 타입
         row_style = QVBoxLayout()
         row_style.setSpacing(4)
-        row_style.addWidget(QLabel("외곽선 타입:", font=font_normal))
+        row_style.addWidget(_field_caption("외곽선 타입", font_normal))
         frame_style, group_style = self._create_line_style_group(page, default_idx=0)
         row_style.addWidget(frame_style)
         layout.addLayout(row_style)
@@ -256,7 +231,7 @@ class DrawDesignPanel(QWidget):
         # 외곽선 색상 (투명 불가)
         border_color_layout = QVBoxLayout()
         border_color_layout.setSpacing(6)
-        border_color_layout.addWidget(QLabel("외곽선 색상:", font=font_normal))
+        border_color_layout.addWidget(_field_caption("외곽선 색상", font_normal))
         border_color_picker = ColorPalette(
             default_color="#000000", allow_transparent=False, parent=page
         )
@@ -266,7 +241,7 @@ class DrawDesignPanel(QWidget):
         # 영역 내부 색상 (투명 허용, 기본값은 실제 폴리곤 기본 색상과 유사한 파란색)
         fill_color_layout = QVBoxLayout()
         fill_color_layout.setSpacing(6)
-        fill_color_layout.addWidget(QLabel("영역 내부 색상:", font=font_normal))
+        fill_color_layout.addWidget(_field_caption("영역 내부 색상", font_normal))
         fill_color_picker = ColorPalette(
             default_color="#3366CC", allow_transparent=True, parent=page
         )
@@ -297,7 +272,7 @@ class DrawDesignPanel(QWidget):
         # 참조선 타입
         row_style = QVBoxLayout()
         row_style.setSpacing(4)
-        row_style.addWidget(QLabel("참조선 타입:", font=font_normal))
+        row_style.addWidget(_field_caption("참조선 타입", font_normal))
         frame_style, group_style = self._create_line_style_group(page, default_idx=0)
         row_style.addWidget(frame_style)
         layout.addLayout(row_style)
@@ -305,7 +280,7 @@ class DrawDesignPanel(QWidget):
         # 참조선 색상 (투명 불가, 기본 회색)
         color_layout = QVBoxLayout()
         color_layout.setSpacing(6)
-        color_layout.addWidget(QLabel("참조선 색상:", font=font_normal))
+        color_layout.addWidget(_field_caption("참조선 색상", font_normal))
         color_picker = ColorPalette(
             default_color="#AAAAAA", allow_transparent=False, parent=page
         )

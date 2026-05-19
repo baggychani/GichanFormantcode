@@ -65,13 +65,58 @@ class TestParseFixedColumns(unittest.TestCase):
         self.assertEqual(len(result_df), 3)
 
     def test_success_no_label_gets_unknown(self):
-        """라벨 열이 없으면 Label='Unknown'으로 채워진 DataFrame 반환."""
+        """열 2개만 있으면 라벨 열이 없어 Label='Unknown'으로 채움."""
         df = pd.DataFrame({0: [300, 400], 1: [2000, 1800]})
         result_df, error, drop_report = self.processor._parse_fixed_columns(df)
         self.assertIsNone(error)
         self.assertIsNotNone(result_df)
         self.assertIn("Label", result_df.columns)
         self.assertTrue((result_df["Label"] == "Unknown").all())
+
+    def test_plain_label_last_column(self):
+        """마지막 열의 슬래시 없는 IPA 기호를 라벨로 인식."""
+        df = pd.DataFrame(
+            {
+                0: [300.0, 325.0],
+                1: [700.0, 800.0],
+                2: ["o", "u"],
+            }
+        )
+        result_df, error, _ = self.processor._parse_fixed_columns(df)
+        self.assertIsNone(error)
+        self.assertListEqual(result_df["Label"].tolist(), ["o", "u"])
+
+    def test_f3_zero_kept_with_nan(self):
+        """F3=0은 NaN(측정 없음)으로 두고 F1/F2 조건만 맞으면 행 유지."""
+        df = pd.DataFrame(
+            {
+                0: [300.0, 325.0, 290.0],
+                1: [700.0, 800.0, 950.0],
+                2: [0.0, 2614.2, 0.0],
+                3: ["o", "o", "u"],
+            }
+        )
+        result_df, error, drop_report = self.processor._parse_fixed_columns(df)
+        self.assertIsNone(error)
+        self.assertEqual(len(result_df), 3)
+        self.assertTrue(pd.isna(result_df.loc[0, "F3"]))
+        self.assertFalse(pd.isna(result_df.loc[1, "F3"]))
+        self.assertIsNone(drop_report)
+
+    def test_f1_f2_f3_ipa_four_columns(self):
+        """F1, F2, F3, IPA(마지막 열) 4열 형식."""
+        df = pd.DataFrame(
+            {
+                0: [300.0, 325.0],
+                1: [700.0, 828.0],
+                2: [2500.0, 2614.2],
+                3: ["/o/", "o"],
+            }
+        )
+        result_df, error, _ = self.processor._parse_fixed_columns(df)
+        self.assertIsNone(error)
+        self.assertEqual(len(result_df), 2)
+        self.assertEqual(result_df["Label"].tolist(), ["o", "o"])
 
 
 if __name__ == "__main__":

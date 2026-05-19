@@ -43,7 +43,8 @@ from ui.widgets.layer_logic import (
     compute_order_after_drop,
     get_children_indices,
 )
-from ui.widgets.design_panel import ColorPalette
+from ui.widgets.design_panel import ColorPalette, _field_caption, _wrap_marker_shape_bar
+from ui.widgets.segmented_control import create_line_preview_button_group
 from ui.widgets.draw_design_panel import DrawDesignPanel
 from ui.widgets.layer_data_model import LayerDataModel
 from ui.widgets.label_manager import LabelManager
@@ -56,7 +57,6 @@ from ui.widgets.layer_row_widgets import (
 from ui.widgets.tab_label_view import create_label_tab
 from ui.widgets.tab_draw_view import create_draw_tab
 from ui.widgets.icon_widgets import (
-    LinePreviewButton,
     MarkerShapeButton,
     LayerEyeButton,
     LayerLockButton,
@@ -96,8 +96,8 @@ COLOR_NAMES = {
     "#1976D2": "Blue",
     "#7B1FA2": "Purple",
     "#E91E63": "Pink",
-    "#000000": "Black",
     "#606060": "Dark Gray",
+    "#000000": "Black",
     "#AAAAAA": "Light Gray",
     "#795548": "Brown",
     "#009688": "Teal",
@@ -207,24 +207,7 @@ def _format_color_display(color_hex):
 
 
 def _create_visual_button_group(parent, options, default_idx):
-    group = QButtonGroup(parent)
-    frame = QFrame()
-    frame.setStyleSheet(
-        "QFrame { background-color: white; border: 1px solid #DCDFE6; border-radius: 4px; }"
-    )
-    row_layout = QHBoxLayout(frame)
-    row_layout.setContentsMargins(2, 2, 2, 2)
-    row_layout.setSpacing(0)
-    for i, opt in enumerate(options):
-        w, s, r, tooltip = opt[:4]
-        dash = opt[4] if len(opt) > 4 else None
-        btn = LinePreviewButton(
-            line_width=w, line_style=s, radius_css=r, tooltip=tooltip, dash_pattern=dash
-        )
-        group.addButton(btn, i)
-        row_layout.addWidget(btn)
-    group.button(default_idx).setChecked(True)
-    return frame, group
+    return create_line_preview_button_group(parent, options, default_idx)
 
 
 class LayerDockWidget(QWidget):
@@ -340,7 +323,7 @@ class LayerDockWidget(QWidget):
         top_layout.addWidget(QLabel("라벨과 중심점", font=font_bold))
         color_layout = QVBoxLayout()
         color_layout.setSpacing(6)
-        color_layout.addWidget(QLabel("라벨 텍스트 색상:", font=font_normal))
+        color_layout.addWidget(_field_caption("라벨 텍스트 색상", font_normal))
         self.lbl_color_picker = ColorPalette(
             default_color=config.COLOR_PRIMARY_RED,
             allow_transparent=True,
@@ -350,13 +333,9 @@ class LayerDockWidget(QWidget):
         top_layout.addLayout(color_layout)
         centroid_layout = QVBoxLayout()
         centroid_layout.setSpacing(4)
-        lbl_centroid = QLabel("모음 중심점 모양:", font=font_normal)
-        lbl_centroid.setMinimumWidth(120)
-        centroid_layout.addWidget(lbl_centroid)
-        centroid_row = QHBoxLayout()
-        centroid_row.setSpacing(0)
-        centroid_row.addStretch()
+        centroid_layout.addWidget(_field_caption("모음 중심점 모양", font_normal))
         self.group_centroid_marker = QButtonGroup(self.vowel_design_container)
+        centroid_btns = []
         for i, (mk, tip) in enumerate(
             [
                 ("o", "원"),
@@ -371,11 +350,23 @@ class LayerDockWidget(QWidget):
         ):
             btn = MarkerShapeButton(mk, tooltip=tip)
             self.group_centroid_marker.addButton(btn, i)
-            centroid_row.addWidget(btn)
-        centroid_row.addStretch()
-        centroid_layout.addLayout(centroid_row)
+            centroid_btns.append(btn)
+        centroid_layout.addWidget(
+            _wrap_marker_shape_bar(centroid_btns, self.vowel_design_container)
+        )
         self.group_centroid_marker.button(0).setChecked(True)
         top_layout.addLayout(centroid_layout)
+
+        raw_color_layout = QVBoxLayout()
+        raw_color_layout.setSpacing(6)
+        raw_color_layout.addWidget(_field_caption("데이터 포인트 색상", font_normal))
+        self.raw_color_picker = ColorPalette(
+            default_color="#606060",
+            allow_transparent=False,
+            parent=self.vowel_design_container,
+        )
+        raw_color_layout.addWidget(self.raw_color_picker)
+        top_layout.addLayout(raw_color_layout)
 
         line1 = QFrame()
         line1.setFrameShape(QFrame.Shape.HLine)
@@ -401,13 +392,13 @@ class LayerDockWidget(QWidget):
         )
         ell_type_row = QVBoxLayout()
         ell_type_row.setSpacing(4)
-        ell_type_row.addWidget(QLabel("타원 선 타입:", font=font_normal))
+        ell_type_row.addWidget(_field_caption("타원 선 타입", font_normal))
         ell_type_row.addWidget(thick_frame)
         ell_type_row.addWidget(style_frame)
         top_layout.addLayout(ell_type_row)
         ell_line_color_layout = QVBoxLayout()
         ell_line_color_layout.setSpacing(6)
-        ell_line_color_layout.addWidget(QLabel("타원 선 색상:", font=font_normal))
+        ell_line_color_layout.addWidget(_field_caption("타원 선 색상", font_normal))
         self.ell_color_picker = ColorPalette(
             default_color="#606060",
             allow_transparent=True,
@@ -417,7 +408,7 @@ class LayerDockWidget(QWidget):
         top_layout.addLayout(ell_line_color_layout)
         ell_fill_layout = QVBoxLayout()
         ell_fill_layout.setSpacing(6)
-        ell_fill_layout.addWidget(QLabel("타원 내부 색상:", font=font_normal))
+        ell_fill_layout.addWidget(_field_caption("타원 내부 색상", font_normal))
         self.ell_fill_picker = ColorPalette(
             default_color="transparent",
             allow_transparent=True,
@@ -598,6 +589,9 @@ class LayerDockWidget(QWidget):
                     else None
                 ),
             )
+        )
+        self.raw_color_picker.color_changed.connect(
+            make_apply("raw_color", lambda: self.raw_color_picker.current_color)
         )
 
         def on_centroid_toggled():
@@ -2307,6 +2301,9 @@ class LayerDockWidget(QWidget):
                 self.ell_fill_picker.set_color(
                     o.get("ell_fill_color") or ds.get("ell_fill_color") or "transparent"
                 )
+                self.raw_color_picker.set_color(
+                    o.get("raw_color") or ds.get("raw_color") or "#606060"
+                )
             else:
                 self.lbl_color_picker.set_color(
                     ds.get("lbl_color", config.COLOR_PRIMARY_RED)
@@ -2318,6 +2315,7 @@ class LayerDockWidget(QWidget):
                 self.ell_fill_picker.set_color(
                     ds.get("ell_fill_color") or "transparent"
                 )
+                self.raw_color_picker.set_color(ds.get("raw_color") or "#606060")
         finally:
             self._updating = False
 
@@ -2332,7 +2330,7 @@ class LayerDockWidget(QWidget):
             return THICK_LABELS.get(value, str(value))
         if key == "ell_style":
             return STYLE_LABELS.get(value, str(value))
-        if key in ["ell_color", "ell_fill_color"]:
+        if key in ["ell_color", "ell_fill_color", "raw_color"]:
             return _format_color_display(value)
         return str(value)[:20]
 
@@ -2344,6 +2342,7 @@ class LayerDockWidget(QWidget):
             "ell_style": "타원 선 모양",
             "ell_color": "타원 선 색",
             "ell_fill_color": "타원 내부 색",
+            "raw_color": "데이터 포인트 색상",
         }
         return labels.get(key, key)
 
@@ -2377,6 +2376,7 @@ class LayerDockWidget(QWidget):
                 "ell_style",
                 "ell_color",
                 "ell_fill_color",
+                "raw_color",
             ]:
                 if key not in o:
                     continue

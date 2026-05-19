@@ -7,6 +7,7 @@ import traceback
 import copy
 from PySide6.QtCore import Qt, QTimer, QStandardPaths
 from PySide6.QtGui import QPixmap
+from PySide6.QtWidgets import QFileDialog, QMessageBox
 from matplotlib.figure import Figure
 
 import config
@@ -14,7 +15,11 @@ from utils import app_logger
 from ui.windows.main_window import MainUI
 from ui.dialogs.file_guide import DataGuidePopup
 from ui.windows.popup_plot import PlotPopup
-from ui.widgets.display_utils import format_file_label
+from ui.widgets.display_utils import (
+    apply_file_indicator_style,
+    format_file_label,
+    strip_gichan_prefix,
+)
 from ui.windows.compare_plot import SelectCompareDialog, ComparePlotPopup
 from ui.dialogs.vowel_analysis_dialog import VowelAnalysisDialog
 from model.data_processor import DataProcessor
@@ -28,7 +33,10 @@ from utils.math_utils import (
     watt_fabricius_normalization,
     bigham_normalization,
     nearey1_normalization,
+    to_phonetic_vowel,
 )
+from model.combined_dataset import build_combined_entry
+from model.formant_txt_export import formant_dataframe_to_txt
 from .workers import BatchSaveWorker
 from utils import path_prefs
 
@@ -59,6 +67,10 @@ class MainController:
                 _loaded_prefs["last_open_dir"]
             ):
                 self.last_open_dir = _loaded_prefs["last_open_dir"]
+            if _loaded_prefs.get("last_save_dir") and os.path.isdir(
+                _loaded_prefs["last_save_dir"]
+            ):
+                self.last_save_dir = _loaded_prefs["last_save_dir"]
         else:
             # context가 없거나 prefs가 없으면 직접 로딩 시도 (폴더가 존재할 때만 반영)
             _prefs_base = QStandardPaths.writableLocation(
@@ -70,6 +82,10 @@ class MainController:
                     _loaded["last_open_dir"]
                 ):
                     self.last_open_dir = _loaded["last_open_dir"]
+                if _loaded.get("last_save_dir") and os.path.isdir(
+                    _loaded["last_save_dir"]
+                ):
+                    self.last_save_dir = _loaded["last_save_dir"]
 
         # PySide6에서는 팝업 창이 가비지 컬렉터(GC)에 의해 증발하는 것을
         # 막기 위해 리스트에 참조를 보관해야 합니다.
@@ -145,8 +161,10 @@ class MainController:
     def on_outlier_mode_changed(self):
         """
         사용자가 이상치 제거 모드(None, 1σ, 2σ)를 변경했을 때의 처리를 담당합니다.
-        1. 변경된 모드에 따라 데이터 프로세서를 통해 이상치를 식별합니다.
-        2. 필터링된 데이터를 각 플롯 데이터 항목에 반영합니다.
+        1. 변경된 모드에 따라 real 화자 항목별로 마할라노비스 기반 이상치를 제거합니다.
+           (Combined는 직접 필터링하지 않고, real 항목들이 갱신된 뒤 그것들로부터 재합성합니다.
+            그래야 '특정 화자의 클러스터 때문에 다른 화자의 정상 토큰이 제거'되는 일이 없습니다.)
+        2. 필터링된 데이터를 각 화자 항목에 반영합니다.
         3. 변경 결과를 로그로 출력하고 실시간 미리보기를 갱신합니다.
         """
         outlier_mode = self.ui.get_outlier_mode()
@@ -157,8 +175,13 @@ class MainController:
         if not self.plot_data_list:
             return
 
+        # Combined는 파생 항목이므로 직접 처리하지 않는다.
+        real_items = [
+            item for item in self.plot_data_list if not item.get("is_combined")
+        ]
+
         # 기존 항목에 df_original이 없으면 현재 df를 원본으로 보존 (호환성)
-        for item in self.plot_data_list:
+        for item in real_items:
             if "df_original" not in item:
                 item["df_original"] = item["df"].copy()
 
@@ -166,8 +189,9 @@ class MainController:
             # 이전에 이상치 제거가 적용되어 있었다면, 해제 로그를 한 번 남긴다.
             if prev_outlier_mode is not None:
                 app_logger.info(config.LOG_MSG["OUTLIER_OFF"])
-            for item in self.plot_data_list:
+            for item in real_items:
                 item["df"] = item["df_original"].copy()
+            self._rebuild_combined_entry()
             self.update_live_preview()
             return
 
@@ -176,7 +200,7 @@ class MainController:
         total_removed = 0
         files_with_small_labels = []
         any_label_tested = False
-        for item in self.plot_data_list:
+        for item in real_items:
             df_orig = item["df_original"]
             filtered_df, n_removed, _, meta = remove_outliers_mahalanobis(
                 df_orig, plot_type, outlier_mode
@@ -199,6 +223,8 @@ class MainController:
         if msg:
             app_logger.info(msg)
 
+        # 필터링된 real 항목들로부터 Combined를 다시 합성
+        self._rebuild_combined_entry()
         self.update_live_preview()
 
     def _refresh_open_popups(self):
@@ -215,7 +241,12 @@ class MainController:
                     app_logger.error(config.LOG_MSG["PLOT_REFRESH_ERROR"].format(e=e))
 
     def _apply_normalization(self, df, norm_name):
-        """Raw Hz DataFrame에 정규화 적용. W/F는 Label을 Vowel로 복사하여 호출."""
+        """Raw Hz DataFrame에 정규화 적용.
+
+        W&F(2mW/F)는 코너 모음 'i', 'a' 식별을 위해 라벨을 음성학 코드(Vowel)로 매핑한 뒤 호출합니다.
+        한글 라벨(ㅏ, ㅣ 등)도 매핑되어 W&F가 무동작이 되는 사일런트 실패를 방지합니다.
+        매핑 후에도 'i' 또는 'a' 토큰이 없으면 경고 로그를 남깁니다(W&F는 적용 불가).
+        """
         if not norm_name or df.empty:
             return df.copy()
         df = df.copy()
@@ -225,13 +256,37 @@ class MainController:
         if norm_name == "Gerstman":
             return gerstman_normalization(df)
         if norm_name == "2mW/F":
-            df["Vowel"] = df[label_col].astype(str).str.strip().str.lower()
+            df["Vowel"] = df[label_col].apply(to_phonetic_vowel)
+            if not (df["Vowel"] == "i").any() or not (df["Vowel"] == "a").any():
+                unique_vowels = sorted(
+                    {v for v in df["Vowel"].astype(str).unique() if v}
+                )
+                app_logger.warning(
+                    "[2mW/F] 코너 모음 'i' 또는 'a' 토큰이 없어 정규화가 적용되지 않았습니다. "
+                    f"(현재 라벨: {unique_vowels[:10]}{' …' if len(unique_vowels) > 10 else ''})"
+                )
             return watt_fabricius_normalization(df, variant="2m")
         if norm_name == "Bigham":
             return bigham_normalization(df)
         if norm_name == "Nearey1":
             return nearey1_normalization(df)
         return df
+
+    def _rebuild_combined_entry(self):
+        """real 화자 항목들로부터 Combined 항목을 (재)구성한다.
+
+        - 기존 Combined 항목은 제거 후 새로 만들어 plot_data_list 마지막에 추가.
+        - real 항목이 2개 미만이면 Combined는 추가하지 않음.
+        - current_idx가 범위를 벗어나면 자동으로 보정.
+        """
+        self.plot_data_list = [
+            it for it in self.plot_data_list if not it.get("is_combined")
+        ]
+        combined = build_combined_entry(self.plot_data_list)
+        if combined is not None:
+            self.plot_data_list.append(combined)
+        if self.current_idx >= len(self.plot_data_list):
+            self.current_idx = max(0, len(self.plot_data_list) - 1)
 
     def clear_label_offsets_for_popup(self, popup_window):
         """디자인 초기화 시 해당 팝업의 라벨 커스텀 위치를 제거. 초기화 버튼에서 호출."""
@@ -339,6 +394,12 @@ class MainController:
         Returns:
             dict: 로드 성공 횟수, 실패 에러 정보, F3 가용 여부, 제외된 데이터 행 정보 등을 포함한 결과 요약
         """
+        # Combined는 항상 마지막에 위치하므로, 새 화자 항목을 append하기 전에 일단 제거한다.
+        # (작업 마지막에 _rebuild_combined_entry로 다시 추가)
+        self.plot_data_list = [
+            it for it in self.plot_data_list if not it.get("is_combined")
+        ]
+
         result = {
             "success_count": 0,
             "failed": [],  # [(fname, errors), ...]
@@ -348,6 +409,8 @@ class MainController:
         }
         new_files = [f for f in filepaths if f not in self.filepaths]
         if not new_files:
+            # 새 파일이 없어도, 제거했던 Combined를 동일 상태로 복원
+            self._rebuild_combined_entry()
             result["total_files"] = len(self.filepaths)
             return result
 
@@ -378,10 +441,17 @@ class MainController:
             else:
                 result["failed"].append((fname, errors or []))
 
+        # 새로 추가된 real 항목들로 Combined를 재구성
+        self._rebuild_combined_entry()
+
         result["total_files"] = len(self.filepaths)
+        # has_f3는 real 화자 파일들만 보고 판단 (Combined는 real의 has_f3로부터 파생)
+        real_items_for_check = [
+            d for d in self.plot_data_list if not d.get("is_combined")
+        ]
         result["has_f3_all"] = (
-            all(d["has_f3"] for d in self.plot_data_list)
-            if self.plot_data_list
+            all(d["has_f3"] for d in real_items_for_check)
+            if real_items_for_check
             else False
         )
         return result
@@ -447,26 +517,36 @@ class MainController:
             )
             return
 
+        # Combined 항목은 테이블에 노출되지 않으므로 이 경로로 들어올 일이 없지만,
+        # 어떤 경로로든 호출되었을 때 안전하게 무시한다 (Combined는 파생 항목).
+        if self.plot_data_list[index].get("is_combined"):
+            app_logger.debug("[remove_file] Combined 항목은 직접 삭제할 수 없습니다.")
+            return
+
         removed_name = self.plot_data_list[index]["name"]
+        # index는 real 화자 항목(0..N-1) 범위 안에 있으므로 filepaths 인덱스와 동일하게 사용 가능.
         self.filepaths.pop(index)
         self.plot_data_list.pop(index)
 
         if index < self.current_idx:
             self.current_idx -= 1
-        elif self.current_idx >= len(self.plot_data_list):
-            self.current_idx = max(0, len(self.plot_data_list) - 1)
 
-        # UI 갱신
+        # 남은 real 항목들로 Combined 재구성 (real이 1개 이하가 되면 Combined 자동 제거).
+        # 메서드 내부에서 current_idx 경계 보정도 수행.
+        self._rebuild_combined_entry()
+
+        # UI 갱신 (count는 real 파일 수 = filepaths 길이)
         self.ui.update_file_status(len(self.filepaths))
         app_logger.info(
             config.LOG_MSG["FILE_REMOVED"].format(removed_name=removed_name)
         )
 
-        # 남은 데이터에 따라 버튼 상태 재조정
-        if not self.plot_data_list:
+        # 남은 데이터에 따라 버튼 상태 재조정 (Combined는 real의 파생이므로 real만 확인)
+        real_items = [d for d in self.plot_data_list if not d.get("is_combined")]
+        if not real_items:
             self.ui.toggle_f3_options(False)
         else:
-            current_has_f3 = all(d["has_f3"] for d in self.plot_data_list)
+            current_has_f3 = all(d["has_f3"] for d in real_items)
             self.ui.toggle_f3_options(current_has_f3)
 
         # 제거 후 라이브 모니터 갱신
@@ -519,7 +599,7 @@ class MainController:
             base,
             {
                 "last_open_dir": self.last_open_dir,
-                "last_save_dir": None,  # [사용자 요청] 세션 종료 시 리셋을 위해 저장하지 않음.
+                "last_save_dir": self.last_save_dir,
             },
         )
 
@@ -528,6 +608,7 @@ class MainController:
         return {
             "show_raw": True,
             "show_centroid": True,
+            "raw_color": "#606060",
             "lbl_color": "#E64A19",
             "lbl_size": 16,
             "lbl_bold": True,
@@ -588,7 +669,7 @@ class MainController:
 
         # 모니터 하단 정보: 파일명(확장자 제거), F1(스케일, 단위) / F2(스케일, 단위) / 이상치 제거(선택 시만)
         if hasattr(self.ui, "preview_info_label"):
-            fname_base = os.path.splitext(current_data["name"])[0]
+            fname_base = strip_gichan_prefix(os.path.splitext(current_data["name"])[0])
             f1_scale = params.get("f1_scale", "linear")
             f2_scale = params.get("f2_scale", "linear")
             use_bark = params.get("use_bark_units", False)
@@ -714,6 +795,7 @@ class MainController:
                 current_data["name"],
             )
         )
+        apply_file_indicator_style(popup.lbl_info, current_data)
 
         filter_state = popup.get_filter_state()
         ds_settings = popup.get_design_settings() or self._get_default_design()
@@ -812,10 +894,23 @@ class MainController:
 
     def open_compare_dialog(self, current_idx, parent_window=None):
         """다중 비교를 위한 대상 파일 선택 창(SelectCompareDialog)을 호출합니다."""
-        if len(self.plot_data_list) < 2:
+        # 비교 기능은 real 화자 파일 ≥ 2개일 때만 의미가 있다.
+        real_count = sum(1 for it in self.plot_data_list if not it.get("is_combined"))
+        if real_count < 2:
             (parent_window or self.ui).show_warning(
                 "데이터 부족",
                 "비교할 대상이 부족합니다.\n2개 이상의 데이터를 로드해 주세요.",
+            )
+            return
+
+        # Combined 항목 자체는 비교의 시작점으로 사용할 수 없다 (여러 화자가 합쳐진 파생 데이터).
+        if 0 <= current_idx < len(self.plot_data_list) and self.plot_data_list[
+            current_idx
+        ].get("is_combined"):
+            (parent_window or self.ui).show_warning(
+                "비교 불가",
+                "Combined 항목은 다중 비교의 기준이 될 수 없습니다.\n"
+                "비교를 시작하려면 개별 화자 파일로 먼저 이동해 주세요.",
             )
             return
 
@@ -1217,6 +1312,7 @@ class MainController:
         lbl_info.setText(
             format_file_label(idx + 1, len(data_list), current_data["name"])
         )
+        apply_file_indicator_style(lbl_info, current_data)
 
         self.refresh_plot(figure, canvas, range_widgets, lbl_info, popup_window)
 
@@ -1456,9 +1552,18 @@ class MainController:
         return ""
 
     def _get_initial_save_dir(self):
-        """저장 다이얼로그의 초기 디렉터리를 반환."""
-        if self.last_save_dir:
+        """저장 다이얼로그의 초기 디렉터리를 반환 (세션 메모리 → path_prefs.json)."""
+        if self.last_save_dir and os.path.isdir(self.last_save_dir):
             return self.last_save_dir
+        base = QStandardPaths.writableLocation(
+            QStandardPaths.StandardLocation.AppDataLocation
+        )
+        if base:
+            loaded = path_prefs.load_path_prefs(base)
+            saved = loaded.get("last_save_dir")
+            if saved and os.path.isdir(saved):
+                self.last_save_dir = saved
+                return saved
         downloads_dir = QStandardPaths.writableLocation(
             QStandardPaths.StandardLocation.DownloadLocation
         )
@@ -1507,6 +1612,87 @@ class MainController:
             os.path.join(initial_dir, default_name) if initial_dir else default_name
         )
         return initial_path, initial_dir
+
+    def _get_plot_item_at(self, popup_window=None):
+        if popup_window is not None:
+            data_list = (
+                getattr(popup_window, "plot_data_snapshot", None) or self.plot_data_list
+            )
+            idx = getattr(popup_window, "current_idx", self.current_idx)
+        else:
+            data_list = self.plot_data_list
+            idx = self.current_idx
+        if not data_list or idx < 0 or idx >= len(data_list):
+            return None, -1
+        return data_list[idx], idx
+
+    def get_default_combined_txt_path(self, parent_window=None):
+        """Combined 항목 .txt 저장 기본 경로."""
+        item, _ = self._get_plot_item_at(parent_window)
+        if not item or not item.get("is_combined"):
+            return "", ""
+        base = os.path.splitext(item["name"])[0]
+        if not base.lower().endswith(".txt"):
+            default_name = f"{base}.txt"
+        else:
+            default_name = base
+        initial_dir = self._get_initial_save_dir()
+        initial_path = (
+            os.path.join(initial_dir, default_name) if initial_dir else default_name
+        )
+        return initial_path, initial_dir
+
+    def export_combined_txt(self, file_path, parent_window=None, parent_widget=None):
+        """현재 Combined plot_data의 df를 입력 형식 .txt로 저장."""
+        item, _ = self._get_plot_item_at(parent_window)
+        if not item or not item.get("is_combined"):
+            return False, "Combined 항목이 아닙니다."
+        df = item.get("df")
+        if df is None or df.empty:
+            return False, "저장할 데이터가 없습니다."
+        text = formant_dataframe_to_txt(df, include_f3=bool(item.get("has_f3", False)))
+        if not text.strip():
+            return False, "유효한 행이 없어 파일을 만들 수 없습니다."
+        try:
+            with open(file_path, "w", encoding="utf-8", newline="\n") as f:
+                f.write(text)
+            self.set_last_save_dir(os.path.dirname(file_path))
+            app_logger.info(config.LOG_MSG["COMBINED_TXT_SAVE"].format(path=file_path))
+            return True, file_path
+        except OSError as e:
+            return False, str(e)
+
+    def prompt_save_combined_txt(self, parent_window=None, parent_widget=None):
+        """Combined txt 저장 대화상자."""
+        item, _ = self._get_plot_item_at(parent_window)
+        if not item or not item.get("is_combined"):
+            QMessageBox.information(
+                parent_widget,
+                "Combined txt",
+                "Combined 항목에서만 사용할 수 있습니다.",
+            )
+            return False
+        initial_path, _ = self.get_default_combined_txt_path(parent_window)
+        path, _ = QFileDialog.getSaveFileName(
+            parent_widget,
+            "Combined 데이터 txt 저장",
+            initial_path,
+            "Text Files (*.txt);;All Files (*.*)",
+        )
+        if not path:
+            return False
+        if not path.lower().endswith(".txt"):
+            path += ".txt"
+        ok, msg = self.export_combined_txt(path, parent_window, parent_widget)
+        if ok:
+            QMessageBox.information(
+                parent_widget,
+                "저장 완료",
+                f"Combined 데이터를 저장했습니다.\n{path}",
+            )
+            return True
+        QMessageBox.warning(parent_widget, "저장 실패", msg or "저장에 실패했습니다.")
+        return False
 
     def save_plot_to_file(self, figure, file_path, fmt, parent_window=None):
         """실제 파일 저장만을 수행, 오류시 예외 발생."""
@@ -1608,11 +1794,11 @@ class MainController:
         self.current_idx = max(0, min(index, len(self.plot_data_list) - 1))
 
     def get_compare_choices(self, exclude_index):
-        """비교 대상 선택 목록: [(인덱스, 파일명), ...] (exclude_index 제외)."""
+        """비교 대상 선택 목록: [(인덱스, 파일명), ...] (exclude_index 및 Combined 항목 제외)."""
         return [
             (i, item["name"])
             for i, item in enumerate(self.plot_data_list)
-            if i != exclude_index
+            if i != exclude_index and not item.get("is_combined")
         ]
 
     def get_compare_data(self, idx_blue, idx_red):

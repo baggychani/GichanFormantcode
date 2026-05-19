@@ -9,7 +9,12 @@ import numpy as np
 import math
 import platform
 import config
-from utils.math_utils import hz_to_bark, hz_to_log, calc_f2_prime
+from utils.math_utils import (
+    hz_to_bark,
+    hz_to_log,
+    calc_f2_prime,
+    filter_for_plot_type,
+)
 
 
 # assets/fonts에 있는 폰트 등록 (Noto Serif KR Medium 등)
@@ -62,6 +67,7 @@ class PlotEngine:
             "show_raw": True,
             "show_centroid": True,
             "raw_marker": "o",
+            "raw_color": "#606060",
             "centroid_marker": "o",
             "lbl_color": "#E64A19",
             "lbl_size": 16,
@@ -125,6 +131,15 @@ class PlotEngine:
             return (["Noto Serif KR"] if is_serif else ["Noto Sans KR"], is_serif)
         return (["Charis SIL"] if is_serif else ["Andika"], False)
 
+    @staticmethod
+    def _resolve_plot_color(color, fallback="#606060"):
+        """디자인/레이어 색상 값을 matplotlib에 넘길 색으로 정규화."""
+        if not color or (
+            isinstance(color, str) and str(color).strip().lower() == "transparent"
+        ):
+            return fallback
+        return color
+
     def _get_default_multi_design(self):
         """다중 비교 모드 디자인 설정이 전달되지 않았을 때를 대비한 기본값"""
         return {
@@ -146,6 +161,7 @@ class PlotEngine:
                 "ell_style": "-",
                 "ell_color": "#1976D2",
                 "ell_fill_color": None,
+                "raw_color": "#606060",
                 "centroid_marker": "o",
             },
             "red": {
@@ -157,6 +173,7 @@ class PlotEngine:
                 "ell_style": "--",
                 "ell_color": "#E64A19",
                 "ell_fill_color": None,
+                "raw_color": "#606060",
                 "centroid_marker": "o",
             },
         }
@@ -249,6 +266,13 @@ class PlotEngine:
             ax.set_box_aspect(1)
             ax.set_axisbelow(True)
             return ax, [], [], []
+        plot_type = plot_params.get("type", "f1_f2")
+        df = filter_for_plot_type(df, plot_type)
+        if df is None or df.empty:
+            ax = figure.add_subplot(111)
+            ax.set_box_aspect(1)
+            ax.set_axisbelow(True)
+            return ax, [], [], []
         origin = plot_params["origin"]
         use_bark_units = plot_params.get("use_bark_units", False)
 
@@ -330,6 +354,10 @@ class PlotEngine:
             v_ell_fill = eff.get("ell_fill_color", ell_fill)
             v_centroid_marker = eff.get("centroid_marker", centroid_marker)
             v_raw_marker = eff.get("raw_marker", design_settings.get("raw_marker", "o"))
+            v_raw_color = self._resolve_plot_color(
+                eff.get("raw_color", design_settings.get("raw_color")),
+                "#606060",
+            )
 
             subset = df_plot[df_plot["Label"] == vowel]
             x, y = subset["x_val"], subset["y_val"]
@@ -346,7 +374,7 @@ class PlotEngine:
                         y,
                         s=15,
                         facecolors="none",
-                        edgecolors="black",
+                        edgecolors=v_raw_color,
                         linewidth=0.4,
                         alpha=scatter_alpha,
                         zorder=1 + z_offset,
@@ -358,17 +386,17 @@ class PlotEngine:
                         y,
                         s=25,
                         marker="x",
-                        color="black",
+                        color=v_raw_color,
                         linewidths=0.5,
                         alpha=scatter_alpha,
                         zorder=1 + z_offset,
                         clip_on=False,
                     )
-                else:  # 'a': 각 데이터 포인트를 해당 모음 라벨 문자로 표시, 폰트 스타일 따름, 타원 선 색, 크기 약간 키움
+                else:  # 'a': 각 데이터 포인트를 해당 모음 라벨 문자로 표시
                     font_family, _ = self._label_font_family(
                         vowel, design_settings.get("font_style", "serif")
                     )
-                    pt_color = v_ell_color if v_ell_color else "#606060"
+                    pt_color = v_raw_color
                     for px, py in zip(x, y):
                         t = ax.text(
                             px,
@@ -739,6 +767,14 @@ class PlotEngine:
             ax.set_box_aspect(1)
             ax.set_axisbelow(True)
             return ax, [], [], [], [], []
+        plot_type = plot_params.get("type", "f1_f2")
+        df_blue = filter_for_plot_type(df_blue, plot_type)
+        df_red = filter_for_plot_type(df_red, plot_type)
+        if df_blue is None or df_blue.empty or df_red is None or df_red.empty:
+            ax = figure.add_subplot(111)
+            ax.set_box_aspect(1)
+            ax.set_axisbelow(True)
+            return ax, [], [], [], [], []
         origin = plot_params["origin"]
         use_bark_units = plot_params.get("use_bark_units", False)
         sigma = float(plot_params.get("sigma", config.DEFAULT_SIGMA))
@@ -884,10 +920,9 @@ class PlotEngine:
                     cfg.get("ell_color", "#1976D2" if ds_type == "blue" else "#E64A19"),
                 )
                 ell_fill = cfg_v.get("ell_fill_color", cfg.get("ell_fill_color", None))
-                point_color = (
-                    ell_color
-                    if (ell_color and ell_color != "transparent")
-                    else ("#1976D2" if ds_type == "blue" else "#E64A19")
+                point_color = self._resolve_plot_color(
+                    cfg_v.get("raw_color", cfg.get("raw_color")),
+                    "#1976D2" if ds_type == "blue" else "#E64A19",
                 )
                 centroid_marker = cfg_v.get(
                     "centroid_marker", cfg.get("centroid_marker", "o")
@@ -1535,6 +1570,10 @@ class PlotEngine:
                 lbl_size = cfg_v.get("lbl_size", 16)
                 lbl_bold = "bold" if cfg_v.get("lbl_bold", True) else "normal"
                 lbl_italic = "italic" if cfg_v.get("lbl_italic", False) else "normal"
+                raw_color = self._resolve_plot_color(
+                    cfg_v.get("raw_color"),
+                    "#1976D2" if ds_type == "blue" else "#E64A19",
+                )
 
                 subset = df_plot[df_plot[label_col] == vowel]
                 x, y = subset["x_val"], subset["y_val"]
@@ -1548,7 +1587,7 @@ class PlotEngine:
                             y,
                             s=15,
                             facecolors="none",
-                            edgecolors=ell_color,
+                            edgecolors=raw_color,
                             linewidth=0.4,
                             alpha=scatter_alpha,
                             zorder=1,
@@ -1560,7 +1599,7 @@ class PlotEngine:
                             y,
                             s=25,
                             marker="x",
-                            color=ell_color,
+                            color=raw_color,
                             linewidths=0.5,
                             alpha=scatter_alpha,
                             zorder=1,
@@ -1570,7 +1609,7 @@ class PlotEngine:
                         font_family, _ = self._label_font_family(
                             vowel, common.get("font_style", "serif")
                         )
-                        pt_color = ell_color if ell_color else "#606060"
+                        pt_color = raw_color
                         for px, py in zip(x, y):
                             t = ax.text(
                                 px,

@@ -130,6 +130,10 @@ DEFAULT_PLOT_TYPE = "f1_f2"
 # 기준점 기본값 (Praat 스타일)
 DEFAULT_ORIGIN = "top_right"
 
+# Combined 표시·저장용 이름의 본문({n}=합쳐진 화자 수).
+# plot_data_list['name']에는 "GichanFormant_" + 이 형식이 붙고, UI는 접두사 제거 후 표시합니다.
+COMBINED_DISPLAY_NAME_FMT = "Combined ({n}명)"
+
 # 자(Ruler) 도구: 스냅 거리(px), 삭제 제스처 거리(px). tools/ruler.py
 RULER_SNAP_THRESHOLD_PX = 20
 RULER_DELETE_THRESHOLD_PX = 40
@@ -317,6 +321,7 @@ LOG_MSG = {
     "LAYER_SETTINGS_RESET": "[INFO] 레이어 설정이 초기화되었습니다.",
     "SAVE_SINGLE": "[SUCCESS] 이미지가 저장되었습니다.\n▶ 파일: {fname}\n▶ 위치: {folder}",
     "SAVE_SINGLE_SHORT": "이미지가 저장되었습니다: {path}",
+    "COMBINED_TXT_SAVE": "Combined TXT 저장: {path}",
     "BATCH_START": "[SYSTEM] 일괄 저장 작업을 시작합니다... (총 {total}건, σ={sigma})",
     "BATCH_END": "[SUCCESS] 일괄 저장이 완료되었습니다. (성공: {success}건, 실패: {fail}건)\n▶ 위치: {folder}",
     "BATCH_SUCCESS": "일괄 저장 완료: {success_count}개의 이미지가 저장되었습니다.",

@@ -187,8 +187,7 @@ class VowelAnalysisDialog(QDialog):
         self._run_analysis()
         self._set_initial_tab()
         self._update_save_buttons_state()  # 초기 상태 반영
-        # 탭 변경 시 디폴트(포먼트) 화면으로 리셋
-        self.tabs.currentChanged.connect(lambda: self._switch_page(self.PAGE_FORMANT))
+        # 화자(파일) 탭 전환 시 분석 페이지(포먼트/필라이/유클리드)는 각 탭이 기억한 상태 유지
 
         # 창을 닫을 때 메모리에서 즉시 해제되도록 설정 (Memory Leak 방지)
         self.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)

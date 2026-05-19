@@ -98,7 +98,9 @@ class UpdateManager(QObject):
                 )
                 self.update_available.emit(latest_version, html_url, body)
             else:
-                app_logger.debug("[UpdateManager] 업데이트 없음: 최신 릴리스가 앱보다 높지 않습니다.")
+                app_logger.debug(
+                    "[UpdateManager] 업데이트 없음: 최신 릴리스가 앱보다 높지 않습니다."
+                )
 
         except Exception as e:
             app_logger.debug(

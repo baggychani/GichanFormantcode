@@ -312,15 +312,29 @@ class MarkerShapeButton(QPushButton):
 
 
 class ColorCircleButton(QPushButton):
-    """포토샵 스타일의 동그란 색상 버튼."""
+    """디자인 패널용 사각형 색상 스와치 버튼."""
 
-    def __init__(self, color_hex, is_transparent=False, tooltip="", parent=None):
+    def __init__(
+        self,
+        color_hex,
+        is_transparent=False,
+        tooltip="",
+        parent=None,
+        *,
+        preview=False,
+        palette_swatch=False,
+    ):
         super().__init__(parent)
         self.color_hex = color_hex
         self.is_transparent = is_transparent
         self.is_custom_icon = color_hex == "custom"
+        self._preview = preview
+        self._palette_swatch = palette_swatch
         self.setFixedSize(16, 16)
         self.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
+        self.setStyleSheet(
+            "QPushButton { border: none; padding: 0; margin: 0; background: transparent; }"
+        )
         if tooltip:
             self.setToolTip(tooltip)
 
@@ -328,6 +342,16 @@ class ColorCircleButton(QPushButton):
         self.color_hex = color_hex
         self.is_transparent = is_transparent
         self.update()
+
+    def enterEvent(self, event):
+        if self._palette_swatch:
+            self.update()
+        super().enterEvent(event)
+
+    def leaveEvent(self, event):
+        if self._palette_swatch:
+            self.update()
+        super().leaveEvent(event)
 
     def paintEvent(self, event):
         try:
@@ -337,39 +361,27 @@ class ColorCircleButton(QPushButton):
                 rect = QRectF(self.rect())
                 side = min(rect.width(), rect.height()) - 2.0
                 cx, cy = rect.center().x(), rect.center().y()
-                circle_rect = QRectF(cx - side / 2.0, cy - side / 2.0, side, side)
+                swatch_rect = QRectF(cx - side / 2.0, cy - side / 2.0, side, side)
                 if self.is_transparent:
                     path = QPainterPath()
-                    path.addEllipse(circle_rect)
+                    path.addRect(swatch_rect)
                     painter.setClipPath(path)
                     painter.setBrush(QColor("white"))
                     painter.setPen(Qt.PenStyle.NoPen)
-                    painter.drawEllipse(circle_rect)
-                    pen1 = QPen()
-                    pen1.setColor(QColor("#F56C6C"))
-                    pen1.setWidthF(1.5)
-                    painter.setPen(pen1)
+                    painter.drawRect(swatch_rect)
+                    painter.setPen(QPen(QColor("#F56C6C"), 1.5))
                     painter.drawLine(
                         QPointF(cx - side, cy - side), QPointF(cx + side, cy + side)
                     )
                     painter.setClipping(False)
                     painter.setBrush(Qt.BrushStyle.NoBrush)
-                    pen2 = QPen()
-                    pen2.setColor(QColor("#DCDFE6"))
-                    pen2.setWidthF(1.0)
-                    painter.setPen(pen2)
-                    painter.drawEllipse(circle_rect)
+                    painter.setPen(QPen(QColor("#DCDFE6"), 1.0))
+                    painter.drawRect(swatch_rect)
                 elif self.is_custom_icon:
                     painter.setBrush(QColor("#F0F2F5"))
-                    pen3 = QPen()
-                    pen3.setColor(QColor("#DCDFE6"))
-                    pen3.setWidthF(1.0)
-                    painter.setPen(pen3)
-                    painter.drawEllipse(circle_rect)
-                    pen4 = QPen()
-                    pen4.setColor(QColor("#606266"))
-                    pen4.setWidthF(1.5)
-                    pen4.setStyle(Qt.PenStyle.SolidLine)
+                    painter.setPen(QPen(QColor("#DCDFE6"), 1.0))
+                    painter.drawRect(swatch_rect)
+                    pen4 = QPen(QColor("#606266"), 1.5)
                     pen4.setCapStyle(Qt.PenCapStyle.RoundCap)
                     painter.setPen(pen4)
                     line_len = side * 0.25
@@ -381,11 +393,10 @@ class ColorCircleButton(QPushButton):
                     )
                 else:
                     painter.setBrush(QColor(self.color_hex))
-                    pen5 = QPen()
-                    pen5.setColor(QColor(0, 0, 0, 40))
-                    pen5.setWidthF(1.0)
-                    painter.setPen(pen5)
-                    painter.drawEllipse(circle_rect)
+                    painter.setPen(QPen(QColor(0, 0, 0, 40), 1.0))
+                    painter.drawRect(swatch_rect)
+                if self._palette_swatch and self.underMouse():
+                    painter.fillRect(swatch_rect, QColor(255, 255, 255, 70))
             finally:
                 painter.end()
         except Exception:
