@@ -33,8 +33,11 @@ uv run python scripts/sync_version.py --check
 
 ### CI (`ci.yml`) — `main` push / PR
 
-- `pytest` + 버전 파일 일치 검사
-- **Windows / macOS Intel / macOS ARM** PyInstaller 빌드 → Artifacts (zip)
+- **테스트 + 버전 검사만** (약 1~2분, Ubuntu 1잡)
+- PySide6용 Linux 시스템 라이브러리 설치 후 `pytest`
+- **바이너리 빌드는 하지 않음** (push마다 Win+Mac 3대 빌드하던 것 제거 → Actions 실행 수 대폭 감소)
+
+같은 브랜치에 연속 push하면 **진행 중인 이전 CI는 자동 취소**됩니다.
 
 ### Release (`release.yml`) — **권장 배포 경로**
 

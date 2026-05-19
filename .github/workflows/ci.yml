@@ -1,3 +1,4 @@
+# push/PR: 빠른 검증만 (테스트 + 버전). 바이너리 빌드는 release.yml (태그) 전용.
 name: CI
 
 on:
@@ -8,6 +9,11 @@ on:
     branches:
       - main
   workflow_dispatch:
+
+# 같은 브랜치에 연속 push 시 이전 실행 취소 → 실행 횟수·메일 감소
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   test:
@@ -27,75 +33,23 @@ jobs:
       - name: Version files match config.APP_VERSION
         run: uv run python scripts/sync_version.py --check
 
+      - name: Install Qt runtime (PySide6 on headless Linux)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libegl1 \
+            libgl1 \
+            libglib2.0-0 \
+            libdbus-1-3 \
+            libxkbcommon-x11-0 \
+            libxcb-cursor0 \
+            libxcb-icccm4 \
+            libxcb-image0 \
+            libxcb-keysyms1 \
+            libxcb-render-util0 \
+            libxcb-shape0
+
       - name: Pytest
+        env:
+          QT_QPA_PLATFORM: offscreen
         run: uv run pytest tests/ -q
-
-  build:
-    name: Build (${{ matrix.label }})
-    needs: test
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - os: windows-latest
-            label: windows-x64
-            artifact_name: GichanFormant-windows-x64
-          - os: macos-15-intel
-            label: macos-intel
-            artifact_name: GichanFormant-macos-intel
-          - os: macos-latest
-            label: macos-arm64
-            artifact_name: GichanFormant-macos-arm64
-
-    steps:
-      - uses: actions/checkout@v6
-
-      - uses: actions/setup-python@v6
-        with:
-          python-version-file: .python-version
-
-      - uses: astral-sh/setup-uv@v7
-
-      - run: uv sync --locked --all-extras --dev
-
-      - name: Sync iss / info.txt from config
-        run: uv run python scripts/sync_version.py
-
-      - name: Set Short SHA
-        shell: bash
-        run: echo "SHORT_SHA=$(git rev-parse --short HEAD)" >> $GITHUB_ENV
-
-      - name: Build (Windows onedir)
-        if: runner.os == 'Windows'
-        shell: pwsh
-        run: |
-          uv run pyinstaller --noconfirm --windowed `
-            --icon=assets/icon.ico `
-            --name=GichanFormant `
-            --version-file=info.txt `
-            --collect-all PySide6 `
-            --add-data "assets;assets" `
-            main.py
-          Compress-Archive -Path "dist\GichanFormant\*" `
-            -DestinationPath "${{ matrix.artifact_name }}-${env:SHORT_SHA}.zip" -Force
-
-      - name: Build (macOS)
-        if: runner.os == 'macOS'
-        shell: bash
-        run: |
-          uv run pyinstaller --noconfirm --windowed \
-            --name=GichanFormant \
-            --version-file=info.txt \
-            --collect-all PySide6 \
-            --add-data "assets:assets" \
-            main.py
-          cd dist
-          ditto -c -k --sequesterRsrc --keepParent GichanFormant.app \
-            "../${{ matrix.artifact_name }}-${SHORT_SHA}.zip"
-          cd ..
-
-      - uses: actions/upload-artifact@v6
-        with:
-          name: ${{ matrix.artifact_name }}-${{ env.SHORT_SHA }}
-          path: ${{ matrix.artifact_name }}-*
