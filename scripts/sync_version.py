@@ -116,11 +116,23 @@ def sync_info_txt(version: str) -> None:
     INFO_PATH.write_text(render_info_txt(version), encoding="utf-8")
 
 
+_COMPLETE_HEAD_RE = re.compile(
+    r"^GichanFormant v[\d.]+\s+설치가 성공적으로 완료되었습니다\.\s*$",
+    re.MULTILINE,
+)
+
+
 def sync_complete_txt(version: str) -> None:
-    COMPLETE_PATH.write_text(
-        f"GichanFormant v{version} 설치가 성공적으로 완료되었습니다.\n",
-        encoding="utf-8",
-    )
+    head = f"GichanFormant v{version} 설치가 성공적으로 완료되었습니다."
+    if COMPLETE_PATH.is_file():
+        text = COMPLETE_PATH.read_text(encoding="utf-8")
+        if _COMPLETE_HEAD_RE.search(text):
+            text = _COMPLETE_HEAD_RE.sub(head, text, count=1)
+        else:
+            text = head + "\n\n" + text.lstrip()
+        COMPLETE_PATH.write_text(text.rstrip() + "\n", encoding="utf-8")
+    else:
+        COMPLETE_PATH.write_text(head + "\n", encoding="utf-8")
 
 
 def read_pyproject_version() -> str:
@@ -161,9 +173,9 @@ def _read_info_version() -> str:
 
 def _read_complete_version() -> str:
     text = COMPLETE_PATH.read_text(encoding="utf-8")
-    m = re.search(r"GichanFormant v([\d.]+)", text)
+    m = re.match(r"^GichanFormant v([\d.]+)\s+설치가", text)
     if not m:
-        _fail("complete.txt 에서 버전을 찾을 수 없습니다.")
+        _fail("complete.txt 첫 줄에서 버전을 찾을 수 없습니다.")
     return m.group(1)
 
 

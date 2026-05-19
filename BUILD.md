@@ -20,7 +20,7 @@ uv run python scripts/sync_version.py --check
 |------|------|
 | `GichanFormant.iss` | `#define MyAppVersion` |
 | `info.txt` | Windows exe 버전 리소스 (전체 재생성) |
-| `complete.txt` | 설치 완료 문구 |
+| `complete.txt` | 설치 완료 **첫 줄** 버전만 교체 (아래 안내 본문 유지) |
 | `pyproject.toml` | `version` |
 
 태그 릴리스 시 CI가 `--set`으로 맞추므로, **태그 push 전** 로컬에서도 위 스크립트를 한 번 돌려 두면 좋습니다.
