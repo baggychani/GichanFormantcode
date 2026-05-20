@@ -10,10 +10,12 @@ from utils import app_logger
 # 텍스트 파일 로드 시 시도할 인코딩 순서 (UTF-16 BOM, UTF-8, 한글 Windows, 기타)
 ENCODINGS = ["utf-8", "utf-16", "utf-16-le", "utf-16-be", "cp949", "euc-kr", "latin-1"]
 
-# 마지막 열을 라벨로 쓸 때, 값의 절반 이상이 숫자로 파싱되면 라벨 열이 아닌 것으로 본다.
+# 라벨 열 판별: 값의 절반 이상이 숫자로 파싱되면 라벨 열이 아닌 것으로 본다.
 _LABEL_NUMERIC_RATIO_MAX = 0.5
-# F3 열 후보: 100Hz를 넘는 값이 하나라도 있어야 F3로 인정 (기존 휴리스틱 유지)
-_F3_MIN_HZ_HINT = 100
+# 포먼트 열 판별: 비어 있지 않은 값의 90% 이상이 숫자면 F3/F4 후보
+_FORMANT_NUMERIC_RATIO_MIN = 0.9
+# 열 전체가 비어 있거나 아래 토큰만 있으면 건너뛰는 placeholder
+_SKIP_COLUMN_TOKENS = frozenset({"", "//", "[]", "-", "—"})
 
 
 def _read_csv_with_encoding(path):
@@ -32,15 +34,42 @@ def _read_csv_with_encoding(path):
     raise ValueError("파일을 읽을 수 있는 인코딩을 찾지 못했습니다.")
 
 
+def _normalize_cell_strings(col_data: pd.Series) -> pd.Series:
+    str_data = col_data.astype(str).str.strip()
+    return str_data.replace({"nan": "", "None": "", "<NA>": ""})
+
+
+def _is_skip_column(col_data: pd.Series) -> bool:
+    """열 전체가 빈칸·//·[] 등 placeholder이면 True."""
+    str_data = _normalize_cell_strings(col_data)
+    if (str_data == "").all():
+        return True
+    nonempty = str_data[str_data != ""]
+    return nonempty.isin(_SKIP_COLUMN_TOKENS).all()
+
+
+def _is_formant_column(col_data: pd.Series) -> bool:
+    """F3/F4 후보: 대부분 숫자(0 포함)이거나 전부 빈칸."""
+    if _is_skip_column(col_data):
+        return False
+    str_data = _normalize_cell_strings(col_data)
+    nonempty = str_data[str_data != ""]
+    if nonempty.empty:
+        return True
+    numeric = pd.to_numeric(nonempty, errors="coerce")
+    return numeric.notna().mean() >= _FORMANT_NUMERIC_RATIO_MIN
+
+
 def _extract_label_series(col_data: pd.Series) -> pd.Series | None:
-    """마지막 열에서 모음 라벨 문자열을 추출한다.
+    """모음 라벨 열에서 기호 문자열을 추출한다.
 
     - /모음/ 형식이 있으면 내부 기호만 사용 (공식 가이드 형식).
-    - 그 외 짧은 비숫자 텍스트(o, u, ɯ, ㅏ 등)도 인식한다 (편의; 가이드 문구는 변경하지 않음).
+    - [모음] 형식도 내부 기호만 사용.
+    - 그 외 짧은 비숫자 텍스트(o, u, ɯ, ㅏ 등)도 인식한다.
     - 열 값의 과반이 숫자로 파싱되면 라벨 열이 아닌 것으로 보고 None을 반환한다.
     """
-    str_data = col_data.astype(str).str.strip()
-    str_data = str_data.replace({"nan": "", "None": "", "<NA>": ""})
+    str_data = _normalize_cell_strings(col_data)
+    str_data = str_data.replace(list(_SKIP_COLUMN_TOKENS - {""}), "")
 
     nonempty = str_data[str_data != ""]
     if nonempty.empty:
@@ -53,6 +82,9 @@ def _extract_label_series(col_data: pd.Series) -> pd.Series | None:
     if str_data.str.contains(r"/.+/", regex=True).any():
         extracted = str_data.str.extract(r"/([^/]+)/")[0]
         labels = extracted.fillna(str_data).str.strip()
+    elif str_data.str.contains(r"\[[^\]]+\]", regex=True).any():
+        extracted = str_data.str.extract(r"\[([^\]]+)\]")[0]
+        labels = extracted.fillna(str_data).str.strip()
     else:
         labels = str_data
 
@@ -62,16 +94,37 @@ def _extract_label_series(col_data: pd.Series) -> pd.Series | None:
     return labels
 
 
-def _try_parse_f3_column(col_data: pd.Series) -> pd.Series | None:
-    """중간 열이 F3인지 판별하고, 0은 측정 없음(NaN)으로 변환한 Series를 반환한다."""
+def _parse_formant_column(col_data: pd.Series) -> pd.Series:
+    """숫자 포먼트 열을 float Series로 변환. 0은 측정 없음(NaN)."""
     numeric_data = pd.to_numeric(col_data, errors="coerce")
-    if not numeric_data.notna().all():
-        return None
-    if not (numeric_data > _F3_MIN_HZ_HINT).any():
-        return None
-    f3 = numeric_data.astype(float)
-    f3 = f3.mask(f3 == 0, np.nan)
-    return f3
+    formant = numeric_data.astype(float)
+    return formant.mask(formant == 0, np.nan)
+
+
+def _find_label_column_index(df: pd.DataFrame, start_idx: int = 2) -> int | None:
+    """F2(열 1) 다음부터 왼쪽→오른쪽으로 스캔해 첫 라벨 열 인덱스를 찾는다."""
+    for i in range(start_idx, len(df.columns)):
+        col = df.iloc[:, i]
+        if _is_skip_column(col):
+            continue
+        if _is_formant_column(col):
+            continue
+        if _extract_label_series(col) is not None:
+            return i
+    return None
+
+
+def _collect_formant_column_indices(df: pd.DataFrame, label_idx: int | None) -> list[int]:
+    """라벨 열 앞까지의 F3/F4 후보 열 인덱스(F1·F2 제외)."""
+    end = label_idx if label_idx is not None else len(df.columns)
+    indices: list[int] = []
+    for i in range(2, end):
+        col = df.iloc[:, i]
+        if _is_skip_column(col):
+            continue
+        if _is_formant_column(col):
+            indices.append(i)
+    return indices
 
 
 class DataProcessor:
@@ -86,10 +139,9 @@ class DataProcessor:
         """
         지정된 경로의 데이터 파일을 로드하고 병합합니다.
         열의 위치(Index)를 기준으로 포먼트 데이터를 엄격하게 매핑합니다.
-        - Col 0: F1
-        - Col 1: F2
-        - Col 2 ~ 마지막-1: F3 후보(첫 번째로 인정되는 숫자 열)
-        - 마지막 Col: 모음 라벨(IPA 등)
+        - Col 0: F1, Col 1: F2 (필수)
+        - Col 2~: 선택 F3/F4(숫자·0·빈칸), placeholder(//·[]), 모음 라벨
+        - 라벨 열 이후 열(PlotFormant 등)은 무시
         """
         dfs = []
         errors = []
@@ -147,8 +199,8 @@ class DataProcessor:
         """
         데이터프레임의 열을 분석하여 포먼트 및 라벨을 추출합니다.
         - Col 0: F1, Col 1: F2 (필수)
-        - 마지막 열: 모음 라벨 (/.../ 또는 짧은 IPA·한글 기호)
-        - 그 사이 열: 순서대로 첫 F3 후보 열만 F3로 사용 (F3=0 → NaN, 측정 없음)
+        - Col 2~: F3/F4 후보 → placeholder 건너뜀 → 첫 라벨 열
+        - 라벨 뒤 추가 열은 무시 (PlotFormant trailing metadata 등)
         반환: (결과 DataFrame 또는 None, 실패 시 오류 메시지 또는 None, 제거된 행 리포트 또는 None)
         """
         # 분석에 필요한 최소 열 개수 검증
@@ -174,18 +226,15 @@ class DataProcessor:
         final_df["F1"] = f1_numeric[valid_idx].astype(float).values
         final_df["F2"] = f2_numeric[valid_idx].astype(float).values
 
-        ncols = len(df.columns)
-        label_col_idx = ncols - 1 if ncols >= 3 else None
+        label_col_idx = _find_label_column_index(df) if len(df.columns) >= 3 else None
+        formant_col_indices = _collect_formant_column_indices(df, label_col_idx)
 
-        # 3. F3: 마지막 열 직전까지 순서대로 첫 후보만
-        if label_col_idx is not None and label_col_idx > 2:
-            for i in range(2, label_col_idx):
-                f3_series = _try_parse_f3_column(df.iloc[:, i])
-                if f3_series is not None:
-                    final_df["F3"] = f3_series.values
-                    break
+        # 3. F3: 라벨 앞 첫 포먼트 열만 (F4 등 추가 열은 소비만 하고 무시)
+        if formant_col_indices:
+            f3_series = _parse_formant_column(df.iloc[:, formant_col_indices[0]])
+            final_df["F3"] = f3_series.values
 
-        # 4. 라벨: 마지막 열 (열이 3개 이상일 때만; 2열 파일은 라벨 열 없음)
+        # 4. 라벨: 스캔으로 찾은 첫 라벨 열 (2열 파일은 라벨 없음)
         if label_col_idx is not None:
             labels = _extract_label_series(df.iloc[:, label_col_idx])
             if labels is not None:

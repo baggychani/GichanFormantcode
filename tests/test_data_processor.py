@@ -118,6 +118,49 @@ class TestParseFixedColumns(unittest.TestCase):
         self.assertEqual(len(result_df), 2)
         self.assertEqual(result_df["Label"].tolist(), ["o", "o"])
 
+    def test_plotformant_trailing_column(self):
+        """PlotFormant 형식: F1 F2 0 /라벨/ trailing숫자 — trailing은 무시."""
+        df = pd.DataFrame(
+            {
+                0: [723.0, 482.0],
+                1: [1366.0, 1924.0],
+                2: [0.0, 0.0],
+                3: ["/a/", "/e/"],
+                4: [1.0, 3.0],
+            }
+        )
+        result_df, error, _ = self.processor._parse_fixed_columns(df)
+        self.assertIsNone(error)
+        self.assertEqual(len(result_df), 2)
+        self.assertEqual(result_df["Label"].tolist(), ["a", "e"])
+
+    def test_bracket_label_column(self):
+        """[모음] 형식 라벨."""
+        df = pd.DataFrame(
+            {
+                0: [300.0, 325.0],
+                1: [700.0, 800.0],
+                2: ["[o]", "[u]"],
+            }
+        )
+        result_df, error, _ = self.processor._parse_fixed_columns(df)
+        self.assertIsNone(error)
+        self.assertListEqual(result_df["Label"].tolist(), ["o", "u"])
+
+    def test_skip_placeholder_column_before_label(self):
+        """// placeholder 열을 건너뛰고 라벨 인식."""
+        df = pd.DataFrame(
+            {
+                0: [300.0, 325.0],
+                1: [700.0, 800.0],
+                2: ["//", "//"],
+                3: ["/o/", "/u/"],
+            }
+        )
+        result_df, error, _ = self.processor._parse_fixed_columns(df)
+        self.assertIsNone(error)
+        self.assertListEqual(result_df["Label"].tolist(), ["o", "u"])
+
 
 if __name__ == "__main__":
     unittest.main()
