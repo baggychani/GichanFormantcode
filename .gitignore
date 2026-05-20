@@ -242,6 +242,11 @@ $RECYCLE.BIN/
 logs/
 compile_*.txt
 
+# 논문용 통계 Colab 가이드 (로컬/Colab 전용, 저장소 제외)
+docs/paper_vowel_stats_colab.md
+stats_output/
+stats_output.zip
+
 # End of https://www.toptal.com/developers/gitignore/api/macos,python,windows
 # Database files
 *.db

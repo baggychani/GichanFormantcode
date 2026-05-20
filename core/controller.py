@@ -788,14 +788,7 @@ class MainController:
         smart_ranges = self._get_smart_ranges(plot_type, use_bark, f1_scale, f2_scale)
         self._apply_ranges_to_widgets(popup.range_widgets, smart_ranges)
 
-        popup.lbl_info.setText(
-            format_file_label(
-                popup.current_idx + 1,
-                len(popup.plot_data_snapshot),
-                current_data["name"],
-            )
-        )
-        apply_file_indicator_style(popup.lbl_info, current_data)
+        popup.update_file_nav_indicator(popup.current_idx, current_data)
 
         filter_state = popup.get_filter_state()
         ds_settings = popup.get_design_settings() or self._get_default_design()
@@ -1309,10 +1302,13 @@ class MainController:
             ld.update_draw_layer_list([])
 
         current_data = data_list[idx]
-        lbl_info.setText(
-            format_file_label(idx + 1, len(data_list), current_data["name"])
-        )
-        apply_file_indicator_style(lbl_info, current_data)
+        if hasattr(popup_window, "update_file_nav_indicator"):
+            popup_window.update_file_nav_indicator(idx, current_data)
+        else:
+            lbl_info.setText(
+                format_file_label(idx + 1, len(data_list), current_data["name"])
+            )
+            apply_file_indicator_style(lbl_info, current_data)
 
         self.refresh_plot(figure, canvas, range_widgets, lbl_info, popup_window)
 

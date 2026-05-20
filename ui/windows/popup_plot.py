@@ -46,11 +46,8 @@ from ui.widgets.tool_indicator import ToolStatusIndicator
 from ui.widgets.layer_dock import LayerDockWidget
 from draw import DrawModeIndicator
 import ui.widgets.layout_constants as layout
-from ui.widgets.display_utils import (
-    apply_file_indicator_style,
-    format_file_label,
-    strip_gichan_prefix,
-)
+from ui.widgets.display_utils import strip_gichan_prefix
+from ui.widgets.file_nav_bar import FileNavBar
 from utils.math_utils import hz_to_bark, bark_to_hz
 
 
@@ -625,11 +622,13 @@ class PlotPopup(BasePlotWindow):
 
         nav_group = QVBoxLayout()
         nav_group.setSpacing(8)
-        self.lbl_info = QLabel("Loading...")
-        self.lbl_info.setFont(font_bold)
-        self.lbl_info.setStyleSheet("color: #1976D2; border: none;")
-        self.lbl_info.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        nav_group.addWidget(self.lbl_info)
+        self.file_nav = FileNavBar(self.ui_font_name)
+        self.file_nav.set_display(1, 1, "Loading...", None)
+        self.file_nav.jump_requested.connect(self._on_nav_index_jump)
+        self.file_nav.home_requested.connect(self._on_nav_home)
+        self.file_nav.end_requested.connect(self._on_nav_end)
+        self.lbl_info = self.file_nav.lbl_name
+        nav_group.addWidget(self.file_nav)
 
         btn_h = QHBoxLayout()
         btn_h.setSpacing(6)
@@ -1152,6 +1151,23 @@ class PlotPopup(BasePlotWindow):
         if hasattr(self, "_update_dock_separators"):
             self._update_dock_separators()
 
+    def update_file_nav_indicator(self, idx=None, data_item=None):
+        """[n] / total · 파일명 표시를 갱신한다 (컨트롤러·내부 공통)."""
+        data_list = (
+            getattr(self, "plot_data_snapshot", None)
+            or self.controller.get_plot_data_list()
+        )
+        if not data_list:
+            return
+        if idx is None:
+            idx = getattr(self, "current_idx", self.controller.get_current_index())
+        idx = max(0, min(int(idx), len(data_list) - 1))
+        current = data_item if data_item is not None else data_list[idx]
+        if hasattr(self, "file_nav"):
+            self.file_nav.set_display(
+                idx + 1, len(data_list), current.get("name", ""), current
+            )
+
     def _update_nav_buttons(self):
         data_list = (
             getattr(self, "plot_data_snapshot", None)
@@ -1204,6 +1220,39 @@ class PlotPopup(BasePlotWindow):
         self.controller.set_current_index(self.current_idx)
         self._on_navigate_update()
 
+    def _navigate_to_index(self, new_idx: int) -> None:
+        data_list = (
+            getattr(self, "plot_data_snapshot", None)
+            or self.controller.get_plot_data_list()
+        )
+        if not data_list:
+            return
+        new_idx = max(0, min(int(new_idx), len(data_list) - 1))
+        if new_idx == getattr(self, "current_idx", self.controller.get_current_index()):
+            self.update_file_nav_indicator(new_idx)
+            self.setFocus()
+            return
+        self.setFocus()
+        self._save_filter_state_for_current_file()
+        self._save_layer_overrides_for_current_file()
+        self.current_idx = new_idx
+        self.controller.set_current_index(new_idx)
+        self._on_navigate_update()
+
+    def _on_nav_index_jump(self, index_1based: int) -> None:
+        self._navigate_to_index(index_1based - 1)
+
+    def _on_nav_home(self) -> None:
+        self._navigate_to_index(0)
+
+    def _on_nav_end(self) -> None:
+        data_list = (
+            getattr(self, "plot_data_snapshot", None)
+            or self.controller.get_plot_data_list()
+        )
+        if data_list:
+            self._navigate_to_index(len(data_list) - 1)
+
     def _save_layer_overrides_for_current_file(self):
         """현재 파일 인덱스에 대한 레이어 오버라이드를 저장."""
         idx = getattr(self, "current_idx", self.controller.get_current_index())
@@ -1253,10 +1302,7 @@ class PlotPopup(BasePlotWindow):
         self._load_filter_state_for_file(idx)
         current_data = data_list[idx]
         self._update_window_title(current_data["name"])
-        self.lbl_info.setText(
-            format_file_label(idx + 1, len(data_list), current_data["name"])
-        )
-        apply_file_indicator_style(self.lbl_info, current_data)
+        self.update_file_nav_indicator(idx, current_data)
         self._update_combined_txt_export_visibility(current_data)
 
         if self.filter_panel is not None and self.filter_panel.isVisible():
@@ -1325,6 +1371,28 @@ class PlotPopup(BasePlotWindow):
         QShortcut(
             QKeySequence(Qt.Key.Key_T), self, context=Qt.ShortcutContext.WindowShortcut
         ).activated.connect(self._safe_toggle_label_move)
+        QShortcut(
+            QKeySequence(Qt.Key.Key_Home), self, context=Qt.ShortcutContext.WindowShortcut
+        ).activated.connect(self._safe_nav_home)
+        QShortcut(
+            QKeySequence(Qt.Key.Key_End), self, context=Qt.ShortcutContext.WindowShortcut
+        ).activated.connect(self._safe_nav_end)
+
+    def _safe_nav_home(self):
+        if self._is_input_focused():
+            return
+        self._on_nav_home()
+
+    def _safe_nav_end(self):
+        if self._is_input_focused():
+            return
+        self._on_nav_end()
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        if not getattr(self, "_plot_initial_focus_set", False):
+            self._plot_initial_focus_set = True
+            self.setFocus(Qt.FocusReason.OtherFocusReason)
 
     def _safe_toggle_label_move(self):
         if self._is_input_focused():
