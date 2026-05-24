@@ -17,6 +17,7 @@ class TestMainController(unittest.TestCase):
     def setUp(self, mock_timer, mock_ui):
         # UI 및 타이머 모킹하여 초기화 시 오류 방지
         self.mock_ui = mock_ui.return_value
+        self.mock_ui.get_normalization.return_value = None
         self.controller = MainController()
         # 테스트를 위해 빈 데이터셋으로 초기화 확인
         self.assertEqual(len(self.controller.filepaths), 0)
@@ -57,6 +58,61 @@ class TestMainController(unittest.TestCase):
         # None일 경우 원본 복사본 반환
         res = self.controller._apply_normalization(df, None)
         pd.testing.assert_frame_equal(res, df)
+
+    def test_get_main_ui_plot_params_includes_normalization(self):
+        """메인 UI 파라미터에 정규화 설정이 포함되는지 검증."""
+        self.mock_ui.get_plot_type.return_value = "f1_f2"
+        self.mock_ui.get_f1_scale.return_value = "linear"
+        self.mock_ui.get_f2_scale.return_value = "log"
+        self.mock_ui.get_origin.return_value = "bottom_left"
+        self.mock_ui.get_use_bark_units.return_value = False
+        self.mock_ui.get_normalization.return_value = "Lobanov"
+
+        params = self.controller._get_main_ui_plot_params()
+        self.assertEqual(params["normalization"], "Lobanov")
+
+    def test_refresh_plot_uses_single_normalized(self):
+        """단일 플롯 refresh 시 Lobanov면 draw_single_normalized를 호출."""
+        import pandas as pd
+        from unittest.mock import MagicMock
+
+        df = pd.DataFrame({"F1": [500, 600], "F2": [1500, 1600], "Label": ["i", "e"]})
+        popup = MagicMock()
+        popup.uses_main_normalization = True
+        popup.normalization = "Lobanov"
+        popup.plot_data_snapshot = [{"name": "t.csv", "df": df}]
+        popup.current_idx = 0
+        popup.fixed_plot_params = {"type": "f1_f2", "sigma": 2.0}
+        popup.get_filter_state.return_value = {}
+        popup.get_design_settings.return_value = {}
+        popup.get_layer_design_overrides.return_value = {}
+        popup.range_widgets = {
+            k: MagicMock(text=MagicMock(return_value=str(v)))
+            for k, v in {
+                "y_min": "-2",
+                "y_max": "2",
+                "x_min": "-2",
+                "x_max": "2",
+            }.items()
+        }
+        popup.cb_sigma = None
+
+        self.mock_ui.get_normalization.return_value = "Lobanov"
+        fig = MagicMock()
+        canvas = MagicMock()
+
+        with patch.object(
+            self.controller.plot_engine, "draw_single_normalized"
+        ) as mock_draw:
+            mock_draw.return_value = (MagicMock(), [], [], [])
+            with patch.object(
+                self.controller.plot_engine, "draw_plot"
+            ) as mock_raw:
+                self.controller.refresh_plot(
+                    fig, canvas, popup.range_widgets, None, popup
+                )
+                mock_draw.assert_called_once()
+                mock_raw.assert_not_called()
 
     def test_get_axis_units(self):
         """파라미터에 따른 축 단위 문자열 반환 검증."""

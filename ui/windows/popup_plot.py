@@ -166,13 +166,22 @@ class PlotPopup(BasePlotWindow):
     """메인 결과 시각화 창 (단일 도크 통합 탭 버전)"""
 
     def __init__(
-        self, parent, controller, figure, x_axis_label="F2", title="Plot Result"
+        self,
+        parent,
+        controller,
+        figure,
+        x_axis_label="F2",
+        title="Plot Result",
+        normalization=None,
     ):
         super().__init__()
 
         self.controller = controller
         self.figure = figure
         self.x_axis_label = x_axis_label
+        self.normalization = normalization
+        self.uses_main_normalization = True
+        self._last_synced_normalization = "__unset__"
         # 이 창 인스턴스 전용 라벨 오프셋 캐시 (필요 시 사용)
         self.custom_offsets = {}
 
@@ -214,7 +223,7 @@ class PlotPopup(BasePlotWindow):
         current_data = data_list[idx]
         self._update_window_title(current_data["name"])
 
-        self.resize(layout.PLOT_WINDOW_WIDTH_PX, config.PLOT_WINDOW_HEIGHT_PX)
+        self.setFixedSize(layout.PLOT_WINDOW_WIDTH_PX, config.PLOT_WINDOW_HEIGHT_PX)
         self.ui_font_name = (
             config.UI_FONT_WINDOWS
             if platform.system() == "Windows"
@@ -445,7 +454,9 @@ class PlotPopup(BasePlotWindow):
 
         # 디자인 탭을 분리된 패널 모듈로 교체 및 초기화
         self.design_tab = DesignSettingsPanel(
-            parent=self, ui_font_name=self.ui_font_name
+            parent=self,
+            ui_font_name=self.ui_font_name,
+            is_normalized=bool(getattr(self, "normalization", None)),
         )
         self.design_settings = self.design_tab.get_current_settings()
         self.design_tab.settings_changed.connect(self._on_design_settings_changed)
@@ -582,9 +593,8 @@ class PlotPopup(BasePlotWindow):
         self._update_dock_separators()
 
     def _resize_for_dock_state(self):
-        """창 가로는 항상 도크 둘 다 붙었을 때 너비(PLOT_WINDOW_WIDTH_PX)로 유지. (플로팅 시 줄이지 않음)"""
-        w = layout.PLOT_WINDOW_WIDTH_PX
-        self.resize(w, self.height())
+        """창 크기 고정: 도크 내용(Combined·정규화 등)이 늘어나도 창 세로가 변하지 않게 한다."""
+        self.setFixedSize(layout.PLOT_WINDOW_WIDTH_PX, config.PLOT_WINDOW_HEIGHT_PX)
 
     def _update_dock_separators(self):
         """도구 도크·레이어 도크 위치에 따라 central 좌우 얇은 선(sep) 표시."""
@@ -693,6 +703,21 @@ class PlotPopup(BasePlotWindow):
         self.line1.setFrameShape(QFrame.Shape.HLine)
         self.line1.setStyleSheet("color: #E4E7ED;")
         layout.addWidget(self.line1)
+
+        self.norm_section_widget = QWidget()
+        norm_group = QVBoxLayout(self.norm_section_widget)
+        norm_group.setSpacing(4)
+        norm_group.setContentsMargins(0, 0, 0, 0)
+        lbl_norm_title = QLabel("정규화", font=font_bold)
+        lbl_norm_title.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        norm_group.addWidget(lbl_norm_title)
+        self.lbl_norm_value = QLabel(
+            getattr(self, "normalization", None) or "없음", font=font_normal
+        )
+        self.lbl_norm_value.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.lbl_norm_value.setStyleSheet("color: #606266;")
+        norm_group.addWidget(self.lbl_norm_value)
+        layout.addWidget(self.norm_section_widget)
 
         clean_line_edit_style = """
             QLineEdit { border: 1px solid #DCDFE6; border-radius: 3px; background-color: transparent; padding: 2px; font-size: 12px;}
@@ -1000,6 +1025,7 @@ class PlotPopup(BasePlotWindow):
         export_group.addWidget(btn_batch)
 
         layout.addLayout(export_group)
+        self._apply_normalization_axis_ui()
 
     def _on_design_settings_changed(self, settings):
         """디자인 패널의 설정이 변경되었을 때 실시간 반영을 위한 콜백"""
@@ -1021,6 +1047,8 @@ class PlotPopup(BasePlotWindow):
             base += " (이상치 제거 : 1σ)"
         elif mode == "2sigma":
             base += " (이상치 제거 : 2σ)"
+        if getattr(self, "normalization", None):
+            base += f" / {self.normalization}"
         self.setWindowTitle(base)
 
     def _update_combined_txt_export_visibility(self, data_item=None):
@@ -1352,13 +1380,24 @@ class PlotPopup(BasePlotWindow):
 
     def _reset_ranges_to_default(self, apply_plot=True):
         if hasattr(self, "fixed_plot_params"):
-            ptype = self.fixed_plot_params.get("type", "f1_f2")
-            use_bark = self.fixed_plot_params.get("use_bark_units", False)
-            smart_ranges = self.controller.get_smart_ranges_for_params(ptype, use_bark)
-            self.cb_sigma.setCurrentText(str(config.DEFAULT_SIGMA))
+            norm = getattr(self, "normalization", None)
+            if norm:
+                from engine.plot_engine import PlotEngine
 
-            for k in ["y_min", "y_max", "x_min", "x_max"]:
-                self.range_widgets[k].setText(smart_ranges[k])
+                r = PlotEngine.NORM_RANGES.get(norm, PlotEngine.NORM_RANGES["Lobanov"])
+                for k in ["y_min", "y_max", "x_min", "x_max"]:
+                    self.range_widgets[k].setText(str(r[k]))
+                    self.range_widgets[k].setReadOnly(norm == "Gerstman")
+            else:
+                ptype = self.fixed_plot_params.get("type", "f1_f2")
+                use_bark = self.fixed_plot_params.get("use_bark_units", False)
+                smart_ranges = self.controller.get_smart_ranges_for_params(
+                    ptype, use_bark
+                )
+                for k in ["y_min", "y_max", "x_min", "x_max"]:
+                    self.range_widgets[k].setText(smart_ranges[k])
+                    self.range_widgets[k].setReadOnly(False)
+            self.cb_sigma.setCurrentText(str(config.DEFAULT_SIGMA))
 
             if apply_plot is True:
                 self.on_apply()

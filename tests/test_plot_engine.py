@@ -153,6 +153,26 @@ class TestPlotEngine(unittest.TestCase):
         self.assertNotIn("(Hz)", ax.get_xlabel())
         self.assertNotIn("(Bark)", ax.get_xlabel())
 
+    def test_draw_single_normalized_labels_and_limits(self):
+        """단일 정규화 플롯: nF1/nF2 라벨 및 Lobanov 기본 범위."""
+        import pandas as pd
+
+        fig = Figure()
+        df = pd.DataFrame({"F1": [0.5, -0.5], "F2": [1.2, -1.0], "Label": ["i", "a"]})
+
+        ax, _, _, _ = self.engine.draw_single_normalized(
+            fig, df, "Lobanov", plot_params={"type": "f1_f2"}
+        )
+
+        self.assertEqual(ax.get_xlabel(), "nF2")
+        self.assertEqual(ax.get_ylabel(), "nF1")
+        xlim = sorted(ax.get_xlim())
+        ylim = sorted(ax.get_ylim())
+        self.assertAlmostEqual(xlim[0], -2.0, places=4)
+        self.assertAlmostEqual(xlim[1], 2.0, places=4)
+        self.assertAlmostEqual(ylim[0], -2.0, places=4)
+        self.assertAlmostEqual(ylim[1], 2.0, places=4)
+
 
 if __name__ == "__main__":
     unittest.main()

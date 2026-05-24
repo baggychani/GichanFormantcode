@@ -623,6 +623,19 @@ class MainController:
             "show_minor_ticks": True,
         }
 
+    def _get_preview_design(self, params):
+        """LIVE MONITOR용 디자인. 정규화 모드는 플롯 창과 동일하게 테두리·그리드 ON."""
+        design = self._get_default_design()
+        if (params or {}).get("normalization"):
+            design.update(
+                {
+                    "box_spines": True,
+                    "show_grid": True,
+                    "y_label_rotation": True,
+                }
+            )
+        return design
+
     def _set_preview_empty(self):
         """LIVE 모니터를 데이터 없음 상태로 표시합니다."""
         self.ui.preview_label.clear()
@@ -630,18 +643,57 @@ class MainController:
         if hasattr(self.ui, "preview_info_label"):
             self.ui.preview_info_label.setText("")
 
+    def _norm_ranges_for_widgets(self, norm):
+        """정규화 축 범위 dict (range_widgets용 문자열 값)."""
+        r = PlotEngine.NORM_RANGES.get(norm, PlotEngine.NORM_RANGES["Lobanov"])
+        return {k: str(r[k]) for k in ["y_min", "y_max", "x_min", "x_max"]}
+
+    def _sync_single_popup_normalization(self, popup_window):
+        """메인 창 정규화 선택을 단일 PlotPopup에 반영."""
+        if not getattr(popup_window, "uses_main_normalization", False):
+            return
+        norm = self.ui.get_normalization()
+        prev = getattr(popup_window, "_last_synced_normalization", "__unset__")
+        norm_changed = norm != prev
+        popup_window.normalization = norm
+        popup_window._last_synced_normalization = norm
+        if hasattr(popup_window, "lbl_norm_value"):
+            popup_window.lbl_norm_value.setText(norm or "없음")
+        if norm_changed:
+            if norm:
+                self._apply_ranges_to_widgets(
+                    popup_window.range_widgets, self._norm_ranges_for_widgets(norm)
+                )
+            elif hasattr(popup_window, "_reset_ranges_to_default"):
+                popup_window._reset_ranges_to_default(apply_plot=False)
+        if hasattr(popup_window, "_apply_normalization_axis_ui"):
+            popup_window._apply_normalization_axis_ui()
+
     def _render_live_preview_content(
         self, current_data, params, smart_ranges, default_design
     ):
         """LIVE 모니터에 플롯을 그려 버퍼로 저장한 뒤 레이블에 표시하고 하단 정보를 갱신합니다."""
         self.live_preview_fig.clear()
-        *_, _ = self.plot_engine.draw_plot(
-            self.live_preview_fig,
-            current_data["df"],
-            params,
-            manual_ranges=smart_ranges,
-            design_settings=default_design,
-        )
+        norm = (params or {}).get("normalization")
+        if norm:
+            df_norm = self._apply_normalization(current_data["df"], norm)
+            manual_ranges = self._norm_ranges_for_widgets(norm)
+            *_, _ = self.plot_engine.draw_single_normalized(
+                self.live_preview_fig,
+                df_norm,
+                norm,
+                manual_ranges=manual_ranges,
+                design_settings=default_design,
+                plot_params=params,
+            )
+        else:
+            *_, _ = self.plot_engine.draw_plot(
+                self.live_preview_fig,
+                current_data["df"],
+                params,
+                manual_ranges=smart_ranges,
+                design_settings=default_design,
+            )
 
         buf = io.BytesIO()
         buf = io.BytesIO()
@@ -670,24 +722,28 @@ class MainController:
         # 모니터 하단 정보: 파일명(확장자 제거), F1(스케일, 단위) / F2(스케일, 단위) / 이상치 제거(선택 시만)
         if hasattr(self.ui, "preview_info_label"):
             fname_base = strip_gichan_prefix(os.path.splitext(current_data["name"])[0])
-            f1_scale = params.get("f1_scale", "linear")
-            f2_scale = params.get("f2_scale", "linear")
-            use_bark = params.get("use_bark_units", False)
-            u1 = "Bark" if (f1_scale == "bark" and use_bark) else "Hz"
-            u2 = "Bark" if (f2_scale == "bark" and use_bark) else "Hz"
-            x_names = {
-                "f1_f2": "F2",
-                "f1_f3": "F3",
-                "f1_f2_prime": "F2'",
-                "f1_f2_minus_f1": "F2-F1",
-                "f1_f2_prime_minus_f1": "F2'-F1",
-            }
-            x_name = x_names.get(params["type"], "F2")
-            disp_f1, disp_f2 = self.ui.get_display_scale_for_preview()
-            line2 = (
-                f"F1({disp_f1.capitalize()}, {u1}) / "
-                f"{x_name}({disp_f2.capitalize()}, {u2})"
-            )
+            norm = (params or {}).get("normalization")
+            if norm:
+                line2 = f"nF1 / nF2 / {norm} 정규화"
+            else:
+                f1_scale = params.get("f1_scale", "linear")
+                f2_scale = params.get("f2_scale", "linear")
+                use_bark = params.get("use_bark_units", False)
+                u1 = "Bark" if (f1_scale == "bark" and use_bark) else "Hz"
+                u2 = "Bark" if (f2_scale == "bark" and use_bark) else "Hz"
+                x_names = {
+                    "f1_f2": "F2",
+                    "f1_f3": "F3",
+                    "f1_f2_prime": "F2'",
+                    "f1_f2_minus_f1": "F2-F1",
+                    "f1_f2_prime_minus_f1": "F2'-F1",
+                }
+                x_name = x_names.get(params["type"], "F2")
+                disp_f1, disp_f2 = self.ui.get_display_scale_for_preview()
+                line2 = (
+                    f"F1({disp_f1.capitalize()}, {u1}) / "
+                    f"{x_name}({disp_f2.capitalize()}, {u2})"
+                )
             outlier_mode = self.ui.get_outlier_mode()
             if outlier_mode == "1sigma":
                 line2 += " / 이상치 제거 : 1σ"
@@ -713,14 +769,17 @@ class MainController:
             self._set_preview_empty()
             return
         current_data = self.plot_data_list[0]
-        params = self._get_current_plot_params()
-        smart_ranges = self._get_smart_ranges(
-            params["type"],
-            params["use_bark_units"],
-            params["f1_scale"],
-            params["f2_scale"],
-        )
-        default_design = self._get_default_design()
+        params = self._get_main_ui_plot_params()
+        if params.get("normalization"):
+            smart_ranges = self._norm_ranges_for_widgets(params["normalization"])
+        else:
+            smart_ranges = self._get_smart_ranges(
+                params["type"],
+                params["use_bark_units"],
+                params["f1_scale"],
+                params["f2_scale"],
+            )
+        default_design = self._get_preview_design(params)
         try:
             self._render_live_preview_content(
                 current_data, params, smart_ranges, default_design
@@ -764,15 +823,22 @@ class MainController:
         fig = Figure(figsize=(6.5, 6.5), dpi=100)
         plot_type = self.ui.get_plot_type()
         x_label = self._get_x_axis_label(plot_type)
+        params = self._get_main_ui_plot_params()
+        norm = params.get("normalization")
 
         popup = PlotPopup(
-            parent=self.ui, controller=self, figure=fig, x_axis_label=x_label
+            parent=self.ui,
+            controller=self,
+            figure=fig,
+            x_axis_label=x_label,
+            normalization=norm,
         )
         popup.set_initial_plot_state(
-            self._get_current_plot_params(),
+            params,
             copy.deepcopy(self.plot_data_list),
             self.current_idx,
         )
+        popup._last_synced_normalization = norm
 
         current_data = popup.plot_data_snapshot[popup.current_idx]
         f1_scale = popup.fixed_plot_params.get("f1_scale", "linear")
@@ -780,39 +846,68 @@ class MainController:
         use_bark = popup.fixed_plot_params.get("use_bark_units", False)
         f1_unit, f2_unit = self._get_axis_units_from_params(popup.fixed_plot_params)
 
-        try:
-            popup.update_unit_labels(f1_unit, f2_unit)
-        except TypeError:
-            popup.update_unit_labels(f1_unit)
-
-        smart_ranges = self._get_smart_ranges(plot_type, use_bark, f1_scale, f2_scale)
-        self._apply_ranges_to_widgets(popup.range_widgets, smart_ranges)
+        if norm:
+            self._apply_ranges_to_widgets(
+                popup.range_widgets, self._norm_ranges_for_widgets(norm)
+            )
+            popup._apply_normalization_axis_ui()
+        else:
+            try:
+                popup.update_unit_labels(f1_unit, f2_unit)
+            except TypeError:
+                popup.update_unit_labels(f1_unit)
+            smart_ranges = self._get_smart_ranges(plot_type, use_bark, f1_scale, f2_scale)
+            self._apply_ranges_to_widgets(popup.range_widgets, smart_ranges)
 
         popup.update_file_nav_indicator(popup.current_idx, current_data)
 
         filter_state = popup.get_filter_state()
         ds_settings = popup.get_design_settings() or self._get_default_design()
 
-        plot_type_fixed = popup.fixed_plot_params.get("type", "f1_f2")
+        plot_type_fixed = "f1_f2" if norm else popup.fixed_plot_params.get("type", "f1_f2")
+        plot_key_suffix = (plot_type_fixed, norm) if norm else (plot_type_fixed,)
         custom_offsets = self.custom_label_offsets.get(
-            (popup.current_idx, plot_type_fixed), {}
+            (popup.current_idx, *plot_key_suffix), {}
         )
         layer_overrides = popup.get_layer_design_overrides()
-        _, snapping_data, label_data, label_text_artists = self.plot_engine.draw_plot(
-            fig,
-            current_data["df"],
-            popup.fixed_plot_params,
-            manual_ranges=smart_ranges,
-            filter_state=filter_state,
-            design_settings=ds_settings,
-            custom_label_offsets=custom_offsets,
-            layer_overrides=layer_overrides,
-        )
+        if norm:
+            df_norm = self._apply_normalization(current_data["df"], norm)
+            popup.fixed_plot_params = dict(
+                popup.fixed_plot_params or {}, normalization=norm
+            )
+            manual_ranges = self._read_manual_ranges(popup.range_widgets)
+            sigma = float(popup.fixed_plot_params.get("sigma", config.DEFAULT_SIGMA))
+            _, snapping_data, label_data, label_text_artists = (
+                self.plot_engine.draw_single_normalized(
+                    fig,
+                    df_norm,
+                    norm,
+                    manual_ranges=manual_ranges,
+                    filter_state=filter_state,
+                    design_settings=ds_settings,
+                    sigma=sigma,
+                    custom_label_offsets=custom_offsets,
+                    layer_overrides=layer_overrides,
+                    plot_params=popup.fixed_plot_params,
+                )
+            )
+            popup._update_window_title(current_data["name"])
+        else:
+            _, snapping_data, label_data, label_text_artists = self.plot_engine.draw_plot(
+                fig,
+                current_data["df"],
+                popup.fixed_plot_params,
+                manual_ranges=smart_ranges,
+                filter_state=filter_state,
+                design_settings=ds_settings,
+                custom_label_offsets=custom_offsets,
+                layer_overrides=layer_overrides,
+            )
         popup.set_draw_result(
             snapping_data,
             label_data,
             label_text_artists,
-            (popup.current_idx, plot_type_fixed),
+            (popup.current_idx, *plot_key_suffix),
         )
         popup.canvas.draw()
 
@@ -1197,32 +1292,72 @@ class MainController:
         try:
             manual_ranges = self._read_manual_ranges(range_widgets)
 
+            self._sync_single_popup_normalization(popup_window)
             popup_window.fixed_plot_params = self._get_current_plot_params(popup_window)
             data_list = popup_window.plot_data_snapshot or self.plot_data_list
             idx = popup_window.current_idx
             current_data = data_list[idx]
-            plot_type = popup_window.fixed_plot_params.get("type", "f1_f2")
-            custom_offsets = self.custom_label_offsets.get((idx, plot_type), {})
+            norm = getattr(popup_window, "normalization", None) or (
+                popup_window.fixed_plot_params or {}
+            ).get("normalization")
+            plot_type = "f1_f2" if norm else popup_window.fixed_plot_params.get(
+                "type", "f1_f2"
+            )
+            plot_key_suffix = (plot_type, norm) if norm else (plot_type,)
+            custom_offsets = self.custom_label_offsets.get(
+                (idx, *plot_key_suffix), {}
+            )
 
             filter_state = popup_window.get_filter_state()
             ds_settings = (
                 popup_window.get_design_settings() or self._get_default_design()
             )
             layer_overrides = popup_window.get_layer_design_overrides()
-            _, snapping_data, label_data, label_text_artists = (
-                self.plot_engine.draw_plot(
-                    figure,
-                    current_data["df"],
-                    popup_window.fixed_plot_params,
-                    manual_ranges=manual_ranges,
-                    filter_state=filter_state,
-                    design_settings=ds_settings,
-                    custom_label_offsets=custom_offsets,
-                    layer_overrides=layer_overrides,
+            if norm:
+                popup_window.fixed_plot_params = dict(
+                    popup_window.fixed_plot_params or {}, normalization=norm
                 )
-            )
+                if hasattr(popup_window, "cb_sigma") and popup_window.cb_sigma:
+                    try:
+                        popup_window.fixed_plot_params["sigma"] = float(
+                            popup_window.cb_sigma.currentText()
+                        )
+                    except (ValueError, TypeError):
+                        pass
+                df_norm = self._apply_normalization(current_data["df"], norm)
+                sigma = float(
+                    popup_window.fixed_plot_params.get("sigma", config.DEFAULT_SIGMA)
+                )
+                _, snapping_data, label_data, label_text_artists = (
+                    self.plot_engine.draw_single_normalized(
+                        figure,
+                        df_norm,
+                        norm,
+                        manual_ranges=manual_ranges,
+                        filter_state=filter_state,
+                        design_settings=ds_settings,
+                        sigma=sigma,
+                        custom_label_offsets=custom_offsets,
+                        layer_overrides=layer_overrides,
+                        plot_params=popup_window.fixed_plot_params,
+                    )
+                )
+                popup_window._update_window_title(current_data["name"])
+            else:
+                _, snapping_data, label_data, label_text_artists = (
+                    self.plot_engine.draw_plot(
+                        figure,
+                        current_data["df"],
+                        popup_window.fixed_plot_params,
+                        manual_ranges=manual_ranges,
+                        filter_state=filter_state,
+                        design_settings=ds_settings,
+                        custom_label_offsets=custom_offsets,
+                        layer_overrides=layer_overrides,
+                    )
+                )
             popup_window.set_draw_result(
-                snapping_data, label_data, label_text_artists, (idx, plot_type)
+                snapping_data, label_data, label_text_artists, (idx, *plot_key_suffix)
             )
             canvas.draw()
 
@@ -1883,6 +2018,7 @@ class MainController:
             "origin": self.ui.get_origin(),
             "use_bark_units": use_bark,
             "sigma": config.DEFAULT_SIGMA,
+            "normalization": self.ui.get_normalization(),
         }
 
     def _get_current_plot_params(self, popup_window=None):
@@ -1905,5 +2041,9 @@ class MainController:
                 params.setdefault(
                     "f2_unit", "Bark" if (f2_scale == "bark" and use_bark) else "Hz"
                 )
+            if getattr(popup_window, "uses_main_normalization", False):
+                norm = self.ui.get_normalization()
+                params["normalization"] = norm
+                popup_window.normalization = norm
             return params
         return self._get_main_ui_plot_params()

@@ -318,9 +318,10 @@ class DesignSettingsPanel(QWidget):
     settings_changed = Signal(dict)
     label_move_clicked = Signal()
 
-    def __init__(self, parent=None, ui_font_name="Malgun Gothic"):
+    def __init__(self, parent=None, ui_font_name="Malgun Gothic", is_normalized=False):
         super().__init__(parent)
         self.ui_font_name = ui_font_name
+        self._is_normalized = is_normalized
         self._is_loading = True
 
         self._setup_ui()
@@ -682,13 +683,13 @@ class DesignSettingsPanel(QWidget):
 
         # 항상 보이는 3개: 사방 테두리, 배경 실선(Grid), Y축 라벨 눕히기
         row5, self.sw_box_spines = self._create_toggle_row(
-            "사방 테두리", default_checked=False
+            "사방 테두리", default_checked=self._is_normalized
         )
         row6, self.sw_show_grid = self._create_toggle_row(
-            "배경 실선(Grid)", default_checked=False
+            "배경 실선(Grid)", default_checked=self._is_normalized
         )
         row_y_rot, self.sw_y_label_rotation = self._create_toggle_row(
-            "Y축 라벨 눕히기", default_checked=False
+            "Y축 라벨 눕히기", default_checked=self._is_normalized
         )
         self.sw_y_label_rotation.setToolTip(
             "Y축(F1 등) 글자를 90도 눕혀 표시합니다. 끄면 똑바로 세웁니다."
@@ -723,7 +724,7 @@ class DesignSettingsPanel(QWidget):
             "ON 시 주 눈금 사이에 세부 눈금을 표시합니다."
         )
         row_axis, self.sw_axis_position_swap = self._create_toggle_row(
-            "축·눈금 위치 반전", default_checked=False
+            "축·눈금 위치 반전", default_checked=self._is_normalized
         )
         self.sw_axis_position_swap.setToolTip(
             "Praat에서 아래/왼쪽, 수학에서 위/오른쪽에 축과 눈금을 표시합니다."
@@ -863,6 +864,11 @@ class DesignSettingsPanel(QWidget):
         self.sw_y_label_rotation.setChecked(False)
         self.sw_box_spines.setChecked(False)
         self.sw_show_grid.setChecked(False)
+        if self._is_normalized:
+            self.sw_y_label_rotation.setChecked(True)
+            self.sw_box_spines.setChecked(True)
+            self.sw_show_grid.setChecked(True)
+            self.sw_axis_position_swap.setChecked(True)
         self.sw_show_minor_ticks.setChecked(True)
 
         # 초기화 시 설정 유지도 OFF (로그 없이)

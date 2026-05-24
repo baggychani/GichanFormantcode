@@ -59,7 +59,7 @@ WINDOW_SIZE_MAIN = "860x710"
 WINDOW_MINSIZE_POPUP = (680, 500)
 
 # 플롯 창(단일/다중) 공통: 세로 높이(px), 중앙 캔버스 한 변(px). 두 값 모두 compare_plot / popup_plot 동일.
-PLOT_WINDOW_HEIGHT_PX = 660
+PLOT_WINDOW_HEIGHT_PX = 720
 PLOT_CANVAS_SIZE_PX = 650
 
 # 플롯 창 내 탭 바: 탭 최소 가로(px). compare_plot / popup_plot 스타일시트에서 동일 사용.
@@ -298,6 +298,8 @@ LOG_MSG = {
     "FILE_REMOVED": "파일이 리스트에서 제거되었습니다: {removed_name}",
     "FILE_ROW_DROPPED": "[INFO] {name}에서 데이터 조건을 만족하지 않아 일부 데이터 행이 제외되었습니다. (라벨별 누락: {detail})",
     "OUTLIER_OFF": "[INFO] 이상치 제거가 해제되었습니다.",
+    "NORM_OFF": "[INFO] 정규화가 해제되었습니다.",
+    "NORM_ON": "[INFO] 정규화가 적용되었습니다: {method}",
     "OUTLIER_REMOVED_SUMMARY": "총 {file_count}개 파일에서 {total_removed}개의 데이터 포인트가 이상치로 제거되었습니다.{detail}",
     "OUTLIER_NOT_REMOVED_MIN_LABELS": "[INFO] 이상치 제거가 수행되지 않았습니다. "
     "모음별 최소 5개 데이터가 있어야 이상치 제거가 가능합니다. (데이터 수 부족 라벨 예시: {detail})",

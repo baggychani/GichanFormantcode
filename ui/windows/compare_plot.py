@@ -408,7 +408,7 @@ class ComparePlotPopup(BasePlotWindow):
         )
 
         self._update_compare_window_title(data_blue, data_red)
-        self.resize(layout.PLOT_WINDOW_WIDTH_PX, config.PLOT_WINDOW_HEIGHT_PX)
+        self.setFixedSize(layout.PLOT_WINDOW_WIDTH_PX, config.PLOT_WINDOW_HEIGHT_PX)
         self.ui_font_name = (
             config.UI_FONT_WINDOWS
             if platform.system() == "Windows"
@@ -1111,7 +1111,7 @@ class ComparePlotPopup(BasePlotWindow):
         )
         QApplication.instance().installEventFilter(self._click_clear_focus_filter)
 
-        self._apply_normalization_axis_ui()
+        self._apply_normalization_axis_ui(reset_ranges=True)
 
         line2 = QFrame()
         line2.setFrameShape(QFrame.Shape.HLine)
@@ -1199,31 +1199,8 @@ class ComparePlotPopup(BasePlotWindow):
         export_group.addLayout(save_h)
         layout.addLayout(export_group)
 
-    def _apply_normalization_axis_ui(self):
-        """정규화 플롯일 때 좌표축 레이블/단위/범위 적용. Gerstman만 읽기 전용. 정규화 없으면 정규화 섹션 숨김."""
-        norm = getattr(self, "normalization", None)
-        if hasattr(self, "norm_section_widget"):
-            self.norm_section_widget.setVisible(bool(norm))
-        if not getattr(self, "range_widgets", None):
-            return
-        if not norm:
-            return
-        r = PlotEngine.NORM_RANGES.get(norm, PlotEngine.NORM_RANGES["Lobanov"])
-        if hasattr(self, "lbl_f1_axis"):
-            self.lbl_f1_axis.setText("nF1:")
-        if hasattr(self, "lbl_x_axis"):
-            ptype = (getattr(self, "fixed_plot_params", None) or {}).get(
-                "type", "f1_f2"
-            )
-            self.x_axis_label = PlotEngine.normalized_x_axis_label(ptype)
-            self.lbl_x_axis.setText(f"{self.x_axis_label}:")
-        if hasattr(self, "lbl_f1_unit"):
-            self.lbl_f1_unit.setText("")
-        if hasattr(self, "lbl_f2_unit"):
-            self.lbl_f2_unit.setText("")
-        for key in ["y_min", "y_max", "x_min", "x_max"]:
-            self.range_widgets[key].setText(str(r[key]))
-            self.range_widgets[key].setReadOnly(norm == "Gerstman")
+    def _apply_normalization_axis_ui(self, reset_ranges=False):
+        super()._apply_normalization_axis_ui(reset_ranges=reset_ranges)
 
     def _update_legend_style(self):
         """디자인 설정 변경 시 범례 아이콘과 텍스트 색상을 실시간 업데이트합니다."""

@@ -25,7 +25,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtGui import QFont
 
 import config
-from utils import icon_utils
+from utils import icon_utils, app_logger
 
 
 class DropLabel(QLabel):
@@ -87,7 +87,7 @@ class MainUI(QMainWindow):
         self._apply_window_icon()
 
         # 창 크기 고정
-        self.setFixedSize(1100, 615)
+        self.setFixedSize(1100, 640)
 
         # 제목 표시줄의 최대화(ㅁ) 버튼 비활성화 (최소화, 닫기 버튼만 유지)
         self.setWindowFlags(
@@ -187,6 +187,7 @@ class MainUI(QMainWindow):
         self.chk_bark_units.toggled.connect(self._on_bark_units_toggled)
         self.plot_type_group.buttonClicked.connect(self._on_plot_type_changed)
         self.outlier_group.buttonClicked.connect(self._on_outlier_changed)
+        self.norm_group.buttonClicked.connect(self._on_normalization_changed)
 
         # 데이터 가이드 버튼 연결
         self.btn_guide.clicked.connect(self.controller.open_guide)
@@ -410,6 +411,27 @@ class MainUI(QMainWindow):
             )
             outlier_h.addWidget(btn, stretch=1)
         dp_layout.addLayout(outlier_h, 0, 1, 1, 3)
+        dp_layout.addWidget(QLabel("정규화"), 1, 0)
+        self.norm_group = QButtonGroup(self)
+        self.norm_group.setExclusive(True)
+        norm_h = QHBoxLayout()
+        norm_h.setSpacing(10)
+        for col, (text, val) in enumerate((("없음", ""), ("Lobanov", "Lobanov"))):
+            btn = QPushButton(text)
+            btn.setCheckable(True)
+            btn.setProperty("norm_val", val)
+            btn.setFont(self.font_small)
+            btn.setMinimumHeight(30)
+            btn.setToolTip(
+                "Lobanov: 화자 내 F1·F2 평균·표준편차 기준 Z-score.\n"
+                "모음이 1개뿐이면 해당 축 값은 0으로 처리됩니다."
+                if val == "Lobanov"
+                else "원본 Hz/Bark 스케일로 표시합니다."
+            )
+            self.norm_group.addButton(btn, col)
+            norm_h.addWidget(btn, stretch=1)
+        self.norm_group.button(0).setChecked(True)
+        dp_layout.addLayout(norm_h, 1, 1, 1, 3)
         dp_layout.setColumnStretch(1, 1)
         dp_layout.setColumnStretch(2, 1)
         dp_layout.setColumnStretch(3, 1)
@@ -526,6 +548,8 @@ class MainUI(QMainWindow):
             row += 1
 
         self._set_settings_locked(count == 0)
+        if count > 0:
+            self._update_normalization_combo_for_plot_type()
 
     def _set_settings_locked(self, locked):
         self.group_structure.setEnabled(not locked)
@@ -598,6 +622,7 @@ class MainUI(QMainWindow):
         self.lbl_x_axis.setText(lbl_map.get(ptype, "X-Axis Scale"))
         _, desc_text = config.PLOT_DESCS.get(ptype, ("", ""))
         self.lbl_plot_desc.setText(desc_text)
+        self._update_normalization_combo_for_plot_type()
         self._update_bark_checkbox_state()
         self._draw_preview()
 
@@ -705,6 +730,51 @@ class MainUI(QMainWindow):
         btn = self.outlier_group.checkedButton()
         return btn.property("val") if btn else None
 
+    def get_normalization(self):
+        """정규화 방법: None | 'Lobanov' (1단계)"""
+        if not hasattr(self, "norm_group"):
+            return None
+        btn = self.norm_group.checkedButton()
+        if not btn or not btn.isEnabled():
+            return None
+        val = btn.property("norm_val")
+        return val if val else None
+
+    def _set_norm_mode_active(self, active: bool):
+        """정규화 선택 시 Hz/Bark·스케일 설정은 무의미하므로 AXIS SCALES 잠금."""
+        if hasattr(self, "group_scales"):
+            self.group_scales.setEnabled(not active)
+
+    def _update_normalization_combo_for_plot_type(self):
+        """파생 플롯 타입에서는 정규화 불가 (compare와 동일)."""
+        if not hasattr(self, "norm_group"):
+            return
+        ptype = self.get_plot_type()
+        unsupported = ptype in ("f1_f2_minus_f1", "f1_f2_prime_minus_f1")
+        if unsupported:
+            self.norm_group.blockSignals(True)
+            self.norm_group.button(0).setChecked(True)
+            for b in self.norm_group.buttons():
+                b.setEnabled(False)
+            self.norm_group.blockSignals(False)
+            self._set_norm_mode_active(False)
+        else:
+            has_files = self.controller.get_plot_data_count() > 0
+            for b in self.norm_group.buttons():
+                b.setEnabled(has_files)
+            self._set_norm_mode_active(bool(self.get_normalization()))
+
+    def _on_normalization_changed(self, *_args):
+        self._set_norm_mode_active(bool(self.get_normalization()))
+        norm = self.get_normalization()
+        if norm:
+            app_logger.info(config.LOG_MSG["NORM_ON"].format(method=norm))
+        else:
+            app_logger.info(config.LOG_MSG["NORM_OFF"])
+        self._draw_preview()
+        if hasattr(self.controller, "_refresh_open_popups"):
+            self.controller._refresh_open_popups()
+
     def _outlier_at_most_one(self, button, checked):
         """최대 1개만 선택: 켜진 버튼이 있으면 나머지 해제. 재클릭 시 해제되어 Optional 가능."""
         if checked:
@@ -739,6 +809,13 @@ class MainUI(QMainWindow):
         if hasattr(self, "outlier_group"):
             for b in self.outlier_group.buttons():
                 b.setChecked(False)
+        if hasattr(self, "norm_group"):
+            self.norm_group.blockSignals(True)
+            self.norm_group.button(0).setChecked(True)
+            for b in self.norm_group.buttons():
+                b.setEnabled(False)
+            self.norm_group.blockSignals(False)
+            self._set_norm_mode_active(False)
         self._on_plot_type_changed(self.plot_type_group.buttons()[0])
         self._set_settings_locked(True)
         self.update_file_status(0)

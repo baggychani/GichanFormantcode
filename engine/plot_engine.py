@@ -1364,6 +1364,399 @@ class PlotEngine:
         },
     }
 
+    def draw_single_normalized(
+        self,
+        figure,
+        df,
+        norm_type,
+        manual_ranges=None,
+        filter_state=None,
+        design_settings=None,
+        sigma=2.0,
+        custom_label_offsets=None,
+        layer_overrides=None,
+        plot_params=None,
+    ):
+        """단일 데이터 세트에 대한 정규화 F1 vs F2 플롯 (nF1 / nF2)."""
+        figure.clear()
+        if (
+            df is None
+            or not hasattr(df, "columns")
+            or "F1" not in df.columns
+            or "F2" not in df.columns
+        ):
+            ax = figure.add_subplot(111)
+            ax.set_box_aspect(1)
+            ax.set_axisbelow(True)
+            return ax, [], [], []
+
+        if design_settings is None:
+            design_settings = self._get_default_design()
+        if custom_label_offsets is None:
+            custom_label_offsets = {}
+        if layer_overrides is None:
+            layer_overrides = {}
+        if plot_params is None:
+            plot_params = {"type": "f1_f2"}
+
+        sigma = float(sigma)
+        snapping_data = []
+        label_data = []
+        label_text_artists = []
+
+        show_raw = design_settings.get("show_raw", True)
+        show_centroid = design_settings.get("show_centroid", True)
+        lbl_color = design_settings.get("lbl_color", "#FF0000")
+        lbl_size = design_settings.get("lbl_size", 16)
+        ell_thick = design_settings.get("ell_thick", 1.0)
+        ell_style = design_settings.get("ell_style", "--")
+        ell_color = design_settings.get("ell_color", "#606060")
+        ell_fill = design_settings.get("ell_fill_color", None)
+        centroid_marker = design_settings.get("centroid_marker", "o")
+        box_spines = design_settings.get("box_spines", False)
+        show_grid = design_settings.get("show_grid", False)
+        axis_font = self._get_axis_font_list(design_settings.get("font_style", "serif"))
+
+        r = self.NORM_RANGES.get(norm_type, self.NORM_RANGES["Lobanov"])
+        if manual_ranges and norm_type != "Gerstman":
+            try:
+                x_min = float(manual_ranges.get("x_min", r["x_min"]))
+                x_max = float(manual_ranges.get("x_max", r["x_max"]))
+                y_min = float(manual_ranges.get("y_min", r["y_min"]))
+                y_max = float(manual_ranges.get("y_max", r["y_max"]))
+                if x_min < x_max and y_min < y_max:
+                    r = {
+                        "x_min": x_min,
+                        "x_max": x_max,
+                        "y_min": y_min,
+                        "y_max": y_max,
+                        "x_step": r.get("x_step", 0.5),
+                        "y_step": r.get("y_step", 0.5),
+                    }
+            except (ValueError, TypeError):
+                pass
+
+        figure.subplots_adjust(left=0.22, right=0.91, bottom=0.12, top=0.88)
+        ax = figure.add_subplot(111)
+        ax.set_box_aspect(1)
+        ax.set_axisbelow(True)
+        eps = 1e-5
+        ax.set_xlim(r["x_min"] - eps, r["x_max"] + eps)
+        ax.set_ylim(r["y_min"] - eps, r["y_max"] + eps)
+        ax.invert_xaxis()
+        ax.invert_yaxis()
+        ax.xaxis.tick_bottom()
+        ax.yaxis.tick_left()
+
+        plot_type = plot_params.get("type", "f1_f2")
+        y_label_rotate = design_settings.get("y_label_rotation", False)
+        _nx = config.PLOT_X_AXIS_LABEL_NORMALIZED.get(plot_type, "nF2")
+        _ny = config.PLOT_Y_AXIS_LABEL_NORMALIZED
+        ax.set_xlabel(
+            _nx, fontsize=16, labelpad=13, fontweight="normal", fontfamily=axis_font
+        )
+        if y_label_rotate:
+            ax.set_ylabel(
+                _ny,
+                fontsize=16,
+                labelpad=18,
+                rotation=90,
+                va="center",
+                fontweight="normal",
+                fontfamily=axis_font,
+            )
+        else:
+            ax.set_ylabel(
+                _ny,
+                fontsize=16,
+                labelpad=20,
+                rotation=0,
+                va="center",
+                ha="left",
+                fontweight="normal",
+                fontfamily=axis_font,
+            )
+        ax.tick_params(axis="both", which="major", length=6, labelsize=13)
+        for lbl in ax.get_xticklabels() + ax.get_yticklabels():
+            lbl.set_fontfamily(axis_font)
+
+        if box_spines:
+            for spine in ax.spines.values():
+                spine.set_visible(True)
+                spine.set_color("#333333")
+                spine.set_linewidth(1.0)
+        else:
+            for spine in ax.spines.values():
+                spine.set_visible(False)
+        if show_grid:
+            ax.grid(True, linestyle="-", alpha=0.3, color="#AAAAAA", clip_on=False)
+        else:
+            ax.grid(False)
+
+        self._set_ticks(
+            ax,
+            "x",
+            "linear",
+            r["x_min"],
+            r["x_max"],
+            r["x_step"],
+            r["x_step"],
+            False,
+            design_settings.get("show_minor_ticks", True),
+        )
+        self._set_ticks(
+            ax,
+            "y",
+            "linear",
+            r["y_min"],
+            r["y_max"],
+            r["y_step"],
+            r["y_step"],
+            False,
+            design_settings.get("show_minor_ticks", True),
+        )
+
+        df_plot = df.copy()
+        df_plot["y_val"] = df_plot["F1"]
+        df_plot["x_val"] = df_plot["F2"]
+        label_col = "Label" if "Label" in df_plot.columns else "label"
+        if label_col not in df_plot.columns:
+            return ax, [], [], []
+
+        vowels = df_plot[label_col].unique()
+        placed_labels = []
+
+        for vowel in vowels:
+            state = "ON"
+            if filter_state and vowel in filter_state:
+                state = filter_state[vowel]
+            if state == "OFF":
+                continue
+
+            is_semi = state == "SEMI"
+            over = layer_overrides.get(vowel, {})
+            eff = {**design_settings, **over}
+            v_lbl_color = eff.get("lbl_color", lbl_color)
+            v_lbl_size = int(eff.get("lbl_size", lbl_size))
+            v_lbl_bold = "bold" if eff.get("lbl_bold", True) else "normal"
+            v_lbl_italic = "italic" if eff.get("lbl_italic", False) else "normal"
+            v_ell_thick = float(eff.get("ell_thick", ell_thick))
+            v_ell_style = eff.get("ell_style", ell_style)
+            v_ell_color = eff.get("ell_color", ell_color)
+            v_ell_fill = eff.get("ell_fill_color", ell_fill)
+            v_centroid_marker = eff.get("centroid_marker", centroid_marker)
+            v_raw_marker = eff.get("raw_marker", design_settings.get("raw_marker", "o"))
+            v_raw_color = self._resolve_plot_color(
+                eff.get("raw_color", design_settings.get("raw_color")),
+                "#606060",
+            )
+
+            subset = df_plot[df_plot[label_col] == vowel]
+            x, y = subset["x_val"], subset["y_val"]
+            scatter_alpha = 0.15 if is_semi else 0.5
+            z_offset = -10 if is_semi else 0
+
+            if show_raw:
+                if v_raw_marker == "o":
+                    ax.scatter(
+                        x,
+                        y,
+                        s=15,
+                        facecolors="none",
+                        edgecolors=v_raw_color,
+                        linewidth=0.4,
+                        alpha=scatter_alpha,
+                        zorder=1 + z_offset,
+                        clip_on=False,
+                    )
+                elif v_raw_marker == "x":
+                    ax.scatter(
+                        x,
+                        y,
+                        s=25,
+                        marker="x",
+                        color=v_raw_color,
+                        linewidths=0.5,
+                        alpha=scatter_alpha,
+                        zorder=1 + z_offset,
+                        clip_on=False,
+                    )
+                else:
+                    font_family, _ = self._label_font_family(
+                        vowel, design_settings.get("font_style", "serif")
+                    )
+                    for px, py in zip(x, y):
+                        t = ax.text(
+                            px,
+                            py,
+                            vowel,
+                            fontsize=9,
+                            ha="center",
+                            va="center",
+                            color=v_raw_color,
+                            fontweight="normal",
+                            zorder=1 + z_offset,
+                            clip_on=False,
+                        )
+                        t.set_fontfamily(font_family)
+                if not is_semi:
+                    for px, py in zip(x, y):
+                        snapping_data.append(
+                            {
+                                "x": px,
+                                "y": py,
+                                "raw_f1": py,
+                                "raw_f2": px,
+                                "label": vowel,
+                                "type": "raw",
+                                "color": "red",
+                            }
+                        )
+
+            if len(subset) >= 3 and (v_ell_color or v_ell_fill):
+                fc = mcolors.to_rgba(v_ell_fill, 0.15) if v_ell_fill else "none"
+                ec = mcolors.to_rgba(v_ell_color, 1.0) if v_ell_color else "none"
+                if is_semi:
+                    if v_ell_fill:
+                        fc = mcolors.to_rgba(v_ell_fill, 0.05)
+                    if v_ell_color:
+                        ec = mcolors.to_rgba(v_ell_color, 0.2)
+                self._draw_confidence_ellipse(
+                    x,
+                    y,
+                    ax,
+                    n_std=sigma,
+                    edgecolor=ec,
+                    facecolor=fc,
+                    linewidth=v_ell_thick,
+                    linestyle=self._to_mpl_linestyle(v_ell_style),
+                    zorder=2 + z_offset,
+                    clip_on=False,
+                )
+
+            mean_x, mean_y = x.mean(), y.mean()
+            if show_centroid:
+                mean_alpha = 0.2 if is_semi else 1.0
+                mpl_marker, face_c, edge_c, lw, m_size = self._resolve_centroid_marker(
+                    v_centroid_marker, default_face="black"
+                )
+                ax.scatter(
+                    [mean_x],
+                    [mean_y],
+                    s=m_size,
+                    c=face_c,
+                    marker=mpl_marker,
+                    edgecolors=edge_c,
+                    linewidths=lw,
+                    alpha=mean_alpha,
+                    zorder=3 + z_offset,
+                    clip_on=False,
+                )
+                if not is_semi:
+                    snapping_data.append(
+                        {
+                            "x": mean_x,
+                            "y": mean_y,
+                            "raw_f1": mean_y,
+                            "raw_f2": mean_x,
+                            "label": vowel,
+                            "type": "mean",
+                            "color": "blue",
+                        }
+                    )
+
+            use_custom = vowel in custom_label_offsets and show_centroid
+            if use_custom:
+                dx_data, dy_data = custom_label_offsets[vowel]
+                label_x, label_y = mean_x + dx_data, mean_y + dy_data
+                ha, va = "left", "bottom"
+            elif show_centroid:
+                base_offset = 6
+                final_dx, final_dy = self._calculate_non_overlapping_offset(
+                    mean_x, mean_y, base_offset, placed_labels, ax
+                )
+                ha = "left" if final_dx >= 0 else "right"
+                va = "bottom" if final_dy >= 0 else "top"
+                label_x, label_y = self._offset_points_to_data(
+                    ax, mean_x, mean_y, final_dx, final_dy
+                )
+            else:
+                final_dx, final_dy = 0, 0
+                ha, va = "center", "center"
+                label_x, label_y = mean_x, mean_y
+
+            if v_lbl_color != "transparent":
+                text_alpha = 0.3 if is_semi else 1.0
+                display_vowel = (
+                    f"/{vowel}/" if design_settings.get("label_slash_wrap") else vowel
+                )
+                font_family, serif_use_medium = self._label_font_family(
+                    vowel, design_settings.get("font_style", "serif")
+                )
+                fontweight = (
+                    "medium"
+                    if (serif_use_medium and v_lbl_bold == "normal")
+                    else v_lbl_bold
+                )
+                if use_custom:
+                    ann = ax.annotate(
+                        display_vowel,
+                        xy=(mean_x, mean_y),
+                        xytext=(label_x, label_y),
+                        textcoords="data",
+                        fontsize=v_lbl_size,
+                        fontweight=fontweight,
+                        fontstyle=v_lbl_italic,
+                        fontfamily=font_family,
+                        color=v_lbl_color,
+                        ha=ha,
+                        va=va,
+                        alpha=text_alpha,
+                        zorder=100 + z_offset,
+                    )
+                else:
+                    final_dx_pt = final_dx if show_centroid else 0
+                    final_dy_pt = final_dy if show_centroid else 0
+                    ann = ax.annotate(
+                        display_vowel,
+                        xy=(mean_x, mean_y),
+                        xytext=(final_dx_pt, final_dy_pt),
+                        textcoords="offset points",
+                        fontsize=v_lbl_size,
+                        fontweight=fontweight,
+                        fontstyle=v_lbl_italic,
+                        fontfamily=font_family,
+                        color=v_lbl_color,
+                        ha=ha,
+                        va=va,
+                        alpha=text_alpha,
+                        zorder=100 + z_offset,
+                    )
+                ann.set_clip_on(False)
+                ann.set_path_effects([pe.withStroke(linewidth=3, foreground="white")])
+                label_text_artists.append(ann)
+                if not use_custom:
+                    placed_labels.append(
+                        {"x": mean_x, "y": mean_y, "dx": final_dx, "dy": final_dy}
+                    )
+                label_data.append(
+                    {
+                        "vowel": vowel,
+                        "cx": mean_x,
+                        "cy": mean_y,
+                        "lx": label_x,
+                        "ly": label_y,
+                        "fontsize": v_lbl_size,
+                        "ha": ha,
+                        "va": va,
+                        "lbl_color": v_lbl_color,
+                        "lbl_bold": v_lbl_bold,
+                        "lbl_italic": v_lbl_italic,
+                    }
+                )
+
+        return ax, snapping_data, label_data, label_text_artists
+
     def draw_compare_normalized(
         self,
         figure,

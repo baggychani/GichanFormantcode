@@ -872,6 +872,64 @@ class BasePlotWindow(QMainWindow):
             return
         self._on_draw_mode_changed(mode)
 
+    def _apply_normalization_axis_ui(self, reset_ranges=False):
+        """정규화 플롯일 때 좌표축 레이블/단위/범위 적용. Gerstman만 읽기 전용."""
+        norm = getattr(self, "normalization", None)
+        if hasattr(self, "norm_section_widget"):
+            self.norm_section_widget.setVisible(bool(norm))
+        if hasattr(self, "lbl_norm_value"):
+            self.lbl_norm_value.setText(norm or "없음")
+        if not getattr(self, "range_widgets", None):
+            return
+        if not norm:
+            params = getattr(self, "fixed_plot_params", None) or {}
+            if hasattr(self, "lbl_f1_axis"):
+                self.lbl_f1_axis.setText("F1:")
+            if hasattr(self, "lbl_x_axis"):
+                ptype = params.get("type", "f1_f2")
+                from engine.plot_engine import PlotEngine as _PE
+
+                x_names = {
+                    "f1_f2": "F2",
+                    "f1_f3": "F3",
+                    "f1_f2_prime": "F2'",
+                    "f1_f2_minus_f1": "F2 - F1",
+                    "f1_f2_prime_minus_f1": "F2' - F1",
+                }
+                self.x_axis_label = x_names.get(ptype, "F2")
+                self.lbl_x_axis.setText(f"{self.x_axis_label}:")
+            use_bark = params.get("use_bark_units", False)
+            f1_scale = params.get("f1_scale", "linear")
+            f2_scale = params.get("f2_scale", "linear")
+            u1 = "Bark" if (f1_scale == "bark" and use_bark) else "Hz"
+            u2 = "Bark" if (f2_scale == "bark" and use_bark) else "Hz"
+            if hasattr(self, "lbl_f1_unit"):
+                self.lbl_f1_unit.setText(f"({u1})")
+            if hasattr(self, "lbl_f2_unit"):
+                self.lbl_f2_unit.setText(f"({u2})")
+            for key in ["y_min", "y_max", "x_min", "x_max"]:
+                self.range_widgets[key].setReadOnly(False)
+            return
+        r = PlotEngine.NORM_RANGES.get(norm, PlotEngine.NORM_RANGES["Lobanov"])
+        if hasattr(self, "lbl_f1_axis"):
+            self.lbl_f1_axis.setText("nF1:")
+        if hasattr(self, "lbl_x_axis"):
+            ptype = (getattr(self, "fixed_plot_params", None) or {}).get(
+                "type", "f1_f2"
+            )
+            self.x_axis_label = PlotEngine.normalized_x_axis_label(ptype)
+            self.lbl_x_axis.setText(f"{self.x_axis_label}:")
+        if hasattr(self, "lbl_f1_unit"):
+            self.lbl_f1_unit.setText("")
+        if hasattr(self, "lbl_f2_unit"):
+            self.lbl_f2_unit.setText("")
+        r = PlotEngine.NORM_RANGES.get(norm, PlotEngine.NORM_RANGES["Lobanov"])
+        if reset_ranges:
+            for key in ["y_min", "y_max", "x_min", "x_max"]:
+                self.range_widgets[key].setText(str(r[key]))
+        for key in ["y_min", "y_max", "x_min", "x_max"]:
+            self.range_widgets[key].setReadOnly(norm == "Gerstman")
+
     def update_unit_labels(self, f1_unit, f2_unit=None):
         if f2_unit is None:
             f2_unit = f1_unit
