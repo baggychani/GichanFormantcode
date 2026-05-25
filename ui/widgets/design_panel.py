@@ -41,6 +41,7 @@ from ui.widgets.display_utils import (
     strip_gichan_prefix,
 )
 import ui.widgets.layout_constants as lc
+from ui.widgets.collapsible_section import CollapsibleSection, AdvancedOptionsBlock
 from ui.widgets.segmented_control import (
     wrap_segmented_buttons,
     create_line_preview_button_group,
@@ -54,6 +55,15 @@ def _field_caption(text: str, font: QFont) -> QLabel:
     lbl = QLabel(text, font=font)
     lbl.setStyleSheet("color: #606266;")
     return lbl
+
+
+def _field_group(caption: str, font: QFont) -> QVBoxLayout:
+    """필드 캡션 + 컨트롤 묶음. 캡션-컨트롤·그룹 간 간격은 레이아웃 상수로 통일."""
+    group = QVBoxLayout()
+    group.setContentsMargins(0, 0, 0, 0)
+    group.setSpacing(lc.SPACING_CAPTION_TO_CONTROL_PX)
+    group.addWidget(_field_caption(caption, font))
+    return group
 
 
 def _wrap_marker_shape_bar(buttons, parent=None, *, columns: int = 4) -> QFrame:
@@ -361,8 +371,8 @@ class DesignSettingsPanel(QWidget):
         scroll_area.setWidgetResizable(True)
         scroll_area.setFrameShape(QFrame.Shape.NoFrame)
         scroll_area.setStyleSheet("QScrollArea { background-color: transparent; }")
-
         scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOn)
 
         scroll_content = QWidget()
         scroll_content.setStyleSheet("QWidget { background-color: white; }")
@@ -372,7 +382,7 @@ class DesignSettingsPanel(QWidget):
         )
         layout = QVBoxLayout(scroll_content)
         layout.setContentsMargins(12, 12, 12, 15)
-        layout.setSpacing(14)
+        layout.setSpacing(lc.SPACING_DOCK_SECTIONS_PX)
 
         font_bold = QFont(self.ui_font_name, 10, QFont.Weight.Bold)
         font_normal = QFont(self.ui_font_name, 9)
@@ -380,32 +390,38 @@ class DesignSettingsPanel(QWidget):
         # ==========================================
         # 1. 데이터 표시 (Data Display)
         # ==========================================
-        data_group = QVBoxLayout()
-        data_group.setSpacing(10)
-        data_group.addWidget(QLabel("데이터 표시", font=font_bold))
-
+        sec_data = CollapsibleSection(
+            "데이터 표시",
+            font_bold,
+            panel_id="design",
+            settings_key="data_display",
+            default_collapsed=False,
+        )
+        data_body = sec_data.body_layout()
         row1, self.sw_show_raw = self._create_toggle_row("데이터 포인트")
         row2, self.sw_show_centroid = self._create_toggle_row("모음 중심점(Centroid)")
-
-        data_group.addLayout(row1)
-        data_group.addLayout(row2)
-        layout.addLayout(data_group)
+        data_body.addLayout(row1)
+        data_body.addLayout(row2)
+        layout.addWidget(sec_data)
         self._add_separator(layout)
 
         # ==========================================
         # 스타일 (폰트 스타일)
         # ==========================================
-        style_group = QVBoxLayout()
-        style_group.setSpacing(10)
-        style_group.addWidget(QLabel("스타일", font=font_bold))
+        sec_style = CollapsibleSection(
+            "스타일",
+            font_bold,
+            panel_id="design",
+            settings_key="style",
+            default_collapsed=True,
+        )
+        style_body = sec_style.body_layout()
         btn_style = """
             QPushButton { background-color: transparent; border: 1px solid transparent; border-radius: 4px; }
             QPushButton:hover { background-color: #F5F7FA; }
             QPushButton:checked { background-color: #E4E7ED; border: 1px solid #C0C4CC; }
         """
-        font_style_block = QVBoxLayout()
-        font_style_block.setSpacing(4)
-        font_style_block.addWidget(_field_caption("폰트 스타일", font_normal))
+        font_style_block = _field_group("폰트 스타일", font_normal)
         self.group_font_style = QButtonGroup(self)
         btn_serif = QPushButton("")
         btn_serif.setCheckable(True)
@@ -427,12 +443,9 @@ class DesignSettingsPanel(QWidget):
         btn_sans.setToolTip("고딕(산세리프)")
         self.group_font_style.addButton(btn_sans, 1)
         font_style_block.addWidget(wrap_segmented_buttons([btn_serif, btn_sans], self))
-        style_group.addLayout(font_style_block)
-        style_group.addSpacing(6)
+        style_body.addLayout(font_style_block)
 
-        dp_shape_block = QVBoxLayout()
-        dp_shape_block.setSpacing(4)
-        dp_shape_block.addWidget(_field_caption("데이터 포인트", font_normal))
+        dp_shape_block = _field_group("데이터 포인트", font_normal)
         self.group_raw_marker = QButtonGroup(self)
         dp_btns = []
         for i, (key, tip) in enumerate(
@@ -452,40 +465,27 @@ class DesignSettingsPanel(QWidget):
             self.group_raw_marker.addButton(btn, i)
             dp_btns.append(btn)
         dp_shape_block.addWidget(wrap_segmented_buttons(dp_btns, self))
-        style_group.addLayout(dp_shape_block)
-        raw_color_layout = QVBoxLayout()
-        raw_color_layout.setSpacing(6)
-        raw_color_layout.addWidget(_field_caption("데이터 포인트 색상", font_normal))
+        style_body.addLayout(dp_shape_block)
+        raw_color_layout = _field_group("데이터 포인트 색상", font_normal)
         self.raw_color_picker = ColorPalette(
             default_color="#606060", allow_transparent=False, parent=self
         )
         raw_color_layout.addWidget(self.raw_color_picker)
-        style_group.addLayout(raw_color_layout)
-        layout.addLayout(style_group)
+        style_body.addLayout(raw_color_layout)
+        layout.addWidget(sec_style)
         self._add_separator(layout)
 
         # ==========================================
-        # 2. 라벨과 중심점 (그래프 배경과 동일: 클릭 가능 헤더 + 접기)
+        # 2. 라벨과 중심점
         # ==========================================
-        label_group = QVBoxLayout()
-        label_group.setSpacing(14)
-        label_header_row = QWidget()
-        label_header_row.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
-        label_header_layout = QHBoxLayout(label_header_row)
-        label_header_layout.setContentsMargins(0, 0, 0, 0)
-        label_header_layout.setSpacing(4)
-        label_header_layout.addWidget(QLabel("라벨과 중심점", font=font_bold))
-        self.label_toggle_btn = QPushButton("▼")
-        self.label_toggle_btn.setFixedSize(28, 24)
-        self.label_toggle_btn.setFlat(True)
-        self.label_toggle_btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-        self.label_toggle_btn.setStyleSheet(
-            "QPushButton { color: #606266; font-size: 11px; }"
+        sec_label = CollapsibleSection(
+            "라벨과 중심점",
+            font_bold,
+            panel_id="design",
+            settings_key="label_centroid",
+            default_collapsed=False,
         )
-        label_header_layout.addWidget(self.label_toggle_btn)
-        label_header_layout.addStretch()
-        label_group.addWidget(label_header_row)
-
+        label_body = sec_label.body_layout()
         self.btn_label_move = ShortcutButton("assets/shortcuts/T.png", "라벨 위치 이동")
         self.btn_label_move.setObjectName("BtnLabelMove")
         self.btn_label_move.setCheckable(True)
@@ -499,22 +499,16 @@ class DesignSettingsPanel(QWidget):
         """)
 
         self.btn_label_move.clicked.connect(self.label_move_clicked.emit)
-        label_group.addWidget(self.btn_label_move)
-        label_group.addSpacing(4)
+        label_body.addWidget(self.btn_label_move)
 
-        color_layout = QVBoxLayout()
-        color_layout.setSpacing(6)
-        color_layout.addWidget(_field_caption("라벨 텍스트 색상", font_normal))
+        color_layout = _field_group("라벨 텍스트 색상", font_normal)
         self.lbl_color_picker = ColorPalette(
             default_color=config.COLOR_PRIMARY_RED, allow_transparent=True, parent=self
         )
         color_layout.addWidget(self.lbl_color_picker)
-        label_group.addLayout(color_layout)
-        label_group.addSpacing(4)
+        label_body.addLayout(color_layout)
 
-        font_block = QVBoxLayout()
-        font_block.setSpacing(4)
-        font_block.addWidget(_field_caption("폰트", font_normal))
+        font_block = _field_group("폰트", font_normal)
         font_style_layout = QHBoxLayout()
         font_style_layout.setSpacing(6)
 
@@ -565,13 +559,9 @@ class DesignSettingsPanel(QWidget):
         )
         font_toolbar.setLayout(font_style_layout)
         font_block.addWidget(font_toolbar)
-        label_group.addLayout(font_block)
+        label_body.addLayout(font_block)
 
-        centroid_marker_layout = QVBoxLayout()
-        centroid_marker_layout.setSpacing(4)
-        centroid_marker_layout.addWidget(
-            _field_caption("모음 중심점 모양", font_normal)
-        )
+        centroid_marker_layout = _field_group("모음 중심점 모양", font_normal)
         self.group_centroid_marker = QButtonGroup(self)
         centroid_btns = []
         for i, (mk, tip) in enumerate(
@@ -591,45 +581,37 @@ class DesignSettingsPanel(QWidget):
             centroid_btns.append(btn)
         centroid_marker_layout.addWidget(_wrap_marker_shape_bar(centroid_btns, self))
         self.group_centroid_marker.button(0).setChecked(True)
-        label_group.addLayout(centroid_marker_layout)
+        label_body.addLayout(centroid_marker_layout)
 
-        # 접었을 때 숨겨지는 영역: // 기호 씌우기
-        label_collapse_content = QWidget()
-        label_collapse_content_layout = QVBoxLayout(label_collapse_content)
-        label_collapse_content_layout.setContentsMargins(0, 0, 0, 0)
-        label_collapse_content_layout.setSpacing(4)
-
+        label_advanced = AdvancedOptionsBlock(
+            panel_id="design",
+            settings_key="label_slash",
+            default_collapsed=True,
+            ui_font_name=self.ui_font_name,
+        )
         row_slash, self.sw_label_slash_wrap = self._create_toggle_row(
             "// 기호 씌우기", default_checked=False
         )
         self.sw_label_slash_wrap.setToolTip("ON이면 라벨을 /a/ 형태로 표시합니다.")
-        label_collapse_content_layout.addLayout(row_slash)
-        self.label_collapse_content = label_collapse_content
+        label_advanced.body_layout().addLayout(row_slash)
+        label_body.addWidget(label_advanced)
 
-        def toggle_label():
-            visible = not self.label_collapse_content.isVisible()
-            self.label_collapse_content.setVisible(visible)
-            self.label_toggle_btn.setText("▶" if not visible else "▼")
-
-        self.label_toggle_btn.clicked.connect(toggle_label)
-        label_header_row.mousePressEvent = lambda e: toggle_label()
-        self.label_collapse_content.setVisible(False)
-        self.label_toggle_btn.setText("▶")
-        label_group.addWidget(label_collapse_content)
-
-        layout.addLayout(label_group)
+        layout.addWidget(sec_label)
         self._add_separator(layout)
 
         # ==========================================
         # 3. 신뢰 타원 (Confidence Ellipse)
         # ==========================================
-        ell_group = QVBoxLayout()
-        ell_group.setSpacing(12)
-        ell_group.addWidget(QLabel("신뢰 타원", font=font_bold))
+        sec_ellipse = CollapsibleSection(
+            "신뢰 타원",
+            font_bold,
+            panel_id="design",
+            settings_key="confidence_ellipse",
+            default_collapsed=False,
+        )
+        ell_body = sec_ellipse.body_layout()
 
-        ell_type_block = QVBoxLayout()
-        ell_type_block.setSpacing(4)
-        ell_type_block.addWidget(_field_caption("타원 선 타입", font_normal))
+        ell_type_block = _field_group("타원 선 타입", font_normal)
         thicks = [
             (1.0, Qt.PenStyle.SolidLine, "4px 0 0 4px", "얇게"),
             (2.0, Qt.PenStyle.SolidLine, "0px", "보통"),
@@ -645,54 +627,44 @@ class DesignSettingsPanel(QWidget):
         style_frame, self.group_ell_style = self._create_visual_button_group(styles, 2)
         ell_type_block.addWidget(thick_frame)
         ell_type_block.addWidget(style_frame)
-        ell_group.addLayout(ell_type_block)
+        ell_body.addLayout(ell_type_block)
 
-        ell_line_color_layout = QVBoxLayout()
-        ell_line_color_layout.setSpacing(6)
-        ell_line_color_layout.addWidget(_field_caption("타원 선 색상", font_normal))
+        ell_line_color_layout = _field_group("타원 선 색상", font_normal)
         self.ell_line_picker = ColorPalette(
             default_color="#606060", allow_transparent=True, parent=self
         )
         ell_line_color_layout.addWidget(self.ell_line_picker)
-        ell_group.addLayout(ell_line_color_layout)
+        ell_body.addLayout(ell_line_color_layout)
 
-        ell_fill_color_layout = QVBoxLayout()
-        ell_fill_color_layout.setSpacing(6)
-        ell_fill_color_layout.addWidget(_field_caption("타원 내부 색상", font_normal))
+        ell_advanced = AdvancedOptionsBlock(
+            panel_id="design",
+            settings_key="ellipse_fill",
+            default_collapsed=True,
+            ui_font_name=self.ui_font_name,
+        )
+        ell_fill_color_layout = _field_group("타원 내부 색상", font_normal)
         self.ell_fill_picker = ColorPalette(
             default_color="transparent", allow_transparent=True, parent=self
         )
         ell_fill_color_layout.addWidget(self.ell_fill_picker)
-        ell_group.addLayout(ell_fill_color_layout)
+        ell_advanced.body_layout().addLayout(ell_fill_color_layout)
+        ell_body.addWidget(ell_advanced)
 
-        layout.addLayout(ell_group)
+        layout.addWidget(sec_ellipse)
         self._add_separator(layout)
 
         # ==========================================
-        # 4. 그래프 배경 (Graph Background) — "그래프 배경" 옆에 ▼, 접는 영역 위에 구분선
+        # 4. 그래프 배경 (Graph Background)
         # ==========================================
-        graph_group = QVBoxLayout()
-        graph_group.setSpacing(10)
-        # 제목 행: "그래프 배경" 텍스트 바로 옆에 ▼
-        graph_header_row = QWidget()
-        graph_header_row.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
-        graph_header_layout = QHBoxLayout(graph_header_row)
-        graph_header_layout.setContentsMargins(0, 0, 0, 0)
-        graph_header_layout.setSpacing(4)
-        graph_title_lbl = QLabel("그래프 배경", font=font_bold)
-        graph_header_layout.addWidget(graph_title_lbl)
-        self.graph_bg_toggle_btn = QPushButton("▼")
-        self.graph_bg_toggle_btn.setFixedSize(28, 24)
-        self.graph_bg_toggle_btn.setFlat(True)
-        self.graph_bg_toggle_btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-        self.graph_bg_toggle_btn.setStyleSheet(
-            "QPushButton { color: #606266; font-size: 11px; }"
+        sec_graph = CollapsibleSection(
+            "그래프 배경",
+            font_bold,
+            panel_id="design",
+            settings_key="graph_background",
+            default_collapsed=False,
         )
-        graph_header_layout.addWidget(self.graph_bg_toggle_btn)
-        graph_header_layout.addStretch()
-        graph_group.addWidget(graph_header_row)
+        graph_body = sec_graph.body_layout()
 
-        # 항상 보이는 3개: 사방 테두리, 배경 실선(Grid), Y축 라벨 눕히기
         row5, self.sw_box_spines = self._create_toggle_row(
             "사방 테두리", default_checked=self._is_normalized
         )
@@ -705,22 +677,17 @@ class DesignSettingsPanel(QWidget):
         self.sw_y_label_rotation.setToolTip(
             "Y축(F1 등) 글자를 90도 눕혀 표시합니다. 끄면 똑바로 세웁니다."
         )
-        graph_group.addLayout(row5)
-        graph_group.addLayout(row6)
-        graph_group.addLayout(row_y_rot)
+        graph_body.addLayout(row5)
+        graph_body.addLayout(row6)
+        graph_body.addLayout(row_y_rot)
 
-        # 접었을 때 숨겨지는 영역 위 얇은 구분선 + 펼치면 보이는 3개
-        graph_collapse_line = QFrame()
-        graph_collapse_line.setFrameShape(QFrame.Shape.HLine)
-        graph_collapse_line.setStyleSheet("color: #EBEEF5;")
-        graph_collapse_line.setFixedHeight(1)
-        graph_group.addWidget(graph_collapse_line)
-        self.graph_bg_collapse_line = graph_collapse_line
-
-        graph_content = QWidget()
-        graph_content_layout = QVBoxLayout(graph_content)
-        graph_content_layout.setContentsMargins(0, 4, 0, 0)
-        graph_content_layout.setSpacing(10)
+        graph_advanced = AdvancedOptionsBlock(
+            panel_id="design",
+            settings_key="graph_background_extra",
+            default_collapsed=True,
+            ui_font_name=self.ui_font_name,
+        )
+        adv_body = graph_advanced.body_layout()
 
         row_unit, self.sw_show_axis_units = self._create_toggle_row(
             "눈금 단위", default_checked=False
@@ -740,26 +707,12 @@ class DesignSettingsPanel(QWidget):
         self.sw_axis_position_swap.setToolTip(
             "Praat에서 아래/왼쪽, 수학에서 위/오른쪽에 축과 눈금을 표시합니다."
         )
-        graph_content_layout.addLayout(row_unit)
-        graph_content_layout.addLayout(row_minor)
-        graph_content_layout.addLayout(row_axis)
-        self.graph_bg_content = graph_content
+        adv_body.addLayout(row_unit)
+        adv_body.addLayout(row_minor)
+        adv_body.addLayout(row_axis)
+        graph_body.addWidget(graph_advanced)
 
-        def toggle_graph_bg():
-            visible = not self.graph_bg_content.isVisible()
-            self.graph_bg_content.setVisible(visible)
-            self.graph_bg_collapse_line.setVisible(visible)
-            self.graph_bg_toggle_btn.setText("▶" if not visible else "▼")
-
-        self.graph_bg_toggle_btn.clicked.connect(toggle_graph_bg)
-        graph_header_row.mousePressEvent = lambda e: toggle_graph_bg()
-
-        self.graph_bg_content.setVisible(False)
-        self.graph_bg_collapse_line.setVisible(False)
-        self.graph_bg_toggle_btn.setText("▶")
-
-        graph_group.addWidget(graph_content)
-        layout.addLayout(graph_group)
+        layout.addWidget(sec_graph)
         layout.addStretch()
 
         scroll_area.setWidget(scroll_content)
@@ -978,6 +931,12 @@ class CompareDesignSettingsPanel(QWidget):
     def _create_visual_button_group(self, options, default_idx):
         return create_line_preview_button_group(self, options, default_idx)
 
+    def _add_separator(self, layout):
+        line = QFrame()
+        line.setFrameShape(QFrame.Shape.HLine)
+        line.setStyleSheet("color: #EBEEF5;")
+        layout.addWidget(line)
+
     def _build_individual_tab(self, default_color, default_style_str, series):
         """서브 탭 내부에 들어갈 개별 디자인 요소 팩토리. series: 'blue' | 'red'. default_style_str: '-', '--', '---'."""
         tab_widget = QWidget()
@@ -1012,9 +971,14 @@ class CompareDesignSettingsPanel(QWidget):
         layout.addLayout(legend_row)
 
         # 1. 라벨과 중심점 설정
-        lbl_group = QVBoxLayout()
-        lbl_group.setSpacing(14)
-        lbl_group.addWidget(QLabel("라벨과 중심점", font=font_bold))
+        sec_label = CollapsibleSection(
+            "라벨과 중심점",
+            font_bold,
+            panel_id="compare_design",
+            settings_key=f"label_{series}",
+            default_collapsed=False,
+        )
+        label_body = sec_label.body_layout()
 
         btn_label_move = ShortcutButton("assets/shortcuts/T.png", "라벨 위치 이동")
         btn_label_move.setObjectName("BtnLabelMove")
@@ -1029,22 +993,16 @@ class CompareDesignSettingsPanel(QWidget):
         """)
 
         btn_label_move.clicked.connect(lambda: self.label_move_clicked.emit(series))
-        lbl_group.addWidget(btn_label_move)
-        lbl_group.addSpacing(4)
+        label_body.addWidget(btn_label_move)
 
-        color_layout = QVBoxLayout()
-        color_layout.setSpacing(6)
-        color_layout.addWidget(_field_caption("라벨 텍스트 색상", font_normal))
+        color_layout = _field_group("라벨 텍스트 색상", font_normal)
         lbl_color_picker = ColorPalette(
             default_color=default_color, allow_transparent=True, parent=self
         )
         color_layout.addWidget(lbl_color_picker)
-        lbl_group.addLayout(color_layout)
-        lbl_group.addSpacing(4)
+        label_body.addLayout(color_layout)
 
-        font_block = QVBoxLayout()
-        font_block.setSpacing(4)
-        font_block.addWidget(_field_caption("폰트", font_normal))
+        font_block = _field_group("폰트", font_normal)
         font_style_layout = QHBoxLayout()
         font_style_layout.setSpacing(6)
 
@@ -1092,13 +1050,9 @@ class CompareDesignSettingsPanel(QWidget):
         )
         font_toolbar.setLayout(font_style_layout)
         font_block.addWidget(font_toolbar)
-        lbl_group.addLayout(font_block)
+        label_body.addLayout(font_block)
 
-        centroid_marker_layout = QVBoxLayout()
-        centroid_marker_layout.setSpacing(4)
-        centroid_marker_layout.addWidget(
-            _field_caption("모음 중심점 모양", font_normal)
-        )
+        centroid_marker_layout = _field_group("모음 중심점 모양", font_normal)
         group_centroid_marker = QButtonGroup(self)
         centroid_btns = []
         for i, (mk, tip) in enumerate(
@@ -1119,33 +1073,29 @@ class CompareDesignSettingsPanel(QWidget):
             centroid_btns.append(btn)
         centroid_marker_layout.addWidget(_wrap_marker_shape_bar(centroid_btns, self))
         group_centroid_marker.button(0).setChecked(True)
-        lbl_group.addLayout(centroid_marker_layout)
+        label_body.addLayout(centroid_marker_layout)
 
-        raw_color_layout = QVBoxLayout()
-        raw_color_layout.setSpacing(6)
-        raw_color_layout.addWidget(_field_caption("데이터 포인트 색상", font_normal))
+        raw_color_layout = _field_group("데이터 포인트 색상", font_normal)
         raw_color_picker = ColorPalette(
             default_color="#606060", allow_transparent=False, parent=self
         )
         raw_color_layout.addWidget(raw_color_picker)
-        lbl_group.addLayout(raw_color_layout)
+        label_body.addLayout(raw_color_layout)
 
-        layout.addLayout(lbl_group)
-
-        # 구분선
-        line = QFrame()
-        line.setFrameShape(QFrame.Shape.HLine)
-        line.setStyleSheet("color: #EBEEF5;")
-        layout.addWidget(line)
+        layout.addWidget(sec_label)
+        self._add_separator(layout)
 
         # 2. 신뢰 타원 설정
-        ell_group = QVBoxLayout()
-        ell_group.setSpacing(12)
-        ell_group.addWidget(QLabel("신뢰 타원", font=font_bold))
+        sec_ellipse = CollapsibleSection(
+            "신뢰 타원",
+            font_bold,
+            panel_id="compare_design",
+            settings_key=f"confidence_ellipse_{series}",
+            default_collapsed=False,
+        )
+        ell_body = sec_ellipse.body_layout()
 
-        ell_type_block = QVBoxLayout()
-        ell_type_block.setSpacing(4)
-        ell_type_block.addWidget(_field_caption("타원 선 타입", font_normal))
+        ell_type_block = _field_group("타원 선 타입", font_normal)
         thicks = [
             (1.0, Qt.PenStyle.SolidLine, "4px 0 0 4px", "얇게"),
             (2.0, Qt.PenStyle.SolidLine, "0px", "보통"),
@@ -1165,27 +1115,30 @@ class CompareDesignSettingsPanel(QWidget):
         )
         ell_type_block.addWidget(thick_frame)
         ell_type_block.addWidget(style_frame)
-        ell_group.addLayout(ell_type_block)
+        ell_body.addLayout(ell_type_block)
 
-        ell_line_color_layout = QVBoxLayout()
-        ell_line_color_layout.setSpacing(6)
-        ell_line_color_layout.addWidget(_field_caption("타원 선 색상", font_normal))
+        ell_line_color_layout = _field_group("타원 선 색상", font_normal)
         ell_line_picker = ColorPalette(
             default_color=default_color, allow_transparent=True, parent=self
         )
         ell_line_color_layout.addWidget(ell_line_picker)
-        ell_group.addLayout(ell_line_color_layout)
+        ell_body.addLayout(ell_line_color_layout)
 
-        ell_fill_color_layout = QVBoxLayout()
-        ell_fill_color_layout.setSpacing(6)
-        ell_fill_color_layout.addWidget(_field_caption("타원 내부 색상", font_normal))
+        ell_advanced = AdvancedOptionsBlock(
+            panel_id="compare_design",
+            settings_key=f"ellipse_fill_{series}",
+            default_collapsed=True,
+            ui_font_name=self.ui_font_name,
+        )
+        ell_fill_color_layout = _field_group("타원 내부 색상", font_normal)
         ell_fill_picker = ColorPalette(
             default_color="transparent", allow_transparent=True, parent=self
         )
         ell_fill_color_layout.addWidget(ell_fill_picker)
-        ell_group.addLayout(ell_fill_color_layout)
+        ell_advanced.body_layout().addLayout(ell_fill_color_layout)
+        ell_body.addWidget(ell_advanced)
 
-        layout.addLayout(ell_group)
+        layout.addWidget(sec_ellipse)
         layout.addStretch()
 
         controls = {
@@ -1245,38 +1198,43 @@ class CompareDesignSettingsPanel(QWidget):
 
     def _setup_compare_data_section(self, layout, font_bold):
         """CompareDesignSettingsPanel: 데이터 표시 구역."""
-        data_group = QVBoxLayout()
-        data_group.setSpacing(10)
-        data_group.addWidget(QLabel("데이터 표시", font=font_bold))
+        sec_data = CollapsibleSection(
+            "데이터 표시",
+            font_bold,
+            panel_id="compare_design",
+            settings_key="data_display",
+            default_collapsed=False,
+        )
+        body = sec_data.body_layout()
         row1, self.sw_show_raw = self._create_toggle_row("데이터 포인트")
         row2, self.sw_show_centroid = self._create_toggle_row("모음 중심점(Centroid)")
         row3, self.sw_label_slash_wrap_cmp = self._create_toggle_row(
             "라벨에 // 기호 씌우기", default_checked=False
         )
         self.sw_label_slash_wrap_cmp.setToolTip("ON이면 라벨을 /a/ 형태로 표시합니다.")
-        data_group.addLayout(row1)
-        data_group.addLayout(row2)
-        data_group.addLayout(row3)
-        layout.addLayout(data_group)
-        line1 = QFrame()
-        line1.setFrameShape(QFrame.Shape.HLine)
-        line1.setStyleSheet("color: #EBEEF5;")
-        layout.addWidget(line1)
+        body.addLayout(row1)
+        body.addLayout(row2)
+        body.addLayout(row3)
+        layout.addWidget(sec_data)
+        self._add_separator(layout)
 
     def _setup_compare_style_section(self, layout, font_bold):
         """CompareDesignSettingsPanel: 스타일(폰트·데이터 포인트) 구역."""
-        style_group = QVBoxLayout()
-        style_group.setSpacing(10)
-        style_group.addWidget(QLabel("스타일", font=font_bold))
+        sec_style = CollapsibleSection(
+            "스타일",
+            font_bold,
+            panel_id="compare_design",
+            settings_key="style",
+            default_collapsed=True,
+        )
+        style_body = sec_style.body_layout()
         font_caption = QFont(self.ui_font_name, config.FONT_SIZE_SMALL)
         btn_style = """
             QPushButton { background-color: transparent; border: 1px solid transparent; border-radius: 4px; }
             QPushButton:hover { background-color: #F5F7FA; }
             QPushButton:checked { background-color: #E4E7ED; border: 1px solid #C0C4CC; }
         """
-        font_style_block = QVBoxLayout()
-        font_style_block.setSpacing(4)
-        font_style_block.addWidget(_field_caption("폰트 스타일", font_caption))
+        font_style_block = _field_group("폰트 스타일", font_caption)
         self.group_font_style_common = QButtonGroup(self)
         btn_serif = QPushButton("")
         btn_serif.setCheckable(True)
@@ -1298,11 +1256,9 @@ class CompareDesignSettingsPanel(QWidget):
         btn_sans.setToolTip("고딕(산세리프)")
         self.group_font_style_common.addButton(btn_sans, 1)
         font_style_block.addWidget(wrap_segmented_buttons([btn_serif, btn_sans], self))
-        style_group.addLayout(font_style_block)
-        style_group.addSpacing(6)
-        dp_shape_block = QVBoxLayout()
-        dp_shape_block.setSpacing(4)
-        dp_shape_block.addWidget(_field_caption("데이터 포인트", font_caption))
+        style_body.addLayout(font_style_block)
+
+        dp_shape_block = _field_group("데이터 포인트", font_caption)
         self.group_raw_marker_common = QButtonGroup(self)
         dp_btns = []
         for i, (key, tip) in enumerate(
@@ -1322,34 +1278,21 @@ class CompareDesignSettingsPanel(QWidget):
             self.group_raw_marker_common.addButton(btn, i)
             dp_btns.append(btn)
         dp_shape_block.addWidget(wrap_segmented_buttons(dp_btns, self))
-        style_group.addLayout(dp_shape_block)
-        layout.addLayout(style_group)
-        line2 = QFrame()
-        line2.setFrameShape(QFrame.Shape.HLine)
-        line2.setStyleSheet("color: #EBEEF5;")
-        layout.addWidget(line2)
+        style_body.addLayout(dp_shape_block)
+        layout.addWidget(sec_style)
+        self._add_separator(layout)
 
     def _setup_compare_graph_background_section(self, layout, font_bold):
-        """CompareDesignSettingsPanel: 그래프 배경(접기·토글) 구역."""
-        graph_group = QVBoxLayout()
-        graph_group.setSpacing(10)
-        graph_header_row = QWidget()
-        graph_header_row.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
-        graph_header_layout = QHBoxLayout(graph_header_row)
-        graph_header_layout.setContentsMargins(0, 0, 0, 0)
-        graph_header_layout.setSpacing(4)
-        graph_title_lbl = QLabel("그래프 배경", font=font_bold)
-        graph_header_layout.addWidget(graph_title_lbl)
-        self.graph_bg_toggle_btn = QPushButton("▼")
-        self.graph_bg_toggle_btn.setFixedSize(28, 24)
-        self.graph_bg_toggle_btn.setFlat(True)
-        self.graph_bg_toggle_btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-        self.graph_bg_toggle_btn.setStyleSheet(
-            "QPushButton { color: #606266; font-size: 11px; }"
+        """CompareDesignSettingsPanel: 그래프 배경 구역."""
+        sec_graph = CollapsibleSection(
+            "그래프 배경",
+            font_bold,
+            panel_id="compare_design",
+            settings_key="graph_background",
+            default_collapsed=False,
         )
-        graph_header_layout.addWidget(self.graph_bg_toggle_btn)
-        graph_header_layout.addStretch()
-        graph_group.addWidget(graph_header_row)
+        graph_body = sec_graph.body_layout()
+
         row3, self.sw_box_spines = self._create_toggle_row(
             "사방 테두리", default_checked=self._is_normalized
         )
@@ -1362,19 +1305,18 @@ class CompareDesignSettingsPanel(QWidget):
         self.sw_y_label_rotation.setToolTip(
             "Y축 글자를 90도 눕혀 표시합니다. 끄면 똑바로 세웁니다."
         )
-        graph_group.addLayout(row3)
-        graph_group.addLayout(row4)
-        graph_group.addLayout(row_y_rot)
-        graph_collapse_line = QFrame()
-        graph_collapse_line.setFrameShape(QFrame.Shape.HLine)
-        graph_collapse_line.setStyleSheet("color: #EBEEF5;")
-        graph_collapse_line.setFixedHeight(1)
-        graph_group.addWidget(graph_collapse_line)
-        self.graph_bg_collapse_line = graph_collapse_line
-        graph_content_cmp = QWidget()
-        graph_content_cmp_layout = QVBoxLayout(graph_content_cmp)
-        graph_content_cmp_layout.setContentsMargins(0, 4, 0, 0)
-        graph_content_cmp_layout.setSpacing(10)
+        graph_body.addLayout(row3)
+        graph_body.addLayout(row4)
+        graph_body.addLayout(row_y_rot)
+
+        graph_advanced = AdvancedOptionsBlock(
+            panel_id="compare_design",
+            settings_key="graph_background_extra",
+            default_collapsed=True,
+            ui_font_name=self.ui_font_name,
+        )
+        adv_body = graph_advanced.body_layout()
+
         row_unit, self.sw_show_axis_units = self._create_toggle_row(
             "눈금 단위", default_checked=False
         )
@@ -1385,12 +1327,14 @@ class CompareDesignSettingsPanel(QWidget):
         self.axis_units_row_widget.setLayout(row_unit)
         self.axis_units_row_widget.setContentsMargins(0, 0, 0, 0)
         row_unit.setContentsMargins(0, 0, 0, 0)
+
         row_minor, self.sw_show_minor_ticks = self._create_toggle_row(
             "세부 눈금 표시", default_checked=True
         )
         self.sw_show_minor_ticks.setToolTip(
             "ON 시 주 눈금 사이에 세부 눈금을 표시합니다."
         )
+
         row_axis, self.sw_axis_position_swap = self._create_toggle_row(
             "축·눈금 위치 반전", default_checked=False
         )
@@ -1401,16 +1345,12 @@ class CompareDesignSettingsPanel(QWidget):
         self.axis_position_swap_row_widget = QWidget()
         self.axis_position_swap_row_widget.setContentsMargins(0, 0, 0, 0)
         self.axis_position_swap_row_widget.setLayout(row_axis)
-        graph_content_cmp_layout.addWidget(self.axis_units_row_widget)
-        graph_content_cmp_layout.addLayout(row_minor)
-        graph_content_cmp_layout.addWidget(self.axis_position_swap_row_widget)
-        self.graph_bg_content = graph_content_cmp
-        self.graph_bg_toggle_btn.clicked.connect(self._on_graph_bg_toggle_clicked)
-        graph_header_row.mousePressEvent = lambda e: self._on_graph_header_pressed(e)
-        self.graph_bg_content.setVisible(False)
-        self.graph_bg_collapse_line.setVisible(False)
-        self.graph_bg_toggle_btn.setText("▶")
-        graph_group.addWidget(graph_content_cmp)
+
+        adv_body.addWidget(self.axis_units_row_widget)
+        adv_body.addLayout(row_minor)
+        adv_body.addWidget(self.axis_position_swap_row_widget)
+        graph_body.addWidget(graph_advanced)
+
         if self._is_normalized:
             self.axis_units_row_widget.setVisible(False)
             self.axis_position_swap_row_widget.setVisible(False)
@@ -1423,16 +1363,8 @@ class CompareDesignSettingsPanel(QWidget):
             self.sw_box_spines.setChecked(False)
             self.sw_show_grid.setChecked(False)
         self.sw_show_minor_ticks.setChecked(True)
-        layout.addLayout(graph_group)
 
-    def _on_graph_bg_toggle_clicked(self):
-        visible = not self.graph_bg_content.isVisible()
-        self.graph_bg_content.setVisible(visible)
-        self.graph_bg_collapse_line.setVisible(visible)
-        self.graph_bg_toggle_btn.setText("▶" if not visible else "▼")
-
-    def _on_graph_header_pressed(self, e):
-        self._on_graph_bg_toggle_clicked()
+        layout.addWidget(sec_graph)
 
     def _setup_ui(self):
         main_layout = QVBoxLayout(self)
@@ -1443,6 +1375,7 @@ class CompareDesignSettingsPanel(QWidget):
         scroll_area.setFrameShape(QFrame.Shape.NoFrame)
         scroll_area.setStyleSheet("QScrollArea { background-color: transparent; }")
         scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        scroll_area.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOn)
         scroll_content = QWidget()
         scroll_content.setStyleSheet("QWidget { background-color: white; }")
         scroll_content.setMaximumWidth(260)
@@ -1451,7 +1384,7 @@ class CompareDesignSettingsPanel(QWidget):
         )
         layout = QVBoxLayout(scroll_content)
         layout.setContentsMargins(*lc.MARGIN_DOCK_CONTENTS)
-        layout.setSpacing(14)
+        layout.setSpacing(lc.SPACING_DOCK_SECTIONS_PX)
         font_bold = QFont(self.ui_font_name, config.FONT_SIZE_NORMAL, QFont.Weight.Bold)
         self._setup_compare_data_section(layout, font_bold)
         self._setup_compare_style_section(layout, font_bold)

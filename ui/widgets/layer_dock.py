@@ -43,7 +43,12 @@ from ui.widgets.layer_logic import (
     compute_order_after_drop,
     get_children_indices,
 )
-from ui.widgets.design_panel import ColorPalette, _field_caption, _wrap_marker_shape_bar
+from ui.widgets.design_panel import (
+    ColorPalette,
+    _field_group,
+    _wrap_marker_shape_bar,
+)
+from ui.widgets.collapsible_section import CollapsibleSection, AdvancedOptionsBlock
 from ui.widgets.segmented_control import create_line_preview_button_group
 from ui.widgets.draw_design_panel import DrawDesignPanel
 from ui.widgets.layer_data_model import LayerDataModel
@@ -310,6 +315,7 @@ class LayerDockWidget(QWidget):
         top_scroll = self._design_scroll
         top_scroll.setWidgetResizable(True)
         top_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        top_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOn)
         top_scroll.setFrameShape(QFrame.Shape.NoFrame)
         top_scroll.setStyleSheet("QScrollArea { background-color: #FFFFFF; }")
         self.vowel_design_container = QWidget()
@@ -317,23 +323,28 @@ class LayerDockWidget(QWidget):
             "QWidget { background-color: #FFFFFF; }"
         )
         top_layout = QVBoxLayout(self.vowel_design_container)
-        top_layout.setContentsMargins(12, 12, 12, 12)
-        top_layout.setSpacing(14)
+        top_layout.setContentsMargins(*lc.MARGIN_DOCK_CONTENTS)
+        top_layout.setSpacing(lc.SPACING_DOCK_SECTIONS_PX)
 
-        top_layout.addWidget(QLabel("라벨과 중심점", font=font_bold))
-        color_layout = QVBoxLayout()
-        color_layout.setSpacing(6)
-        color_layout.addWidget(_field_caption("라벨 텍스트 색상", font_normal))
+        sec_label = CollapsibleSection(
+            "라벨과 중심점",
+            font_bold,
+            panel_id="layer_design",
+            settings_key="label_centroid",
+            default_collapsed=False,
+        )
+        label_body = sec_label.body_layout()
+
+        color_layout = _field_group("라벨 텍스트 색상", font_normal)
         self.lbl_color_picker = ColorPalette(
             default_color=config.COLOR_PRIMARY_RED,
             allow_transparent=True,
             parent=self.vowel_design_container,
         )
         color_layout.addWidget(self.lbl_color_picker)
-        top_layout.addLayout(color_layout)
-        centroid_layout = QVBoxLayout()
-        centroid_layout.setSpacing(4)
-        centroid_layout.addWidget(_field_caption("모음 중심점 모양", font_normal))
+        label_body.addLayout(color_layout)
+
+        centroid_layout = _field_group("모음 중심점 모양", font_normal)
         self.group_centroid_marker = QButtonGroup(self.vowel_design_container)
         centroid_btns = []
         for i, (mk, tip) in enumerate(
@@ -355,25 +366,32 @@ class LayerDockWidget(QWidget):
             _wrap_marker_shape_bar(centroid_btns, self.vowel_design_container)
         )
         self.group_centroid_marker.button(0).setChecked(True)
-        top_layout.addLayout(centroid_layout)
+        label_body.addLayout(centroid_layout)
 
-        raw_color_layout = QVBoxLayout()
-        raw_color_layout.setSpacing(6)
-        raw_color_layout.addWidget(_field_caption("데이터 포인트 색상", font_normal))
+        raw_color_layout = _field_group("데이터 포인트 색상", font_normal)
         self.raw_color_picker = ColorPalette(
             default_color="#606060",
             allow_transparent=False,
             parent=self.vowel_design_container,
         )
         raw_color_layout.addWidget(self.raw_color_picker)
-        top_layout.addLayout(raw_color_layout)
+        label_body.addLayout(raw_color_layout)
+        top_layout.addWidget(sec_label)
 
         line1 = QFrame()
         line1.setFrameShape(QFrame.Shape.HLine)
         line1.setStyleSheet("color: #EBEEF5;")
         top_layout.addWidget(line1)
 
-        top_layout.addWidget(QLabel("신뢰 타원", font=font_bold))
+        sec_ellipse = CollapsibleSection(
+            "신뢰 타원",
+            font_bold,
+            panel_id="layer_design",
+            settings_key="confidence_ellipse",
+            default_collapsed=False,
+        )
+        ell_body = sec_ellipse.body_layout()
+
         thicks = [
             (1.0, Qt.PenStyle.SolidLine, "4px 0 0 4px", "얇게"),
             (2.0, Qt.PenStyle.SolidLine, "0px", "보통"),
@@ -390,32 +408,36 @@ class LayerDockWidget(QWidget):
         style_frame, self.group_ell_style = _create_visual_button_group(
             self.vowel_design_container, styles, 2
         )
-        ell_type_row = QVBoxLayout()
-        ell_type_row.setSpacing(4)
-        ell_type_row.addWidget(_field_caption("타원 선 타입", font_normal))
+        ell_type_row = _field_group("타원 선 타입", font_normal)
         ell_type_row.addWidget(thick_frame)
         ell_type_row.addWidget(style_frame)
-        top_layout.addLayout(ell_type_row)
-        ell_line_color_layout = QVBoxLayout()
-        ell_line_color_layout.setSpacing(6)
-        ell_line_color_layout.addWidget(_field_caption("타원 선 색상", font_normal))
+        ell_body.addLayout(ell_type_row)
+
+        ell_line_color_layout = _field_group("타원 선 색상", font_normal)
         self.ell_color_picker = ColorPalette(
             default_color="#606060",
             allow_transparent=True,
             parent=self.vowel_design_container,
         )
         ell_line_color_layout.addWidget(self.ell_color_picker)
-        top_layout.addLayout(ell_line_color_layout)
-        ell_fill_layout = QVBoxLayout()
-        ell_fill_layout.setSpacing(6)
-        ell_fill_layout.addWidget(_field_caption("타원 내부 색상", font_normal))
+        ell_body.addLayout(ell_line_color_layout)
+
+        ell_advanced = AdvancedOptionsBlock(
+            panel_id="layer_design",
+            settings_key="ellipse_fill",
+            default_collapsed=True,
+            ui_font_name=self.ui_font_name,
+        )
+        ell_fill_layout = _field_group("타원 내부 색상", font_normal)
         self.ell_fill_picker = ColorPalette(
             default_color="transparent",
             allow_transparent=True,
             parent=self.vowel_design_container,
         )
         ell_fill_layout.addWidget(self.ell_fill_picker)
-        top_layout.addLayout(ell_fill_layout)
+        ell_advanced.body_layout().addLayout(ell_fill_layout)
+        ell_body.addWidget(ell_advanced)
+        top_layout.addWidget(sec_ellipse)
 
         top_layout.addStretch()
 

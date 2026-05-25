@@ -15,7 +15,7 @@ from PySide6.QtWidgets import (
     QCheckBox,
 )
 from PySide6.QtGui import QFont, QRegularExpressionValidator
-from PySide6.QtCore import Qt, QRegularExpression, QObject, QEvent
+from PySide6.QtCore import Qt, QRegularExpression, QObject, QEvent, QTimer
 
 import config
 from utils import icon_utils, app_logger
@@ -150,6 +150,7 @@ class BatchSaveDialog(QDialog):
             le.setFixedWidth(config.RANGE_EDIT_FIXED_WIDTH_PX)
             le.setAlignment(Qt.AlignmentFlag.AlignCenter)
             le.setValidator(validator)
+            le.setFocusPolicy(Qt.FocusPolicy.ClickFocus)
             le.installEventFilter(input_filter)
             le.setStyleSheet(
                 "QLineEdit { border: 1px solid #DCDFE6; border-radius: 4px; padding: 4px; }"
@@ -356,6 +357,11 @@ class BatchSaveDialog(QDialog):
         btn_layout.addWidget(btn_next)
         btn_layout.addStretch(1)
         main_layout.addLayout(btn_layout)
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        # 다이얼로그 열릴 때 첫 입력창에 커서가 자동으로 들어가지 않도록
+        QTimer.singleShot(0, self.setFocus)
 
     def get_batch_options(self):
         return {
