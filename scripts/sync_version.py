@@ -22,13 +22,9 @@ INFO_PATH = ROOT / "info.txt"
 COMPLETE_PATH = ROOT / "complete.txt"
 PYPROJECT_PATH = ROOT / "pyproject.toml"
 
-_VERSION_RE = re.compile(
-    r"^APP_VERSION\s*=\s*[\"']([^\"']+)[\"']", re.MULTILINE
-)
+_VERSION_RE = re.compile(r"^APP_VERSION\s*=\s*[\"']([^\"']+)[\"']", re.MULTILINE)
 _ISS_VERSION_RE = re.compile(r'(#define MyAppVersion ")[^"]+(")')
-_PYPROJECT_VERSION_RE = re.compile(
-    r'^(version\s*=\s*")[^"]+(")', re.MULTILINE
-)
+_PYPROJECT_VERSION_RE = re.compile(r'^(version\s*=\s*")[^"]+(")', re.MULTILINE)
 
 
 def _fail(msg: str) -> None:
@@ -109,7 +105,9 @@ def sync_iss(version: str) -> None:
     text = ISS_PATH.read_text(encoding="utf-8")
     if not _ISS_VERSION_RE.search(text):
         _fail(f"{ISS_PATH} 에 #define MyAppVersion 을 찾을 수 없습니다.")
-    ISS_PATH.write_text(_ISS_VERSION_RE.sub(rf'\g<1>{version}\2', text), encoding="utf-8")
+    ISS_PATH.write_text(
+        _ISS_VERSION_RE.sub(rf"\g<1>{version}\2", text), encoding="utf-8"
+    )
 
 
 def sync_info_txt(version: str) -> None:
@@ -185,7 +183,9 @@ def sync_all(version: str) -> None:
     sync_info_txt(version)
     sync_complete_txt(version)
     sync_pyproject(version)
-    print(f"sync_version: {version} → config, iss, info.txt, complete.txt, pyproject.toml")
+    print(
+        f"sync_version: {version} → config, iss, info.txt, complete.txt, pyproject.toml"
+    )
 
 
 def check_all() -> None:
@@ -247,7 +247,9 @@ def main() -> None:
     sync_info_txt(version)
     sync_complete_txt(version)
     sync_pyproject(version)
-    print(f"sync_version: config.APP_VERSION={version} → iss, info.txt, complete.txt, pyproject.toml")
+    print(
+        f"sync_version: config.APP_VERSION={version} → iss, info.txt, complete.txt, pyproject.toml"
+    )
 
 
 if __name__ == "__main__":

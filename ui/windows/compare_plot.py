@@ -49,10 +49,15 @@ from engine.plot_engine import PlotEngine
 from ui.widgets.tool_indicator import ToolStatusIndicator
 from utils import icon_utils
 import config
+from core.compare_series import CompareSession, normalize_series_ref
 from utils import app_logger
 from ui.widgets.filter_panel import MultiVowelFilterPanel
 
-from ui.widgets.design_panel import CompareDesignSettingsPanel, NoWheelComboBox, apply_combo_center_align
+from ui.widgets.design_panel import (
+    CompareDesignSettingsPanel,
+    NoWheelComboBox,
+    apply_combo_center_align,
+)
 from ui.widgets.icon_widgets import create_legend_icon_design, BidirectionalArrowButton
 from ui.widgets.display_utils import truncate_display_name, MAX_DISPLAY_NAME_LEN
 from utils.math_utils import hz_to_bark, bark_to_hz
@@ -361,6 +366,7 @@ class ComparePlotPopup(BasePlotWindow):
         self.figure = figure
         self.idx_blue = idx_blue
         self.idx_red = idx_red
+        self.compare_session = CompareSession.from_data_indices(idx_blue, idx_red)
         self.x_axis_label = x_axis_label
         self.normalization = normalization
         self.fixed_plot_params = {}
@@ -375,8 +381,12 @@ class ComparePlotPopup(BasePlotWindow):
 
         self.vowel_filter_state_blue = {}
         self.vowel_filter_state_red = {}
+        self.vowel_filter_states: dict[int, dict] = {}
         self.layer_design_overrides_blue = {}
         self.layer_design_overrides_red = {}
+        self.layer_design_overrides_by_series: dict[int, dict] = {}
+        self.label_data_by_series: dict[int, list] = {}
+        self.label_text_artists_by_series: dict[int, list] = {}
         self.layer_order = []
         self.layer_locked_vowels_blue = set()
         self.layer_locked_vowels_red = set()
@@ -457,6 +467,22 @@ class ComparePlotPopup(BasePlotWindow):
 
         # 창을 닫을 때 메모리에서 즉시 해제되도록 설정 (Memory Leak 방지)
         self.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
+
+    def get_filter_state_for_series(self, series_id: int):
+        sid = normalize_series_ref(series_id)
+        if sid == 0:
+            return self.vowel_filter_state_blue
+        if sid == 1:
+            return self.vowel_filter_state_red
+        return self.vowel_filter_states.get(sid, {})
+
+    def get_layer_design_overrides_for_series(self, series_id: int):
+        sid = normalize_series_ref(series_id)
+        if sid == 0:
+            return self.layer_design_overrides_blue
+        if sid == 1:
+            return self.layer_design_overrides_red
+        return self.layer_design_overrides_by_series.get(sid, {})
 
     def get_filter_state_blue(self):
         return self.vowel_filter_state_blue
@@ -1441,9 +1467,10 @@ class ComparePlotPopup(BasePlotWindow):
                 out.append(s)
                 continue
             if " - " not in s:
-                # 이미 suffix가 붙어 들어온 경우(a1 등) 기본 라벨만 남긴다.
-                core = s[:-1] if len(s) >= 2 and s[-1] in ("1", "2") else s
-                out.append(core)
+                if len(s) >= 2 and s[-1].isdigit():
+                    out.append(s[:-1])
+                else:
+                    out.append(s)
                 continue
             vowel, _src = s.split(" - ", 1)
             v = str(vowel).strip()

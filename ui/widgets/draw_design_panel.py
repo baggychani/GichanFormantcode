@@ -31,13 +31,16 @@ class DrawDesignPanel(QWidget):
     """
 
     settings_changed = Signal(str, dict)
+    legend_edit_requested = Signal(str)
 
     def __init__(self, parent=None, ui_font_name="Malgun Gothic"):
         super().__init__(parent)
         self.ui_font_name = ui_font_name
         self._loading = False
         self._current_layer_id = ""
-        self._current_layer_type = None  # "line" | "area" | "reference" | None
+        self._current_layer_type = (
+            None  # "line" | "area" | "reference" | "legend" | None
+        )
 
         self._setup_ui()
         self._connect_signals()
@@ -62,6 +65,42 @@ class DrawDesignPanel(QWidget):
         line.setFrameShape(QFrame.Shape.HLine)
         line.setStyleSheet("color: #EBEEF5;")
         layout.addWidget(line)
+
+    def _build_legend_page(self):
+        page = QWidget()
+        layout = QVBoxLayout(page)
+        layout.setContentsMargins(12, 12, 12, 12)
+        layout.setSpacing(10)
+        font_bold = QFont(self.ui_font_name, 10, QFont.Weight.Bold)
+        font_normal = QFont(self.ui_font_name, 9)
+        layout.addWidget(QLabel("범례", font=font_bold))
+        row_border = QHBoxLayout()
+        row_border.setContentsMargins(0, 0, 0, 0)
+        row_border.setSpacing(8)
+        lbl_border = QLabel("테두리 표시")
+        lbl_border.setFont(font_normal)
+        row_border.addWidget(lbl_border)
+        row_border.addStretch()
+        self._legend_switch_border = ToggleSwitch(checked=False)
+        row_border.addWidget(self._legend_switch_border)
+        layout.addLayout(row_border)
+        self._legend_edit_btn = QPushButton("텍스트 편집…")
+        self._legend_edit_btn.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
+        self._legend_edit_btn.setFixedHeight(32)
+        self._legend_edit_btn.setFont(font_normal)
+        self._legend_edit_btn.setStyleSheet(
+            "QPushButton { background-color: #F0F2F5; border: 1px solid #DCDFE6; "
+            "border-radius: 4px; color: #333; }"
+            "QPushButton:hover { background-color: #E4E7ED; color: #409EFF; }"
+        )
+        self._legend_edit_btn.clicked.connect(self._on_legend_edit_clicked)
+        layout.addWidget(self._legend_edit_btn)
+        layout.addStretch()
+        return page
+
+    def _on_legend_edit_clicked(self):
+        if self._current_layer_id:
+            self.legend_edit_requested.emit(self._current_layer_id)
 
     # ------------------------------------------------------------------
     # 페이지별 UI
@@ -317,14 +356,16 @@ class DrawDesignPanel(QWidget):
         page_line = self._build_line_page()
         page_area = self._build_area_page()
         page_reference = self._build_reference_page()
+        page_legend = self._build_legend_page()
 
         stacked.addWidget(page_line)  # index 0
         stacked.addWidget(page_area)  # index 1
         stacked.addWidget(page_reference)  # index 2
+        stacked.addWidget(page_legend)  # index 3
 
         self._placeholder = placeholder
         self._stacked = stacked
-        self._page_indices = {"line": 0, "area": 1, "reference": 2}
+        self._page_indices = {"line": 0, "area": 1, "reference": 2, "legend": 3}
 
         main_layout.addWidget(placeholder)
         main_layout.addWidget(stacked)
@@ -365,6 +406,8 @@ class DrawDesignPanel(QWidget):
             self._on_any_control_changed
         )
 
+        self._legend_switch_border.toggled.connect(self._on_any_control_changed)
+
     # ------------------------------------------------------------------
     # 퍼블릭 API
     # ------------------------------------------------------------------
@@ -379,7 +422,7 @@ class DrawDesignPanel(QWidget):
         """
         외부(레이어 도크 등)에서 현재 선택된 그리기 레이어 정보를 전달한다.
 
-        layer_type: "line" | "area" | "reference"
+        layer_type: "line" | "area" | "reference" | "legend"
         settings: 타입별 설정 딕셔너리 (없으면 기본값 사용)
         """
         self._current_layer_id = layer_id or ""
@@ -395,6 +438,8 @@ class DrawDesignPanel(QWidget):
                 self._apply_area_settings(settings)
             elif layer_type == "reference":
                 self._apply_reference_settings(settings)
+            elif layer_type == "legend":
+                self._apply_legend_settings(settings)
         finally:
             self._loading = False
 
@@ -408,6 +453,8 @@ class DrawDesignPanel(QWidget):
             return self._collect_area_settings()
         if self._current_layer_type == "reference":
             return self._collect_reference_settings()
+        if self._current_layer_type == "legend":
+            return self._collect_legend_settings()
         return {}
 
     # ------------------------------------------------------------------
@@ -495,6 +542,9 @@ class DrawDesignPanel(QWidget):
             color = "#606060"
         self._reference_controls["color_picker"].set_color(color)
 
+    def _apply_legend_settings(self, settings: dict):
+        self._legend_switch_border.setChecked(bool(settings.get("show_border", False)))
+
     def _collect_line_settings(self) -> dict:
         group = self._line_controls["group_style"]
         style_id = group.checkedId()
@@ -559,6 +609,11 @@ class DrawDesignPanel(QWidget):
         return {
             "line_style": style_val,
             "line_color": color,
+        }
+
+    def _collect_legend_settings(self) -> dict:
+        return {
+            "show_border": self._legend_switch_border.isChecked(),
         }
 
     # ------------------------------------------------------------------

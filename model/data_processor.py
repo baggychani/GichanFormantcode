@@ -114,7 +114,9 @@ def _find_label_column_index(df: pd.DataFrame, start_idx: int = 2) -> int | None
     return None
 
 
-def _collect_formant_column_indices(df: pd.DataFrame, label_idx: int | None) -> list[int]:
+def _collect_formant_column_indices(
+    df: pd.DataFrame, label_idx: int | None
+) -> list[int]:
     """라벨 열 앞까지의 F3/F4 후보 열 인덱스(F1·F2 제외)."""
     end = label_idx if label_idx is not None else len(df.columns)
     indices: list[int] = []

@@ -9,6 +9,19 @@ import numpy as np
 import math
 import platform
 import config
+from core.compare_series import (
+    CompareLabelBuckets,
+    CompareRenderResult,
+    CompareSeriesInput,
+    build_compare_dataset_specs,
+    default_series_color,
+    default_series_ell_style,
+)
+from core.compare_settings import (
+    default_compare_design_settings,
+    get_series_design_cfg,
+    normalize_compare_design_settings,
+)
 from utils.math_utils import (
     hz_to_bark,
     hz_to_log,
@@ -142,41 +155,7 @@ class PlotEngine:
 
     def _get_default_multi_design(self):
         """다중 비교 모드 디자인 설정이 전달되지 않았을 때를 대비한 기본값"""
-        return {
-            "common": {
-                "show_raw": True,
-                "show_centroid": True,
-                "box_spines": False,
-                "show_grid": False,
-                "y_label_rotation": False,
-                "show_minor_ticks": True,
-                "font_style": "serif",
-            },
-            "blue": {
-                "lbl_color": "#1976D2",
-                "lbl_size": 16,
-                "lbl_bold": True,
-                "lbl_italic": False,
-                "ell_thick": 1.0,
-                "ell_style": "-",
-                "ell_color": "#1976D2",
-                "ell_fill_color": None,
-                "raw_color": "#606060",
-                "centroid_marker": "o",
-            },
-            "red": {
-                "lbl_color": "#E64A19",
-                "lbl_size": 16,
-                "lbl_bold": True,
-                "lbl_italic": False,
-                "ell_thick": 1.0,
-                "ell_style": "--",
-                "ell_color": "#E64A19",
-                "ell_fill_color": None,
-                "raw_color": "#606060",
-                "centroid_marker": "o",
-            },
-        }
+        return default_compare_design_settings()
 
     def _prepare_plot_df(self, df, plot_params):
         """원본 df에 스케일 적용된 y_val, x_val 열을 추가한 플롯용 DataFrame을 반환한다."""
@@ -716,88 +695,89 @@ class PlotEngine:
 
         return ax, snapping_data, label_data, label_text_artists
 
-    def draw_multi_plot(
+    def _empty_compare_render_result(self, figure):
+        ax = figure.add_subplot(111)
+        ax.set_box_aspect(1)
+        ax.set_axisbelow(True)
+        return CompareRenderResult(ax, [], {}, {})
+
+    def _has_compare_required_columns(self, df):
+        return (
+            df is not None
+            and hasattr(df, "columns")
+            and "F1" in df.columns
+            and "F2" in df.columns
+        )
+
+    def _prepare_compare_series_inputs(self, series_inputs, plot_type):
+        prepared: list[CompareSeriesInput] = []
+        for row in series_inputs:
+            if not self._has_compare_required_columns(row.df):
+                continue
+            df_filtered = filter_for_plot_type(row.df, plot_type)
+            if df_filtered is None or df_filtered.empty:
+                continue
+            prepared.append(
+                CompareSeriesInput(
+                    df=df_filtered,
+                    display_name=row.display_name,
+                    filter_state=row.filter_state,
+                    design_cfg=row.design_cfg,
+                    layer_overrides=row.layer_overrides,
+                    custom_label_offsets=row.custom_label_offsets,
+                )
+            )
+        return prepared
+
+    def draw_compare_plot(
         self,
         figure,
-        df_blue,
-        df_red,
+        series_inputs: list[CompareSeriesInput],
         plot_params,
         manual_ranges=None,
-        name_blue="기준",
-        name_red="비교",
-        filter_state_blue=None,
-        filter_state_red=None,
         design_settings=None,
-        custom_label_offsets_blue=None,
-        custom_label_offsets_red=None,
-        layer_overrides_blue=None,
-        layer_overrides_red=None,
     ):
         """
-        두 데이터 세트(기준/비교)를 하나의 플롯에 겹쳐서 그립니다.
-
-        Args:
-            figure (matplotlib.figure.Figure): 그래프를 그릴 캔버스 객체
-            df_blue (pd.DataFrame): 첫 번째 데이터 세트
-            df_red (pd.DataFrame): 두 번째 데이터 세트
-            plot_params (dict): 플롯 기본 파라미터
-            manual_ranges (dict, optional): 사용자 지정 축 범위
-            name_blue, name_red (str): 데이터 세트 이름 (범례 등에서 사용)
-            filter_state_blue, filter_state_red (dict): 데이터 세트별 가시성 필터
-            design_settings (dict): 통합 디자인 설정 (공통/기준/비교 설정 포함)
-            custom_label_offsets_blue, custom_label_offsets_red (dict): 라벨 위치 오프셋
-            layer_overrides_blue, layer_overrides_red (dict): 레이어별 디자인 오버라이드
+        N개 데이터 세트를 하나의 compare 플롯에 겹쳐 그립니다.
 
         Returns:
-            tuple: (ax, snapping_data, label_data_blue, label_data_red, label_text_artists_blue, label_text_artists_red)
+            CompareRenderResult
         """
         ### [Phase 1] 초기화 및 전역 설정
         figure.clear()
+        if len(series_inputs) < 2:
+            return self._empty_compare_render_result(figure)
 
-        def _has_required(df):
-            return (
-                df is not None
-                and hasattr(df, "columns")
-                and "F1" in df.columns
-                and "F2" in df.columns
-            )
-
-        if not _has_required(df_blue) or not _has_required(df_red):
-            ax = figure.add_subplot(111)
-            ax.set_box_aspect(1)
-            ax.set_axisbelow(True)
-            return ax, [], [], [], [], []
         plot_type = plot_params.get("type", "f1_f2")
-        df_blue = filter_for_plot_type(df_blue, plot_type)
-        df_red = filter_for_plot_type(df_red, plot_type)
-        if df_blue is None or df_blue.empty or df_red is None or df_red.empty:
-            ax = figure.add_subplot(111)
-            ax.set_box_aspect(1)
-            ax.set_axisbelow(True)
-            return ax, [], [], [], [], []
+        prepared_inputs = self._prepare_compare_series_inputs(series_inputs, plot_type)
+        if len(prepared_inputs) < 2:
+            return self._empty_compare_render_result(figure)
+
         origin = plot_params["origin"]
         use_bark_units = plot_params.get("use_bark_units", False)
         sigma = float(plot_params.get("sigma", config.DEFAULT_SIGMA))
         snapping_data = []
-        label_data_blue = []
-        label_data_red = []
-        label_text_artists_blue = []  # 추가됨: 파란색 데이터의 텍스트 객체 리스트
-        label_text_artists_red = []  # 추가됨: 빨간색 데이터의 텍스트 객체 리스트
+        label_buckets = CompareLabelBuckets()
 
         if design_settings is None or "common" not in design_settings:
             design_settings = self._get_default_multi_design()
-        if custom_label_offsets_blue is None:
-            custom_label_offsets_blue = {}
-        if custom_label_offsets_red is None:
-            custom_label_offsets_red = {}
-        if layer_overrides_blue is None:
-            layer_overrides_blue = {}
-        if layer_overrides_red is None:
-            layer_overrides_red = {}
+        design_settings = normalize_compare_design_settings(design_settings)
+
+        enriched_inputs: list[CompareSeriesInput] = []
+        for series_id, row in enumerate(prepared_inputs):
+            enriched_inputs.append(
+                CompareSeriesInput(
+                    df=row.df,
+                    display_name=row.display_name,
+                    filter_state=row.filter_state or {},
+                    design_cfg=row.design_cfg
+                    or get_series_design_cfg(design_settings, series_id),
+                    layer_overrides=row.layer_overrides or {},
+                    custom_label_offsets=row.custom_label_offsets or {},
+                )
+            )
 
         common = design_settings.get("common", {})
-        blue_cfg = design_settings.get("blue", {})
-        red_cfg = design_settings.get("red", {})
         axis_font = self._get_axis_font_list(common.get("font_style", "serif"))
 
         show_raw = common.get("show_raw", True)
@@ -842,22 +822,22 @@ class PlotEngine:
             final_min_x, final_max_x = fallback["x_min"], fallback["x_max"]
 
         ### [Phase 3] 축 범위 및 공통 데이터 바인딩
-        layer_overrides_by_side = {
-            "blue": layer_overrides_blue,
-            "red": layer_overrides_red,
-        }
-        datasets = [
-            (df_blue, "blue", name_blue, filter_state_blue, blue_cfg),
-            (df_red, "red", name_red, filter_state_red, red_cfg),
-        ]
-
+        specs = build_compare_dataset_specs(enriched_inputs)
         placed_labels = []
 
-        ### [Phase 4] 데이터 세트별(기준/비교) 렌더링 루프
-        for df_curr, ds_type, file_name, curr_filter_state, cfg in datasets:
+        ### [Phase 4] 데이터 세트별 렌더링 루프
+        for spec in specs:
+            df_curr = spec.df
             if df_curr.empty:
                 continue
-            curr_layer_overrides = layer_overrides_by_side.get(ds_type, {})
+            series_id = spec.series_id
+            default_color = default_series_color(series_id)
+            default_ell_style = default_series_ell_style(series_id)
+            file_name = spec.display_name
+            curr_filter_state = spec.filter_state
+            cfg = spec.design_cfg
+            curr_layer_overrides = spec.layer_overrides
+            custom_offsets = spec.custom_label_offsets
 
             # 플롯용 복사본: 스케일 적용된 x_val, y_val 등이 추가됨
             df_plot = df_curr.copy()
@@ -903,9 +883,7 @@ class PlotEngine:
                 subset = df_plot[df_plot["Label"] == vowel]
                 x, y = subset["x_val"], subset["y_val"]
 
-                lbl_color = cfg_v.get(
-                    "lbl_color", "#1976D2" if ds_type == "blue" else "#E64A19"
-                )
+                lbl_color = cfg_v.get("lbl_color", default_color)
                 lbl_size = cfg_v.get("lbl_size", cfg.get("lbl_size", 16))
                 lbl_bold = "bold" if cfg_v.get("lbl_bold", True) else "normal"
                 lbl_italic = "italic" if cfg_v.get("lbl_italic", False) else "normal"
@@ -913,16 +891,16 @@ class PlotEngine:
                 ell_thick = cfg_v.get("ell_thick", cfg.get("ell_thick", 1.0))
                 ell_style = cfg_v.get(
                     "ell_style",
-                    cfg.get("ell_style", "-" if ds_type == "blue" else "--"),
+                    cfg.get("ell_style", default_ell_style),
                 )
                 ell_color = cfg_v.get(
                     "ell_color",
-                    cfg.get("ell_color", "#1976D2" if ds_type == "blue" else "#E64A19"),
+                    cfg.get("ell_color", default_color),
                 )
                 ell_fill = cfg_v.get("ell_fill_color", cfg.get("ell_fill_color", None))
                 point_color = self._resolve_plot_color(
                     cfg_v.get("raw_color", cfg.get("raw_color")),
-                    "#1976D2" if ds_type == "blue" else "#E64A19",
+                    default_color,
                 )
                 centroid_marker = cfg_v.get(
                     "centroid_marker", cfg.get("centroid_marker", "o")
@@ -1052,11 +1030,6 @@ class PlotEngine:
                             }
                         )
 
-                custom_offsets = (
-                    custom_label_offsets_blue
-                    if ds_type == "blue"
-                    else custom_label_offsets_red
-                )
                 use_custom = vowel in custom_offsets and show_centroid
                 if use_custom:
                     dx_data, dy_data = custom_offsets[vowel]
@@ -1129,11 +1102,8 @@ class PlotEngine:
                         [pe.withStroke(linewidth=3, foreground="white")]
                     )
 
-                    # 추가됨: 텍스트 아티스트를 리스트에 보관
-                    if ds_type == "blue":
-                        label_text_artists_blue.append(ann)
-                    else:
-                        label_text_artists_red.append(ann)
+                    # 추가됨: 텍스트 아티스트를 legacy 버킷에 보관
+                    label_buckets.append_text_artist(series_id, ann)
 
                     if use_custom:
                         # 수동 지정 라벨은 placed_labels에 넣지 않아 다른 자동 배치 라벨이 튀지 않게 함
@@ -1142,40 +1112,23 @@ class PlotEngine:
                         placed_labels.append(
                             {"x": mean_x, "y": mean_y, "dx": final_dx, "dy": final_dy}
                         )
-                    if ds_type == "blue":
-                        label_data_blue.append(
-                            {
-                                "vowel": vowel,
-                                "cx": mean_x,
-                                "cy": mean_y,
-                                "lx": label_x,
-                                "ly": label_y,
-                                "fontsize": lbl_size,
-                                "ha": ha,
-                                "va": va,
-                                "lbl_color": lbl_color,
-                                "lbl_bold": lbl_bold,
-                                "lbl_italic": lbl_italic,
-                                "ell_color": ell_color,
-                            }
-                        )
-                    else:
-                        label_data_red.append(
-                            {
-                                "vowel": vowel,
-                                "cx": mean_x,
-                                "cy": mean_y,
-                                "lx": label_x,
-                                "ly": label_y,
-                                "fontsize": lbl_size,
-                                "ha": ha,
-                                "va": va,
-                                "lbl_color": lbl_color,
-                                "lbl_bold": lbl_bold,
-                                "lbl_italic": lbl_italic,
-                                "ell_color": ell_color,
-                            }
-                        )
+                    label_buckets.append_label_data(
+                        series_id,
+                        {
+                            "vowel": vowel,
+                            "cx": mean_x,
+                            "cy": mean_y,
+                            "lx": label_x,
+                            "ly": label_y,
+                            "fontsize": lbl_size,
+                            "ha": ha,
+                            "va": va,
+                            "lbl_color": lbl_color,
+                            "lbl_bold": lbl_bold,
+                            "lbl_italic": lbl_italic,
+                            "ell_color": ell_color,
+                        },
+                    )
 
         show_minor_ticks = common.get("show_minor_ticks", True)
         self._set_ticks(
@@ -1310,15 +1263,58 @@ class PlotEngine:
         for lbl in ax.get_xticklabels() + ax.get_yticklabels():
             lbl.set_fontfamily(axis_font)
 
-        # 수정됨: 다중 플롯에서도 텍스트 아티스트 리스트들을 반환합니다.
-        return (
+        # 수정됨: compare 플롯 N-way dict + legacy blue/red 뷰 반환
+        label_data, label_text_artists = label_buckets.as_dicts()
+        return CompareRenderResult(
             ax,
             snapping_data,
-            label_data_blue,
-            label_data_red,
-            label_text_artists_blue,
-            label_text_artists_red,
+            label_data,
+            label_text_artists,
         )
+
+    def draw_multi_plot(
+        self,
+        figure,
+        df_blue,
+        df_red,
+        plot_params,
+        manual_ranges=None,
+        name_blue="기준",
+        name_red="비교",
+        filter_state_blue=None,
+        filter_state_red=None,
+        design_settings=None,
+        custom_label_offsets_blue=None,
+        custom_label_offsets_red=None,
+        layer_overrides_blue=None,
+        layer_overrides_red=None,
+    ):
+        """legacy 2-way compare API — 내부적으로 draw_compare_plot에 위임."""
+        result = self.draw_compare_plot(
+            figure,
+            [
+                CompareSeriesInput(
+                    df=df_blue,
+                    display_name=name_blue,
+                    filter_state=filter_state_blue,
+                    design_cfg=None,
+                    layer_overrides=layer_overrides_blue,
+                    custom_label_offsets=custom_label_offsets_blue,
+                ),
+                CompareSeriesInput(
+                    df=df_red,
+                    display_name=name_red,
+                    filter_state=filter_state_red,
+                    design_cfg=None,
+                    layer_overrides=layer_overrides_red,
+                    custom_label_offsets=custom_label_offsets_red,
+                ),
+            ],
+            plot_params,
+            manual_ranges=manual_ranges,
+            design_settings=design_settings,
+        )
+        return result.legacy_tuple()
 
     # 정규화 비교 플롯: 축 반전, nF1/nF2, 고정 범위
     NORM_RANGES = {
@@ -1757,49 +1753,53 @@ class PlotEngine:
 
         return ax, snapping_data, label_data, label_text_artists
 
-    def draw_compare_normalized(
+    def draw_compare_plot_normalized(
         self,
         figure,
-        df_blue,
-        df_red,
+        series_inputs: list[CompareSeriesInput],
         norm_type,
-        name_blue="",
-        name_red="",
-        filter_state_blue=None,
-        filter_state_red=None,
         design_settings=None,
         sigma=2.0,
-        custom_label_offsets_blue=None,
-        custom_label_offsets_red=None,
         manual_ranges=None,
-        layer_overrides_blue=None,
-        layer_overrides_red=None,
     ):
         """
-        정규화된 F1 vs F2 비교 플롯을 생성합니다.
-        가시성 필터 및 레이어 디자인 오버라이드가 적용됩니다.
+        N개 데이터 세트 정규화 compare 플롯.
+
+        Returns:
+            CompareRenderResult
         """
         ### [Phase 1] 초기화 및 전역 설정
         figure.clear()
+        if len(series_inputs) < 2:
+            return self._empty_compare_render_result(figure)
+
+        prepared_inputs = [
+            row
+            for row in series_inputs
+            if self._has_compare_required_columns(row.df) and not row.df.empty
+        ]
+        if len(prepared_inputs) < 2:
+            return self._empty_compare_render_result(figure)
+
         if design_settings is None or "common" not in design_settings:
             design_settings = self._get_default_multi_design()
-        common = design_settings.get("common", {})
-        blue_cfg = design_settings.get("blue", {})
-        red_cfg = design_settings.get("red", {})
-        axis_font = self._get_axis_font_list(common.get("font_style", "serif"))
-        if custom_label_offsets_blue is None:
-            custom_label_offsets_blue = {}
-        if custom_label_offsets_red is None:
-            custom_label_offsets_red = {}
-        if layer_overrides_blue is None:
-            layer_overrides_blue = {}
-        if layer_overrides_red is None:
-            layer_overrides_red = {}
+        design_settings = normalize_compare_design_settings(design_settings)
+        enriched_inputs: list[CompareSeriesInput] = []
+        for series_id, row in enumerate(prepared_inputs):
+            enriched_inputs.append(
+                CompareSeriesInput(
+                    df=row.df,
+                    display_name=row.display_name,
+                    filter_state=row.filter_state or {},
+                    design_cfg=row.design_cfg
+                    or get_series_design_cfg(design_settings, series_id),
+                    layer_overrides=row.layer_overrides or {},
+                    custom_label_offsets=row.custom_label_offsets or {},
+                )
+            )
 
-        layer_overrides_by_side = {
-            "blue": layer_overrides_blue,
-            "red": layer_overrides_red,
-        }
+        common = design_settings.get("common", {})
+        axis_font = self._get_axis_font_list(common.get("font_style", "serif"))
 
         show_raw = common.get("show_raw", True)
         show_centroid = common.get("show_centroid", True)
@@ -1825,13 +1825,11 @@ class PlotEngine:
                     }
             except (ValueError, TypeError):
                 pass
-        # 정규화 비교에서도 세로 중심이 유지되도록 위/아래 여백을 대칭에 가깝게 설정 (상하좌우 +0.02)
         ### [Phase 2] 캔버스(Axes) 및 축 리미트 설정
         figure.subplots_adjust(left=0.22, right=0.91, bottom=0.12, top=0.88)
         ax = figure.add_subplot(111)
         ax.set_box_aspect(1)
         ax.set_axisbelow(True)
-        # 정규화 플롯: 이미 스케일링된 값이므로 극미세 오차(1e-5) 적용
         eps = 1e-5
         ax.set_xlim(r["x_min"] - eps, r["x_max"] + eps)
         ax.set_ylim(r["y_min"] - eps, r["y_max"] + eps)
@@ -1884,7 +1882,6 @@ class PlotEngine:
         else:
             ax.grid(False)
 
-        # 축 눈금 설정(Step 적용)
         self._set_ticks(
             ax,
             "x",
@@ -1909,31 +1906,29 @@ class PlotEngine:
         )
 
         snapping_data = []
-        label_data_blue = []
-        label_data_red = []
-        label_text_artists_blue = []
-        label_text_artists_red = []
+        label_buckets = CompareLabelBuckets()
         placed_labels = []
+        specs = build_compare_dataset_specs(enriched_inputs)
 
-        ### [Phase 4] 데이터 세트별(기준/비교) 렌더링 루프
-        for df_curr, ds_type, file_name, curr_filter_state, cfg in [
-            (df_blue, "blue", name_blue, filter_state_blue or {}, blue_cfg),
-            (df_red, "red", name_red, filter_state_red or {}, red_cfg),
-        ]:
+        ### [Phase 4] 데이터 세트별 렌더링 루프
+        for spec in specs:
+            df_curr = spec.df
             if df_curr.empty:
                 continue
-            curr_layer_overrides = layer_overrides_by_side.get(ds_type, {})
+            series_id = spec.series_id
+            default_color = default_series_color(series_id)
+            default_ell_style = default_series_ell_style(series_id)
+            file_name = spec.display_name
+            curr_filter_state = spec.filter_state
+            cfg = spec.design_cfg
+            curr_layer_overrides = spec.layer_overrides
+            custom_offsets = spec.custom_label_offsets
             # 플롯용 복사본 (이 루프에서는 F1/F2를 그대로 x_val, y_val로 사용)
             df_plot = df_curr.copy()
             df_plot["y_val"] = df_plot["F1"]
             df_plot["x_val"] = df_plot["F2"]
             label_col = "Label" if "Label" in df_plot.columns else "label"
             vowels = df_plot[label_col].unique()
-            custom_offsets = (
-                custom_label_offsets_blue
-                if ds_type == "blue"
-                else custom_label_offsets_red
-            )
 
             for vowel in vowels:
                 state = curr_filter_state.get(vowel, "ON")
@@ -1945,18 +1940,12 @@ class PlotEngine:
                 for k, v in over.items():
                     if v is not None:
                         cfg_v[k] = v
-                ell_color = cfg_v.get(
-                    "ell_color", "#1976D2" if ds_type == "blue" else "#E64A19"
-                )
-                lbl_color = (
-                    cfg_v.get("lbl_color")
-                    or ell_color
-                    or ("#1976D2" if ds_type == "blue" else "#E64A19")
-                )
+                ell_color = cfg_v.get("ell_color", default_color)
+                lbl_color = cfg_v.get("lbl_color") or ell_color or default_color
                 hide_text = lbl_color == "transparent" or (
                     isinstance(lbl_color, str) and lbl_color.lower() == "transparent"
                 )
-                ell_style = cfg_v.get("ell_style", "-" if ds_type == "blue" else "--")
+                ell_style = cfg_v.get("ell_style", default_ell_style)
                 ell_thick = cfg_v.get("ell_thick", 1.0)
                 ell_fill = cfg_v.get("ell_fill_color", None)
                 centroid_marker = cfg_v.get("centroid_marker", "o")
@@ -1965,7 +1954,7 @@ class PlotEngine:
                 lbl_italic = "italic" if cfg_v.get("lbl_italic", False) else "normal"
                 raw_color = self._resolve_plot_color(
                     cfg_v.get("raw_color"),
-                    "#1976D2" if ds_type == "blue" else "#E64A19",
+                    default_color,
                 )
 
                 subset = df_plot[df_plot[label_col] == vowel]
@@ -2139,45 +2128,75 @@ class PlotEngine:
                 ann.set_clip_on(False)
                 ann.set_path_effects([pe.withStroke(linewidth=3, foreground="white")])
 
-                if ds_type == "blue":
-                    label_text_artists_blue.append(ann)
-                    label_data_blue.append(
-                        {
-                            "vowel": vowel,
-                            "cx": mean_x,
-                            "cy": mean_y,
-                            "lx": label_x,
-                            "ly": label_y,
-                            "fontsize": lbl_size,
-                            "ha": ha,
-                            "va": va,
-                            "lbl_color": lbl_color,
-                        }
-                    )
-                else:
-                    label_text_artists_red.append(ann)
-                    label_data_red.append(
-                        {
-                            "vowel": vowel,
-                            "cx": mean_x,
-                            "cy": mean_y,
-                            "lx": label_x,
-                            "ly": label_y,
-                            "fontsize": lbl_size,
-                            "ha": ha,
-                            "va": va,
-                            "lbl_color": lbl_color,
-                        }
-                    )
+                label_buckets.append_text_artist(series_id, ann)
+                label_buckets.append_label_data(
+                    series_id,
+                    {
+                        "vowel": vowel,
+                        "cx": mean_x,
+                        "cy": mean_y,
+                        "lx": label_x,
+                        "ly": label_y,
+                        "fontsize": lbl_size,
+                        "ha": ha,
+                        "va": va,
+                        "lbl_color": lbl_color,
+                    },
+                )
 
-        return (
+        label_data, label_text_artists = label_buckets.as_dicts()
+        return CompareRenderResult(
             ax,
             snapping_data,
-            label_data_blue,
-            label_data_red,
-            label_text_artists_blue,
-            label_text_artists_red,
+            label_data,
+            label_text_artists,
         )
+
+    def draw_compare_normalized(
+        self,
+        figure,
+        df_blue,
+        df_red,
+        norm_type,
+        name_blue="",
+        name_red="",
+        filter_state_blue=None,
+        filter_state_red=None,
+        design_settings=None,
+        sigma=2.0,
+        custom_label_offsets_blue=None,
+        custom_label_offsets_red=None,
+        manual_ranges=None,
+        layer_overrides_blue=None,
+        layer_overrides_red=None,
+    ):
+        """legacy 2-way 정규화 compare API — draw_compare_plot_normalized에 위임."""
+        result = self.draw_compare_plot_normalized(
+            figure,
+            [
+                CompareSeriesInput(
+                    df=df_blue,
+                    display_name=name_blue,
+                    filter_state=filter_state_blue,
+                    design_cfg=None,
+                    layer_overrides=layer_overrides_blue,
+                    custom_label_offsets=custom_label_offsets_blue,
+                ),
+                CompareSeriesInput(
+                    df=df_red,
+                    display_name=name_red,
+                    filter_state=filter_state_red,
+                    design_cfg=None,
+                    layer_overrides=layer_overrides_red,
+                    custom_label_offsets=custom_label_offsets_red,
+                ),
+            ],
+            norm_type,
+            design_settings=design_settings,
+            sigma=sigma,
+            manual_ranges=manual_ranges,
+        )
+        return result.legacy_tuple()
 
     def _offset_points_to_data(self, ax, cx, cy, dx_pt, dy_pt):
         """offset (dx_pt, dy_pt) in points from (cx, cy) in data -> label position in data coords."""

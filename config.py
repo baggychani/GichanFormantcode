@@ -11,7 +11,7 @@ GichanFormant 전역 설정 (Configuration)
 # =============================================================================
 # 1. 프로그램 기본 정보 (App Info)
 # =============================================================================
-APP_VERSION = "2.3.6"
+APP_VERSION = "2.3.7"
 APP_TITLE = f"GichanFormant v{APP_VERSION}"
 AUTHOR = "Bae Gichan"
 COPYRIGHT_TEXT = f"Copyright © 2026 {AUTHOR}. All rights reserved."
@@ -114,7 +114,7 @@ DIALOG_SELECT_COMPARE_HEIGHT_PX = 450
 
 # 일괄 저장 설정 다이얼로그 (popup_plot.BatchSaveOptionsDialog)
 DIALOG_BATCH_SAVE_WIDTH_PX = 460
-DIALOG_BATCH_SAVE_HEIGHT_PX = 510
+DIALOG_BATCH_SAVE_HEIGHT_PX = 540
 
 # 축 범위 입력 라인에디터 고정 폭(px). 일괄 저장 다이얼로그 등
 RANGE_EDIT_FIXED_WIDTH_PX = 75

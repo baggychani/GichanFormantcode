@@ -2,6 +2,8 @@
 
 import os
 import traceback
+from types import SimpleNamespace
+
 from PySide6.QtCore import QThread, Signal
 
 
@@ -26,9 +28,12 @@ class BatchSaveWorker(QThread):
         per_file_filters=None,
         per_file_overrides=None,
         label_offsets=None,
+        per_file_draw_objects=None,
         apply_layer_visibility=True,
         apply_layer_design=True,
         apply_label_positions=True,
+        apply_legend=False,
+        apply_draw_annotations=True,
     ):
         super().__init__()
         self.save_dir = save_dir
@@ -42,9 +47,12 @@ class BatchSaveWorker(QThread):
         self.per_file_filters = per_file_filters or {}
         self.per_file_overrides = per_file_overrides or {}
         self.label_offsets = label_offsets or {}
+        self.per_file_draw_objects = per_file_draw_objects or {}
         self.apply_layer_visibility = apply_layer_visibility
         self.apply_layer_design = apply_layer_design
         self.apply_label_positions = apply_label_positions
+        self.apply_legend = apply_legend
+        self.apply_draw_annotations = apply_draw_annotations
         self.errors = []
 
     def _plot_key_suffix(self):
@@ -94,6 +102,55 @@ class BatchSaveWorker(QThread):
             layer_overrides=layer_overrides,
         )
 
+    def _render_draw_annotations(self, figure, file_index):
+        if not self.apply_draw_annotations or not figure.axes:
+            return
+        import copy
+
+        from draw.draw_layer_render import render_draw_objects
+
+        objs = self.per_file_draw_objects.get(file_index, [])
+        if not objs:
+            return
+        objs = copy.deepcopy(objs)
+        popup_ctx = SimpleNamespace(
+            design_settings=self.ds_settings,
+            fixed_plot_params=self.plot_params,
+            normalization=self.plot_params.get("normalization"),
+        )
+        render_draw_objects(
+            figure.axes[0],
+            objs,
+            popup_ctx,
+            skip_types=frozenset({"legend"}),
+            show_editor_chrome=False,
+        )
+
+    def _render_legend(self, figure, file_index):
+        if not self.apply_legend or not figure.axes:
+            return
+        import copy
+
+        from draw.legend_helpers import find_legend_object
+        from draw.legend_render import render_legend
+
+        objs = self.per_file_draw_objects.get(file_index, [])
+        legend = find_legend_object(objs)
+        if legend is None or not getattr(legend, "visible", True):
+            return
+        legend = copy.deepcopy(legend)
+        popup_ctx = SimpleNamespace(
+            design_settings=self.ds_settings,
+            fixed_plot_params=self.plot_params,
+        )
+        render_legend(
+            figure.axes[0],
+            legend,
+            popup_ctx,
+            selected=False,
+            show_editor_chrome=False,
+        )
+
     def run(self):
         from matplotlib.figure import Figure
 
@@ -117,6 +174,8 @@ class BatchSaveWorker(QThread):
                     df = self.normalize_fn(df)
                 temp_fig = Figure(figsize=(6.5, 6.5), dpi=300)
                 self._render_plot(temp_fig, df, i)
+                self._render_draw_annotations(temp_fig, i)
+                self._render_legend(temp_fig, i)
                 if self.img_format.lower() == "png":
                     temp_fig.savefig(save_path, format="png", dpi=300, transparent=True)
                 else:

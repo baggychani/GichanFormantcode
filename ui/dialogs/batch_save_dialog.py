@@ -121,9 +121,7 @@ class BatchSaveDialog(QDialog):
     def _make_field_label(self, text: str) -> QLabel:
         lbl = QLabel(text)
         lbl.setFixedWidth(self._LABEL_WIDTH)
-        lbl.setAlignment(
-            Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
-        )
+        lbl.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
         lbl.setFont(QFont(self.ui_font_name, 9))
         lbl.setStyleSheet("color: #606266;")
         return lbl
@@ -182,9 +180,7 @@ class BatchSaveDialog(QDialog):
             btn.setProperty("val", val)
             btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
             btn.setStyleSheet(style + radius_styles[i])
-            btn.setSizePolicy(
-                QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed
-            )
+            btn.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
             group.addButton(btn, i)
             row.addWidget(btn, stretch=1)
             buttons.append(btn)
@@ -304,6 +300,15 @@ class BatchSaveDialog(QDialog):
         self.chk_label_positions.setToolTip(
             "파일별로 옮긴 모음 라벨 위치를 반영합니다."
         )
+        self.chk_legend = QCheckBox("범례", design_box)
+        self.chk_legend.setToolTip(
+            "파일별 그리기 탭에 추가한 범례를 각 이미지에 포함합니다."
+        )
+        self.chk_draw_annotations = QCheckBox("그리기 (선·영역·참조선)", design_box)
+        self.chk_draw_annotations.setToolTip(
+            "각 파일에 그려 둔 선·영역·참조선·넓이 텍스트를 해당 이미지에 포함합니다. "
+            "그린 내용이 없는 파일은 변화 없습니다."
+        )
         for chk in (
             self.chk_global_design,
             self.chk_layer_design,
@@ -314,6 +319,14 @@ class BatchSaveDialog(QDialog):
             chk.setChecked(True)
             chk.setFocusPolicy(Qt.FocusPolicy.ClickFocus)
             design_layout.addWidget(chk)
+        self.chk_legend.setFont(font_chk)
+        self.chk_legend.setChecked(False)
+        self.chk_legend.setFocusPolicy(Qt.FocusPolicy.ClickFocus)
+        design_layout.addWidget(self.chk_legend)
+        self.chk_draw_annotations.setFont(font_chk)
+        self.chk_draw_annotations.setChecked(True)
+        self.chk_draw_annotations.setFocusPolicy(Qt.FocusPolicy.ClickFocus)
+        design_layout.addWidget(self.chk_draw_annotations)
 
         content_layout.addWidget(design_box)
         main_layout.addWidget(content)
@@ -369,6 +382,8 @@ class BatchSaveDialog(QDialog):
             "apply_layer_design": self.chk_layer_design.isChecked(),
             "apply_layer_visibility": self.chk_layer_visibility.isChecked(),
             "apply_label_positions": self.chk_label_positions.isChecked(),
+            "apply_legend": self.chk_legend.isChecked(),
+            "apply_draw_annotations": self.chk_draw_annotations.isChecked(),
         }
 
     def on_next(self):

@@ -2,7 +2,6 @@
 
 import os
 import io
-import inspect
 import traceback
 import copy
 from PySide6.QtCore import Qt, QTimer, QStandardPaths
@@ -11,6 +10,20 @@ from PySide6.QtWidgets import QFileDialog, QMessageBox
 from matplotlib.figure import Figure
 
 import config
+from core.compare_series import (
+    CompareSession,
+    compare_default_save_basename,
+    compare_label_offset_key,
+)
+from core.compare_runtime import (
+    apply_compare_render_to_popup,
+    build_compare_series_inputs,
+    get_compare_names,
+    label_data_for_series,
+    label_text_artists_for_series,
+    make_compare_plot_key,
+    resolve_compare_session,
+)
 from utils import app_logger
 from ui.windows.main_window import MainUI
 from ui.dialogs.file_guide import DataGuidePopup
@@ -856,7 +869,9 @@ class MainController:
                 popup.update_unit_labels(f1_unit, f2_unit)
             except TypeError:
                 popup.update_unit_labels(f1_unit)
-            smart_ranges = self._get_smart_ranges(plot_type, use_bark, f1_scale, f2_scale)
+            smart_ranges = self._get_smart_ranges(
+                plot_type, use_bark, f1_scale, f2_scale
+            )
             self._apply_ranges_to_widgets(popup.range_widgets, smart_ranges)
 
         popup.update_file_nav_indicator(popup.current_idx, current_data)
@@ -864,7 +879,9 @@ class MainController:
         filter_state = popup.get_filter_state()
         ds_settings = popup.get_design_settings() or self._get_default_design()
 
-        plot_type_fixed = "f1_f2" if norm else popup.fixed_plot_params.get("type", "f1_f2")
+        plot_type_fixed = (
+            "f1_f2" if norm else popup.fixed_plot_params.get("type", "f1_f2")
+        )
         plot_key_suffix = (plot_type_fixed, norm) if norm else (plot_type_fixed,)
         custom_offsets = self.custom_label_offsets.get(
             (popup.current_idx, *plot_key_suffix), {}
@@ -893,15 +910,17 @@ class MainController:
             )
             popup._update_window_title(current_data["name"])
         else:
-            _, snapping_data, label_data, label_text_artists = self.plot_engine.draw_plot(
-                fig,
-                current_data["df"],
-                popup.fixed_plot_params,
-                manual_ranges=smart_ranges,
-                filter_state=filter_state,
-                design_settings=ds_settings,
-                custom_label_offsets=custom_offsets,
-                layer_overrides=layer_overrides,
+            _, snapping_data, label_data, label_text_artists = (
+                self.plot_engine.draw_plot(
+                    fig,
+                    current_data["df"],
+                    popup.fixed_plot_params,
+                    manual_ranges=smart_ranges,
+                    filter_state=filter_state,
+                    design_settings=ds_settings,
+                    custom_label_offsets=custom_offsets,
+                    layer_overrides=layer_overrides,
+                )
             )
         popup.set_draw_result(
             snapping_data,
@@ -1011,7 +1030,30 @@ class MainController:
     def open_compare_plot(
         self, current_idx, target_idx, normalization=None, parent_window=None
     ):
-        """선택된 두 데이터로 다중 비교 시각화 창(ComparePlotPopup)을 생성합니다. normalization: None | 'Lobanov' | 'Gerstman' | '2mW/F' | 'Bigham'"""
+        """선택된 두 데이터로 다중 비교 시각화 창(ComparePlotPopup)을 생성합니다."""
+        self.open_compare_plot_for_indices(
+            [current_idx, target_idx],
+            normalization=normalization,
+            parent_window=parent_window,
+        )
+
+    def open_compare_plot_for_indices(
+        self,
+        indices: list[int],
+        normalization=None,
+        parent_window=None,
+    ):
+        """N개 데이터 인덱스로 compare 창을 연다. UI 탭은 0·1번만, 렌더는 session 전체."""
+        if len(indices) < 2:
+            (parent_window or self.ui).show_warning(
+                "비교 불가",
+                "compare에는 2개 이상의 데이터가 필요합니다.",
+            )
+            return
+
+        current_idx, target_idx = indices[0], indices[1]
+        session = CompareSession.from_data_indices(*indices)
+
         self._cleanup_popups()
         try:
             fig = Figure(figsize=(6.5, 6.5), dpi=100)
@@ -1029,6 +1071,7 @@ class MainController:
                 x_axis_label=x_label,
                 normalization=normalization,
             )
+            popup.compare_session = session
             popup.fixed_plot_params = self._get_current_plot_params()
 
             if not normalization:
@@ -1047,29 +1090,25 @@ class MainController:
                 )
                 self._apply_ranges_to_widgets(popup.range_widgets, smart_ranges)
 
-            # 다중 플롯 창이 뜨면 라벨 위치 이동 모드 강제 OFF
             self._disable_label_move_for_open_popups()
 
-            # 창을 먼저 표시한 뒤 첫 그리기 (0xC0000409 방지: 레이아웃 완료 후 canvas.draw)
             popup.show()
             QTimer.singleShot(
                 0,
-                lambda: self.refresh_compare_plot(
+                lambda: self._refresh_compare_plot_for_session(
                     fig,
                     popup.canvas,
                     popup.range_widgets,
                     None,
                     popup,
-                    current_idx,
-                    target_idx,
+                    session,
                 ),
             )
 
             self.open_popups.append(popup)
 
-            name_blue = self.plot_data_list[current_idx]["name"]
-            name_red = self.plot_data_list[target_idx]["name"]
-            log_msg = f"다중 비교 플롯 창 생성 완료: {name_blue} vs {name_red}"
+            names = get_compare_names(self, session)
+            log_msg = f"다중 비교 플롯 창 생성 완료: {', '.join(names)}"
             if normalization:
                 log_msg += f" (정규화 : {normalization})"
             app_logger.info(log_msg)
@@ -1084,7 +1123,21 @@ class MainController:
     def refresh_compare_plot(
         self, figure, canvas, range_widgets, lbl_info, popup_window, idx_blue, idx_red
     ):
-        """다중 비교 플롯 창의 범위를 적용하고 캔버스를 갱신합니다. (0xC0000409 방지: 예외 처리 및 유효성 검사)"""
+        """다중 비교 플롯 창의 범위를 적용하고 캔버스를 갱신합니다."""
+        session = resolve_compare_session(popup_window, idx_blue, idx_red)
+        self._refresh_compare_plot_for_session(
+            figure, canvas, range_widgets, lbl_info, popup_window, session
+        )
+
+    def _refresh_compare_plot_for_session(
+        self,
+        figure,
+        canvas,
+        range_widgets,
+        lbl_info,
+        popup_window,
+        session: CompareSession,
+    ):
         if (
             figure is None
             or canvas is None
@@ -1105,128 +1158,74 @@ class MainController:
                 except (ValueError, TypeError) as e:
                     app_logger.debug(f"[refresh_compare_plot] 시그마 값 파싱 실패: {e}")
 
-            df_blue = self.plot_data_list[idx_blue]["df"]
-            df_red = self.plot_data_list[idx_red]["df"]
-
-            name_blue = self.plot_data_list[idx_blue]["name"]
-            name_red = self.plot_data_list[idx_red]["name"]
-
             norm = popup_window.normalization
-            if norm and hasattr(self.plot_engine, "draw_compare_normalized"):
-                # 정규화 플롯: Raw Hz 기반 정규화 후 전용 렌더
+            ds_settings = (
+                popup_window.get_design_settings() or self._get_default_design()
+            )
+            sigma = (
+                popup_window.fixed_plot_params.get("sigma", 2.0)
+                if popup_window.fixed_plot_params
+                else 2.0
+            )
+
+            if norm and hasattr(self.plot_engine, "draw_compare_plot_normalized"):
                 popup_window.fixed_plot_params = dict(
                     popup_window.fixed_plot_params or {}, normalization=norm
                 )
-                df_blue_norm = self._apply_normalization(df_blue, norm)
-                df_red_norm = self._apply_normalization(df_red, norm)
-                fs_blue = popup_window.get_filter_state_blue()
-                fs_red = popup_window.get_filter_state_red()
-                ds_settings = (
-                    popup_window.get_design_settings() or self._get_default_design()
+                plot_key = make_compare_plot_key(session, "f1_f2", norm)
+                series_inputs = build_compare_series_inputs(
+                    self,
+                    session,
+                    popup_window,
+                    design_settings=ds_settings,
+                    plot_type="f1_f2",
+                    norm=norm,
+                    plot_key=plot_key,
                 )
-                sigma = (
-                    popup_window.fixed_plot_params.get("sigma", 2.0)
-                    if popup_window.fixed_plot_params
-                    else 2.0
-                )
-                key_blue = (idx_blue, idx_red, "f1_f2", norm, "blue")
-                key_red = (idx_blue, idx_red, "f1_f2", norm, "red")
-                custom_blue = self.custom_label_offsets.get(key_blue, {})
-                custom_red = self.custom_label_offsets.get(key_red, {})
-                layer_overrides_blue = popup_window.get_layer_design_overrides_blue()
-                layer_overrides_red = popup_window.get_layer_design_overrides_red()
-                (
-                    _,
-                    snapping_data,
-                    label_data_blue,
-                    label_data_red,
-                    label_text_artists_blue,
-                    label_text_artists_red,
-                ) = self.plot_engine.draw_compare_normalized(
+                result = self.plot_engine.draw_compare_plot_normalized(
                     figure,
-                    df_blue_norm,
-                    df_red_norm,
+                    series_inputs,
                     norm,
-                    name_blue=name_blue,
-                    name_red=name_red,
-                    filter_state_blue=fs_blue,
-                    filter_state_red=fs_red,
                     design_settings=ds_settings,
                     sigma=sigma,
-                    custom_label_offsets_blue=custom_blue,
-                    custom_label_offsets_red=custom_red,
                     manual_ranges=manual_ranges,
-                    layer_overrides_blue=layer_overrides_blue,
-                    layer_overrides_red=layer_overrides_red,
                 )
-                popup_window.snapping_data = snapping_data
-                popup_window.label_data_blue = label_data_blue
-                popup_window.label_data_red = label_data_red
-                popup_window.label_text_artists_blue = label_text_artists_blue
-                popup_window.label_text_artists_red = label_text_artists_red
-                popup_window._plot_key_compare = (idx_blue, idx_red, "f1_f2", norm)
-            elif hasattr(self.plot_engine, "draw_multi_plot"):
-                fs_blue = popup_window.get_filter_state_blue()
-                fs_red = popup_window.get_filter_state_red()
-                ds_settings = (
-                    popup_window.get_design_settings() or self._get_default_design()
-                )
+            elif hasattr(self.plot_engine, "draw_compare_plot"):
                 plot_type = popup_window.fixed_plot_params.get("type", "f1_f2")
-                key_blue = (idx_blue, idx_red, plot_type, "blue")
-                key_red = (idx_blue, idx_red, plot_type, "red")
-                custom_blue = self.custom_label_offsets.get(key_blue, {})
-                custom_red = self.custom_label_offsets.get(key_red, {})
-
-                layer_overrides_blue = popup_window.get_layer_design_overrides_blue()
-                layer_overrides_red = popup_window.get_layer_design_overrides_red()
-                sig = inspect.signature(self.plot_engine.draw_multi_plot)
-                kwargs = {
-                    "manual_ranges": manual_ranges,
-                    "name_blue": name_blue,
-                    "name_red": name_red,
-                    "filter_state_blue": fs_blue,
-                    "filter_state_red": fs_red,
-                }
-                if "design_settings" in sig.parameters:
-                    kwargs["design_settings"] = ds_settings
-                if "custom_label_offsets_blue" in sig.parameters:
-                    kwargs["custom_label_offsets_blue"] = custom_blue
-                    kwargs["custom_label_offsets_red"] = custom_red
-                if "layer_overrides_blue" in sig.parameters:
-                    kwargs["layer_overrides_blue"] = layer_overrides_blue
-                    kwargs["layer_overrides_red"] = layer_overrides_red
-
-                # 여기서 새롭게 반환되는 label_text_artists 들을 받습니다!
-                (
-                    _,
-                    snapping_data,
-                    label_data_blue,
-                    label_data_red,
-                    label_text_artists_blue,
-                    label_text_artists_red,
-                ) = self.plot_engine.draw_multi_plot(
-                    figure, df_blue, df_red, popup_window.fixed_plot_params, **kwargs
+                plot_key = make_compare_plot_key(session, plot_type, None)
+                series_inputs = build_compare_series_inputs(
+                    self,
+                    session,
+                    popup_window,
+                    design_settings=ds_settings,
+                    plot_type=plot_type,
+                    norm=None,
+                    plot_key=plot_key,
                 )
-                popup_window.snapping_data = snapping_data
-                popup_window.label_data_blue = label_data_blue
-                popup_window.label_data_red = label_data_red
-                popup_window.label_text_artists_blue = label_text_artists_blue
-                popup_window.label_text_artists_red = label_text_artists_red
-                popup_window._plot_key_compare = (idx_blue, idx_red, plot_type)
+                result = self.plot_engine.draw_compare_plot(
+                    figure,
+                    series_inputs,
+                    popup_window.fixed_plot_params,
+                    manual_ranges=manual_ranges,
+                    design_settings=ds_settings,
+                )
             else:
                 figure.clear()
                 ax = figure.add_subplot(111)
                 ax.text(
                     0.5,
                     0.5,
-                    "[알림] plot_engine.py 내에\ndraw_multi_plot() 구현이 필요합니다.",
+                    "[알림] plot_engine.py 내에\ndraw_compare_plot() 구현이 필요합니다.",
                     ha="center",
                     va="center",
                     fontfamily=kor_font,
                     fontsize=12,
                 )
                 popup_window.snapping_data = []
+                canvas.draw()
+                return
 
+            apply_compare_render_to_popup(popup_window, result, session, plot_key)
             canvas.draw()
 
             if self.ruler_tool.active and figure.axes:
@@ -1245,8 +1244,8 @@ class MainController:
             if self.label_move_tool and self.label_move_tool.active and figure.axes:
                 series = getattr(popup_window, "_label_move_series", None)
                 if series:
-                    ld = getattr(popup_window, "label_data_" + series, [])
-                    lta = getattr(popup_window, "label_text_artists_" + series, [])
+                    ld = label_data_for_series(popup_window, series)
+                    lta = label_text_artists_for_series(popup_window, series)
                     design = getattr(popup_window, "design_settings", None) or (
                         getattr(popup_window, "design_tab", None)
                         and getattr(
@@ -1256,7 +1255,6 @@ class MainController:
                     ell_color = (design.get(series) or {}).get(
                         "ell_color", "#1976D2" if series == "blue" else "#E64A19"
                     )
-                    # 여기서 텍스트 아티스트(lta)도 함께 전달
                     self.label_move_tool.set_context(
                         canvas,
                         figure.axes[0],
@@ -1267,7 +1265,6 @@ class MainController:
         except Exception as e:
             traceback.print_exc()
             app_logger.error(config.LOG_MSG["PLOT_REFRESH_FAIL"].format(e=e))
-            # 실패 시 이전 그래프 대신 간단한 오류 안내만 표시
             try:
                 figure.clear()
                 ax = figure.add_subplot(111)
@@ -1300,13 +1297,11 @@ class MainController:
             norm = getattr(popup_window, "normalization", None) or (
                 popup_window.fixed_plot_params or {}
             ).get("normalization")
-            plot_type = "f1_f2" if norm else popup_window.fixed_plot_params.get(
-                "type", "f1_f2"
+            plot_type = (
+                "f1_f2" if norm else popup_window.fixed_plot_params.get("type", "f1_f2")
             )
             plot_key_suffix = (plot_type, norm) if norm else (plot_type,)
-            custom_offsets = self.custom_label_offsets.get(
-                (idx, *plot_key_suffix), {}
-            )
+            custom_offsets = self.custom_label_offsets.get((idx, *plot_key_suffix), {})
 
             filter_state = popup_window.get_filter_state()
             ds_settings = (
@@ -1511,11 +1506,11 @@ class MainController:
         )
 
     def _get_compare_label_offset_key(self, popup_window, series):
-        """비교 플롯(blue/red) 라벨 오프셋 저장 키를 반환한다."""
+        """비교 플롯(blue/red 또는 series_id) 라벨 오프셋 저장 키를 반환한다."""
         key_cmp = getattr(popup_window, "_plot_key_compare", None)
         if not key_cmp:
             return None
-        return (*key_cmp, series)
+        return compare_label_offset_key(key_cmp, series)
 
     def _save_label_offset(self, dragging, popup_window):
         key = getattr(popup_window, "_plot_key", None)
@@ -1597,10 +1592,8 @@ class MainController:
             )(popup_window, series)
 
             # 넘어갈 탭(새로운 series)의 데이터와 텍스트 아티스트를 가져옴
-            label_data = getattr(popup_window, "label_data_" + series, [])
-            label_text_artists = getattr(
-                popup_window, "label_text_artists_" + series, []
-            )
+            label_data = label_data_for_series(popup_window, series)
+            label_text_artists = label_text_artists_for_series(popup_window, series)
             design = getattr(popup_window, "design_settings", None) or (
                 getattr(popup_window.design_tab, "get_current_settings", lambda: {})()
             )
@@ -1639,10 +1632,8 @@ class MainController:
         )(popup_window, series)
 
         if not self.label_move_tool.active and popup_window.figure.axes:
-            label_data = getattr(popup_window, "label_data_" + series, [])
-            label_text_artists = getattr(
-                popup_window, "label_text_artists_" + series, []
-            )
+            label_data = label_data_for_series(popup_window, series)
+            label_text_artists = label_text_artists_for_series(popup_window, series)
             design = getattr(popup_window, "design_settings", None) or (
                 getattr(popup_window.design_tab, "get_current_settings", lambda: {})()
             )
@@ -1712,6 +1703,17 @@ class MainController:
     def _build_default_save_name(self, fmt, parent_window=None):
         """현재 상태/팝업 문맥을 기반으로 저장 기본 파일명을 생성."""
         outlier_suffix = self._get_outlier_save_suffix()
+        session = getattr(parent_window, "compare_session", None)
+        if session is not None and session.count >= 2:
+            names = get_compare_names(self, session)
+            norm = getattr(parent_window, "normalization", None)
+            base = compare_default_save_basename(
+                names,
+                outlier_suffix=outlier_suffix,
+                norm=norm,
+                norm_tag=self._normalize_tag_for_filename(norm) if norm else None,
+            )
+            return f"{base}.{fmt}"
         if (
             parent_window
             and getattr(parent_window, "idx_blue", None) is not None
@@ -1839,19 +1841,25 @@ class MainController:
                     parent_window._draw_tool.cancel()
                 except Exception as e:
                     app_logger.debug(f"[save_plot_to_file] 그리기 도구 취소 실패: {e}")
-            if getattr(parent_window, "canvas", None) is not None:
+            if hasattr(parent_window, "begin_export_render"):
+                parent_window.begin_export_render()
+        try:
+            if parent_window and getattr(parent_window, "canvas", None) is not None:
                 try:
                     parent_window.canvas.draw()
                 except Exception as e:
                     app_logger.debug(
                         f"[save_plot_to_file] 캔버스 다시 그리기 실패: {e}"
                     )
-        figure.set_size_inches(6.5, 6.5)
-        if fmt.lower() == "png":
-            figure.savefig(file_path, format="png", dpi=300, transparent=True)
-        else:
-            figure.savefig(file_path, format=fmt, dpi=300, facecolor="white")
-        app_logger.info(config.LOG_MSG["SAVE_SINGLE_SHORT"].format(path=file_path))
+            figure.set_size_inches(6.5, 6.5)
+            if fmt.lower() == "png":
+                figure.savefig(file_path, format="png", dpi=300, transparent=True)
+            else:
+                figure.savefig(file_path, format=fmt, dpi=300, facecolor="white")
+            app_logger.info(config.LOG_MSG["SAVE_SINGLE_SHORT"].format(path=file_path))
+        finally:
+            if parent_window and hasattr(parent_window, "end_export_render"):
+                parent_window.end_export_render()
 
     def get_default_batch_save_dir(self):
         """일괄 저장에 사용할 기본 디렉터리 반환."""
@@ -1875,6 +1883,8 @@ class MainController:
         apply_layer = batch_options.get("apply_layer_design", True)
         apply_visibility = batch_options.get("apply_layer_visibility", True)
         apply_labels = batch_options.get("apply_label_positions", True)
+        apply_legend = batch_options.get("apply_legend", False)
+        apply_draw_annotations = batch_options.get("apply_draw_annotations", True)
 
         plot_params = self._get_current_plot_params(parent_popup)
         plot_params["sigma"] = sigma
@@ -1906,6 +1916,12 @@ class MainController:
 
         label_offsets = dict(self.custom_label_offsets) if apply_labels else {}
 
+        per_file_draw_objects = {}
+        if (apply_legend or apply_draw_annotations) and parent_popup is not None:
+            per_file_draw_objects = dict(
+                getattr(parent_popup, "_draw_objects_by_file", {})
+            )
+
         return BatchSaveWorker(
             save_dir,
             self.plot_data_list,
@@ -1918,9 +1934,12 @@ class MainController:
             per_file_filters=per_file_filters,
             per_file_overrides=per_file_overrides,
             label_offsets=label_offsets,
+            per_file_draw_objects=per_file_draw_objects,
             apply_layer_visibility=apply_visibility,
             apply_layer_design=apply_layer,
             apply_label_positions=apply_labels,
+            apply_legend=apply_legend,
+            apply_draw_annotations=apply_draw_annotations,
         )
 
     # --- 공개 API (View는 이 메서드들만 사용) ---
@@ -1980,6 +1999,13 @@ class MainController:
         b = self.get_data_item_at(idx_blue)
         r = self.get_data_item_at(idx_red)
         return b, r
+
+    def get_compare_data_for_session(self, session: CompareSession):
+        """CompareSession에 해당하는 plot_data_list 항목 목록."""
+        return [
+            self.get_data_item_at(session.data_index(series_id))
+            for series_id in range(session.count)
+        ]
 
     def get_smart_ranges_for_params(
         self, plot_type, use_bark=False, f1_scale=None, f2_scale=None

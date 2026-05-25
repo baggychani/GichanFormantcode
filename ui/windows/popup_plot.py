@@ -40,7 +40,11 @@ from ui.widgets.canvas_fixed import FixedFigureCanvas
 import config
 from utils import app_logger
 from ui.widgets.filter_panel import LiveVowelFilterPanel
-from ui.widgets.design_panel import DesignSettingsPanel, NoWheelComboBox, apply_combo_center_align
+from ui.widgets.design_panel import (
+    DesignSettingsPanel,
+    NoWheelComboBox,
+    apply_combo_center_align,
+)
 from ui.widgets.icon_widgets import BidirectionalArrowButton, ShortcutButton
 from ui.widgets.tool_indicator import ToolStatusIndicator
 from ui.widgets.layer_dock import LayerDockWidget
@@ -665,7 +669,9 @@ class PlotPopup(BasePlotWindow):
         nav_group.addLayout(btn_h)
 
         self._combined_export_block = QWidget()
-        self.btn_export_combined_txt = QPushButton("Combined txt 저장", self._combined_export_block)
+        self.btn_export_combined_txt = QPushButton(
+            "Combined txt 저장", self._combined_export_block
+        )
         self.btn_export_combined_txt.setFixedHeight(30)
         font_export = QFont(self.ui_font_name, 8)
         self.btn_export_combined_txt.setFont(font_export)
@@ -1165,6 +1171,9 @@ class PlotPopup(BasePlotWindow):
         super().showEvent(event)
         if hasattr(self, "_update_dock_separators"):
             self._update_dock_separators()
+        if not getattr(self, "_plot_initial_focus_set", False):
+            self._plot_initial_focus_set = True
+            self.setFocus(Qt.FocusReason.OtherFocusReason)
 
     def update_file_nav_indicator(self, idx=None, data_item=None):
         """[n] / total · 파일명 표시를 갱신한다 (컨트롤러·내부 공통)."""
@@ -1398,10 +1407,14 @@ class PlotPopup(BasePlotWindow):
             QKeySequence(Qt.Key.Key_T), self, context=Qt.ShortcutContext.WindowShortcut
         ).activated.connect(self._safe_toggle_label_move)
         QShortcut(
-            QKeySequence(Qt.Key.Key_Home), self, context=Qt.ShortcutContext.WindowShortcut
+            QKeySequence(Qt.Key.Key_Home),
+            self,
+            context=Qt.ShortcutContext.WindowShortcut,
         ).activated.connect(self._safe_nav_home)
         QShortcut(
-            QKeySequence(Qt.Key.Key_End), self, context=Qt.ShortcutContext.WindowShortcut
+            QKeySequence(Qt.Key.Key_End),
+            self,
+            context=Qt.ShortcutContext.WindowShortcut,
         ).activated.connect(self._safe_nav_end)
 
     def _safe_nav_home(self):
@@ -1413,12 +1426,6 @@ class PlotPopup(BasePlotWindow):
         if self._is_input_focused():
             return
         self._on_nav_end()
-
-    def showEvent(self, event):
-        super().showEvent(event)
-        if not getattr(self, "_plot_initial_focus_set", False):
-            self._plot_initial_focus_set = True
-            self.setFocus(Qt.FocusReason.OtherFocusReason)
 
     def _safe_toggle_label_move(self):
         if self._is_input_focused():

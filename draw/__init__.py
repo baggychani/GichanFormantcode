@@ -10,6 +10,8 @@ from .draw_common import (
     PolygonObject,
     ReferenceLineObject,
     AreaLabelObject,
+    LegendEntry,
+    LegendObject,
     polygon_area,
 )
 from . import draw_line
@@ -25,6 +27,8 @@ __all__ = [
     "PolygonObject",
     "ReferenceLineObject",
     "AreaLabelObject",
+    "LegendEntry",
+    "LegendObject",
     "polygon_area",
     "draw_line",
     "draw_polygon",

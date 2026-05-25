@@ -105,9 +105,7 @@ class TestMainController(unittest.TestCase):
             self.controller.plot_engine, "draw_single_normalized"
         ) as mock_draw:
             mock_draw.return_value = (MagicMock(), [], [], [])
-            with patch.object(
-                self.controller.plot_engine, "draw_plot"
-            ) as mock_raw:
+            with patch.object(self.controller.plot_engine, "draw_plot") as mock_raw:
                 self.controller.refresh_plot(
                     fig, canvas, popup.range_widgets, None, popup
                 )

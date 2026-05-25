@@ -127,6 +127,8 @@ def _draw_object_display_name(draw_objects, index, normalization=None):
         return ""
     obj = draw_objects[index]
     t = getattr(obj, "type", "")
+    if t == "legend":
+        return getattr(obj, "name", None) or "범례"
     if t == "line":
         n = 1 + sum(
             1 for i in range(index) if getattr(draw_objects[i], "type", "") == "line"
@@ -457,6 +459,9 @@ class LayerDockWidget(QWidget):
         )
         self._draw_design_panel.settings_changed.connect(
             self._on_draw_design_settings_changed
+        )
+        self._draw_design_panel.legend_edit_requested.connect(
+            self._on_legend_edit_requested
         )
         self._draw_design_panel.clear_selection()
         self._draw_design_panel.hide()
@@ -1053,6 +1058,12 @@ class LayerDockWidget(QWidget):
         )
         x_layout.addWidget(x_btn)
         main_h.addWidget(col_x)
+        if (
+            getattr(obj, "type", "") == "legend"
+            and not getattr(self.popup, "legend_deletable", lambda: True)()
+        ):
+            x_btn.hide()
+            x_btn.setEnabled(False)
 
         col_lock = QFrame()
         col_lock.setFixedSize(32, 32)
@@ -1447,6 +1458,13 @@ class LayerDockWidget(QWidget):
             return
         selected_set = set(getattr(self, "_selected_draw_indices", set()))
         to_remove_main = [i for i in main_indices if i in selected_set]
+        if (
+            hasattr(self.popup, "legend_deletable")
+            and not self.popup.legend_deletable()
+        ):
+            to_remove_main = [
+                i for i in to_remove_main if getattr(objs[i], "type", "") != "legend"
+            ]
         if not to_remove_main:
             return
         removed_main_pos = [p for p, i in enumerate(main_indices) if i in selected_set]
@@ -1467,6 +1485,11 @@ class LayerDockWidget(QWidget):
             self._anchor_draw_index = None
         self.draw_manager.redraw()
         self.update_draw_layer_list(new_list)
+        if hasattr(self.popup, "select_legend_object") and not any(
+            getattr(o, "type", "") == "legend" for o in new_list
+        ):
+            self.popup.select_legend_object(None)
+        self._update_legend_add_button_state()
         self._draw_list_placeholder.setFocus(Qt.FocusReason.OtherFocusReason)
 
     def _update_draw_global_row_state(self):
@@ -1843,6 +1866,8 @@ class LayerDockWidget(QWidget):
             self._draw_design_panel.hide()
             self.vowel_design_container.show()
             self._draw_design_panel.clear_selection()
+            if hasattr(self.popup, "select_legend_object"):
+                self.popup.select_legend_object(None)
             self._sync_design_controls_to_selection()
 
     def update_draw_layer_list(self, draw_objects):
@@ -1880,6 +1905,11 @@ class LayerDockWidget(QWidget):
                 self._draw_layer_rows = []
                 self._selected_draw_indices = set()
                 self._anchor_draw_index = None
+                if hasattr(self, "_draw_design_panel"):
+                    self._draw_design_panel.clear_selection()
+                if hasattr(self.popup, "select_legend_object"):
+                    self.popup.select_legend_object(None)
+                self._update_legend_add_button_state()
                 return
 
             if getattr(self, "_draw_global_row", None) is None:
@@ -1982,6 +2012,7 @@ class LayerDockWidget(QWidget):
                 self._anchor_draw_index = None
 
             self._rebuild_draw_effects()
+            self._update_legend_add_button_state()
         finally:
             self.setUpdatesEnabled(True)
 
@@ -2036,6 +2067,8 @@ class LayerDockWidget(QWidget):
         sel_set = getattr(self, "_selected_draw_indices", set())
         if not sel_set:
             self._draw_design_panel.clear_selection()
+            if hasattr(self.popup, "select_legend_object"):
+                self.popup.select_legend_object(None)
             return
 
         # 기준이 되는 인덱스: 앵커(Shift 기준) 또는 가장 마지막 클릭, 없으면 첫 번째
@@ -2058,8 +2091,11 @@ class LayerDockWidget(QWidget):
             layer_type = "area"
         elif t == "reference":
             layer_type = "reference"
+        elif t == "legend":
+            layer_type = "legend"
         else:
             self._draw_design_panel.clear_selection()
+            self.popup.select_legend_object(None)
             return
 
         layer_id = getattr(obj, "id", None)
@@ -2090,6 +2126,13 @@ class LayerDockWidget(QWidget):
         elif layer_type == "reference":
             settings["line_style"] = getattr(obj, "line_style", "-") or "-"
             settings["line_color"] = getattr(obj, "line_color", "#AAAAAA") or "#AAAAAA"
+        elif layer_type == "legend":
+            settings["show_border"] = getattr(obj, "show_border", False)
+
+        if layer_type == "legend":
+            self.popup.select_legend_object(layer_id)
+        else:
+            self.popup.select_legend_object(None)
 
         # UI 갱신 중 역참조 방지
         self._draw_design_panel.blockSignals(True)
@@ -2112,16 +2155,24 @@ class LayerDockWidget(QWidget):
         base_obj = None
         for i, o in enumerate(objs):
             base_layer_id = getattr(o, "id", None)
-            if (
-                getattr(o, "type", "") in ("line", "polygon", "reference")
-                and base_layer_id == layer_id
-            ):
+            if base_layer_id != layer_id:
+                continue
+            obj_type = getattr(o, "type", "")
+            if obj_type in ("line", "polygon", "reference", "legend"):
                 base_idx = i
                 base_obj = o
                 break
         if base_obj is None:
             return "", {}, []
         base_type = getattr(base_obj, "type", "")
+
+        if base_type == "legend":
+            if "show_border" in settings_for_apply:
+                base_obj.show_border = bool(settings_for_apply["show_border"])
+            settings_for_summary = dict(settings_for_apply)
+            self.draw_manager.set_draw_objects(objs)
+            self.draw_manager.redraw()
+            return base_type, settings_for_summary, [layer_id]
 
         # 효과 요약 줄에 사용할 설정은 넓이 텍스트 토글 등을 제외
         settings_for_summary = dict(settings_for_apply)
@@ -2258,6 +2309,122 @@ class LayerDockWidget(QWidget):
                 self._draw_design_settings.pop(lid, None)
 
         self._rebuild_draw_effects()
+
+    def _get_draw_design_defaults(self) -> dict:
+        if (
+            hasattr(self, "_get_default_design")
+            and self._get_default_design is not None
+        ):
+            return self._get_default_design() or {}
+        return getattr(self.popup, "design_settings", {}) or {}
+
+    def _default_value_for_draw_key(self, obj_type: str, key: str):
+        defaults = self._get_draw_design_defaults()
+        if obj_type == "line":
+            mapping = {
+                "line_style": defaults.get("draw_line_style", "-") or "-",
+                "line_color": defaults.get("draw_line_color", "#000000") or "#000000",
+                "arrow_mode": "none",
+                "arrow_head": "stealth",
+            }
+        elif obj_type == "polygon":
+            raw_fill = defaults.get("draw_area_fill_color", "#3366CC")
+            if not raw_fill or str(raw_fill).lower() == "transparent":
+                base_fill = "#3366CC"
+            else:
+                base_fill = raw_fill
+            mapping = {
+                "border_style": defaults.get("draw_area_border_style", "-") or "-",
+                "border_color": defaults.get("draw_area_border_color", "#000000")
+                or "#000000",
+                "fill_color": base_fill,
+            }
+        elif obj_type == "reference":
+            mapping = {
+                "line_style": defaults.get("draw_ref_line_style", "-") or "-",
+                "line_color": defaults.get("draw_ref_line_color", "#AAAAAA")
+                or "#AAAAAA",
+            }
+        else:
+            return None
+        return mapping.get(key)
+
+    def _collect_draw_object_settings(self, obj) -> dict:
+        t = getattr(obj, "type", "")
+        if t == "line":
+            return {
+                "line_style": getattr(obj, "line_style", "-") or "-",
+                "line_color": getattr(obj, "line_color", "#000000") or "#000000",
+                "arrow_mode": getattr(obj, "arrow_mode", "none") or "none",
+                "arrow_head": getattr(obj, "arrow_head", "stealth") or "stealth",
+            }
+        if t == "polygon":
+            return {
+                "border_style": getattr(obj, "border_style", "-") or "-",
+                "border_color": getattr(obj, "border_color", "#000000") or "#000000",
+                "fill_color": getattr(obj, "fill_color", "#3366CC"),
+                "area_label_visible": getattr(obj, "show_area_label", False),
+            }
+        if t == "reference":
+            return {
+                "line_style": getattr(obj, "line_style", "-") or "-",
+                "line_color": getattr(obj, "line_color", "#AAAAAA") or "#AAAAAA",
+            }
+        return {}
+
+    def _remove_draw_effect_override(self, layer_id: str, key: str) -> None:
+        """그리기 레이어 효과 요약 줄 X — 해당 항목만 기본값으로 되돌림."""
+        if self.tab_widget.currentIndex() != 1:
+            return
+        cfg = self._draw_design_settings.get(layer_id)
+        if not cfg or key not in cfg:
+            return
+
+        objs = self.draw_manager.get_draw_objects()
+        target_obj = None
+        target_idx = None
+        for i, o in enumerate(objs):
+            if getattr(o, "id", None) == layer_id:
+                target_obj = o
+                target_idx = i
+                break
+        if target_obj is None:
+            return
+
+        t = getattr(target_obj, "type", "")
+        default_val = self._default_value_for_draw_key(t, key)
+        if t == "line":
+            apply_line_settings(target_obj, {key: default_val})
+            if key == "arrow_mode":
+                apply_line_settings(
+                    target_obj,
+                    {"arrow_head": self._default_value_for_draw_key(t, "arrow_head")},
+                )
+        elif t == "polygon":
+            apply_polygon_settings(target_obj, {key: default_val})
+        elif t == "reference":
+            apply_reference_settings(target_obj, {key: default_val})
+        else:
+            return
+
+        if t == "polygon":
+            objs = rebuild_area_labels_for_polygons(objs)
+            self.draw_manager.set_draw_objects(objs)
+            for i, o in enumerate(objs):
+                if getattr(o, "id", None) == layer_id:
+                    target_obj = o
+                    target_idx = i
+                    break
+
+        settings = self._collect_draw_object_settings(target_obj)
+        self._update_draw_overrides_for_summary(layer_id, t, settings, [layer_id])
+
+        if target_idx is not None and target_idx in getattr(
+            self, "_selected_draw_indices", set()
+        ):
+            self._sync_draw_design_panel_to_selection()
+
+        self.draw_manager.redraw()
 
     def _on_draw_design_settings_changed(self, layer_id: str, settings: dict):
         """그리기 디자인 패널에서 설정이 변경됐을 때 내부 상태를 저장하고 객체에 반영한다."""
@@ -2516,16 +2683,10 @@ class LayerDockWidget(QWidget):
                 # UUID 기반 ID가 없는 객체는 디자인 요약에서 제외
                 continue
             cfg = self._draw_design_settings.get(layer_id, {}) or {}
-            display_cfg = dict(cfg)
 
-            # 타입별로 의미 있는 키만 표시
+            # 타입별로 의미 있는 키만 표시 (실제 오버라이드 cfg에 있는 항목만)
             if t == "line":
                 keys = ["line_style", "line_color", "arrow_mode", "arrow_head"]
-                # 화살표 타입이 end/all로 설정됐고 head가 미지정이면,
-                # 기본값(stealth)을 세부 레이어에만 표시한다.
-                mode_val = str(display_cfg.get("arrow_mode", "none"))
-                if mode_val in ("end", "all") and "arrow_head" not in display_cfg:
-                    display_cfg["arrow_head"] = "stealth"
             elif t == "polygon":
                 keys = ["border_style", "border_color", "fill_color"]
             elif t == "reference":
@@ -2533,13 +2694,8 @@ class LayerDockWidget(QWidget):
             else:
                 keys = []
 
-            # 저장된 설정 중 이 타입에 해당하는 키만 남긴다.
-            keys = [k for k in keys if k in display_cfg]
-            # 화살표가 none이면 화살표 모양 줄은 요약에서 숨긴다.
-            if (
-                "arrow_mode" in keys
-                and str(display_cfg.get("arrow_mode", "none")) == "none"
-            ):
+            keys = [k for k in keys if k in cfg]
+            if "arrow_mode" in keys and str(cfg.get("arrow_mode", "none")) == "none":
                 keys = [k for k in keys if k != "arrow_head"]
             if not keys or t == "area_label":
                 if hasattr(row, "expand_btn"):
@@ -2568,15 +2724,26 @@ class LayerDockWidget(QWidget):
                 eff_row.setContentsMargins(0, 0, 0, 0)
                 eff_row.setSpacing(4)
                 lbl = QLabel(
-                    f"  {effect_label(key)}: {effect_text(key, display_cfg[key])}",
+                    f"  {effect_label(key)}: {effect_text(key, cfg[key])}",
                     font=font_effect,
                 )
                 lbl.setStyleSheet("color: #606266;")
                 eff_row.addWidget(lbl, alignment=Qt.AlignmentFlag.AlignVCenter)
                 eff_row.addStretch()
+                x_btn = QPushButton("✕")
+                x_btn.setFixedSize(18, 18)
+                x_btn.setStyleSheet(
+                    "QPushButton { border: none; color: #909399; font-size: 11px; }"
+                    "QPushButton:hover { color: #E64A19; }"
+                )
+                x_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+                lid, kk = layer_id, key
 
-                # 그리기 레이어의 세부 레이어(요약 줄)는 레이어 목록에서 X 버튼으로 직접 삭제할 수 없게 한다.
-                # (디폴트 디자인 초기화나 상단 패널에서만 기본값 복원이 가능)
+                def remove_key(checked=False, layer_id=lid, effect_key=kk):
+                    self._remove_draw_effect_override(layer_id, effect_key)
+
+                x_btn.clicked.connect(remove_key)
+                eff_row.addWidget(x_btn)
                 w = QWidget()
                 w.setFixedHeight(24)
                 w.setLayout(eff_row)
@@ -2623,7 +2790,12 @@ class LayerDockWidget(QWidget):
         new_list = [
             o
             for o in objs
-            if getattr(o, "locked", False)
+            if (
+                hasattr(self.popup, "legend_deletable")
+                and not self.popup.legend_deletable()
+                and getattr(o, "type", "") == "legend"
+            )
+            or getattr(o, "locked", False)
             or (
                 getattr(o, "type", "") == "area_label"
                 and getattr(o, "parent_id", None) in keep_ids
@@ -2638,6 +2810,45 @@ class LayerDockWidget(QWidget):
     def _reset_draw_order(self):
         """그리기 탭 순서 초기화. 추후 _draw_layer_rows 등 연동 시 구현."""
         pass
+
+    def _update_legend_add_button_state(self) -> None:
+        btn = getattr(self, "btn_add_legend", None)
+        if btn is None:
+            return
+        add_row = getattr(self, "_legend_add_row", None)
+        if add_row is not None:
+            add_row.show()
+        from draw.legend_helpers import has_legend_object
+
+        objs = self.draw_manager.get_draw_objects()
+        btn.setEnabled(not has_legend_object(objs))
+
+    def _on_add_legend_clicked(self) -> None:
+        if not hasattr(self.popup, "add_legend_object"):
+            return
+        legend = self.popup.add_legend_object()
+        if legend is None:
+            return
+        objs = self.draw_manager.get_draw_objects()
+        self.update_draw_layer_list(objs)
+        for i, obj in enumerate(objs):
+            if getattr(obj, "id", None) == getattr(legend, "id", None):
+                self._selected_draw_indices = {i}
+                self._anchor_draw_index = i
+                break
+        self._sync_draw_design_panel_to_selection()
+        self._update_legend_add_button_state()
+
+    def _on_legend_edit_requested(self, layer_id: str) -> None:
+        objs = self.draw_manager.get_draw_objects()
+        for obj in objs:
+            if (
+                getattr(obj, "type", "") == "legend"
+                and getattr(obj, "id", None) == layer_id
+            ):
+                if hasattr(self.popup, "open_legend_text_dialog"):
+                    self.popup.open_legend_text_dialog(obj)
+                return
 
     def _reset_draw_layers(self):
         """그리기 탭 레이어 설정 초기화. 추후 그리기 전용 overrides 연동 시 구현."""

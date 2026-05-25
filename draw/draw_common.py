@@ -16,6 +16,8 @@ __all__ = [
     "PolygonObject",
     "ReferenceLineObject",
     "AreaLabelObject",
+    "LegendEntry",
+    "LegendObject",
     "polygon_area",
 ]
 
@@ -102,7 +104,38 @@ class AreaLabelObject:
     semi: bool = False
 
 
-DrawObject = LineObject | PolygonObject | ReferenceLineObject | AreaLabelObject
+@dataclass
+class LegendEntry:
+    """범례 1행 — series_id(compare) + 표시 텍스트."""
+
+    series_id: int = 0
+    text: str = ""
+
+
+@dataclass
+class LegendObject:
+    """캔버스 범례 — axes fraction 좌표, 그리기 레이어 객체."""
+
+    type: str = "legend"
+    name: str = "범례"
+    visible: bool = True
+    order: int = 0
+    locked: bool = False
+    semi: bool = False
+    id: str = field(default_factory=lambda: uuid.uuid4().hex[:8])
+    fx: float = 0.62
+    fy: float = 0.98
+    width_frac: float = 0.28
+    height_frac: float = 0.14
+    font_size: float = 10.0
+    show_border: bool = False
+    entries: list[LegendEntry] = field(default_factory=list)
+    is_compare: bool = False
+
+
+DrawObject = (
+    LineObject | PolygonObject | ReferenceLineObject | AreaLabelObject | LegendObject
+)
 
 
 def polygon_area(points: list[tuple[float, float]]) -> float:

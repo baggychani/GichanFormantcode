@@ -188,7 +188,9 @@ class MainUI(QMainWindow):
         self.chk_bark_units.toggled.connect(self._on_bark_units_toggled)
         self.plot_type_group.buttonClicked.connect(self._on_plot_type_changed)
         self.outlier_group.buttonClicked.connect(self._on_outlier_changed)
-        self.cb_normalization.currentIndexChanged.connect(self._on_normalization_changed)
+        self.cb_normalization.currentIndexChanged.connect(
+            self._on_normalization_changed
+        )
 
         # 데이터 가이드 버튼 연결
         self.btn_guide.clicked.connect(self.controller.open_guide)

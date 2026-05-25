@@ -1,7 +1,15 @@
 from __future__ import annotations
 
 from PySide6.QtCore import Qt
-from PySide6.QtWidgets import QFrame, QScrollArea, QVBoxLayout, QWidget
+from PySide6.QtGui import QFont
+from PySide6.QtWidgets import (
+    QFrame,
+    QHBoxLayout,
+    QPushButton,
+    QScrollArea,
+    QVBoxLayout,
+    QWidget,
+)
 
 from ui.widgets.layer_row_widgets import _DrawListDropArea
 
@@ -12,6 +20,29 @@ def create_draw_tab(dock) -> QWidget:
     draw_tab_layout = QVBoxLayout(draw_tab)
     draw_tab_layout.setContentsMargins(0, 0, 0, 0)
     draw_tab_layout.setSpacing(0)
+
+    add_row = QFrame()
+    add_row.setStyleSheet(
+        "background-color: #F5F7FA; border-bottom: 1px solid #EBEEF5;"
+    )
+    add_layout = QHBoxLayout(add_row)
+    add_layout.setContentsMargins(8, 6, 8, 6)
+    dock.btn_add_legend = QPushButton("범례 추가")
+    dock.btn_add_legend.setCursor(Qt.CursorShape.PointingHandCursor)
+    dock.btn_add_legend.setFont(
+        QFont(getattr(dock, "ui_font_name", "Malgun Gothic"), 9)
+    )
+    dock.btn_add_legend.setStyleSheet(
+        "QPushButton { background-color: #FFFFFF; border: 1px solid #DCDFE6; "
+        "border-radius: 4px; color: #303133; padding: 4px 10px; }"
+        "QPushButton:hover { border-color: #409EFF; color: #409EFF; }"
+        "QPushButton:disabled { color: #C0C4CC; border-color: #EBEEF5; }"
+    )
+    dock.btn_add_legend.clicked.connect(dock._on_add_legend_clicked)
+    add_layout.addWidget(dock.btn_add_legend)
+    add_layout.addStretch()
+    draw_tab_layout.addWidget(add_row)
+    dock._legend_add_row = add_row
 
     draw_tab_underline = QFrame()
     draw_tab_underline.setFrameShape(QFrame.Shape.HLine)

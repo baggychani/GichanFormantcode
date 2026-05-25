@@ -42,6 +42,7 @@ from ui.widgets.display_utils import (
 )
 import ui.widgets.layout_constants as lc
 from ui.widgets.collapsible_section import CollapsibleSection, AdvancedOptionsBlock
+from core.compare_settings import pack_compare_design_settings
 from ui.widgets.segmented_control import (
     wrap_segmented_buttons,
     create_line_preview_button_group,
@@ -413,7 +414,7 @@ class DesignSettingsPanel(QWidget):
             font_bold,
             panel_id="design",
             settings_key="style",
-            default_collapsed=True,
+            default_collapsed=False,
         )
         style_body = sec_style.body_layout()
         btn_style = """
@@ -1225,7 +1226,7 @@ class CompareDesignSettingsPanel(QWidget):
             font_bold,
             panel_id="compare_design",
             settings_key="style",
-            default_collapsed=True,
+            default_collapsed=False,
         )
         style_body = sec_style.body_layout()
         font_caption = QFont(self.ui_font_name, config.FONT_SIZE_SMALL)
@@ -1627,8 +1628,8 @@ class CompareDesignSettingsPanel(QWidget):
         )
         raw_marker_id = self.group_raw_marker_common.checkedId()
         raw_marker = ["o", "x", "a"][raw_marker_id] if 0 <= raw_marker_id <= 2 else "o"
-        return {
-            "common": {
+        return pack_compare_design_settings(
+            common={
                 "show_raw": self.sw_show_raw.isChecked(),
                 "show_centroid": self.sw_show_centroid.isChecked(),
                 "raw_marker": raw_marker,
@@ -1643,6 +1644,8 @@ class CompareDesignSettingsPanel(QWidget):
                 "show_minor_ticks": self.sw_show_minor_ticks.isChecked(),
                 "font_style": font_style,
             },
-            "blue": self._parse_individual_settings(self.ctrl_blue),
-            "red": self._parse_individual_settings(self.ctrl_red),
-        }
+            series_cfgs=[
+                self._parse_individual_settings(self.ctrl_blue),
+                self._parse_individual_settings(self.ctrl_red),
+            ],
+        )

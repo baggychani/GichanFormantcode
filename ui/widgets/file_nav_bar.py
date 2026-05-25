@@ -158,9 +158,7 @@ class FileNavBar(QWidget):
             Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter
         )
 
-        inner.addWidget(
-            self.index_edit, 0, Qt.AlignmentFlag.AlignVCenter
-        )
+        inner.addWidget(self.index_edit, 0, Qt.AlignmentFlag.AlignVCenter)
         inner.addWidget(self.lbl_total, 0, Qt.AlignmentFlag.AlignVCenter)
 
         index_row.addLayout(inner)
