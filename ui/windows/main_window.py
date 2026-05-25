@@ -26,6 +26,7 @@ from PySide6.QtGui import QFont
 
 import config
 from utils import icon_utils, app_logger
+from ui.widgets.design_panel import NoWheelComboBox
 
 
 class DropLabel(QLabel):
@@ -39,7 +40,7 @@ class DropLabel(QLabel):
         self.setStyleSheet(
             "background-color: #fcfcfc; color: #777; border: 1px solid #dcdfe6; border-radius: 8px; padding: 5px;"
         )
-        self.setMinimumHeight(75)
+        self.setMinimumHeight(62)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
         self.setAcceptDrops(True)
 
@@ -187,7 +188,7 @@ class MainUI(QMainWindow):
         self.chk_bark_units.toggled.connect(self._on_bark_units_toggled)
         self.plot_type_group.buttonClicked.connect(self._on_plot_type_changed)
         self.outlier_group.buttonClicked.connect(self._on_outlier_changed)
-        self.norm_group.buttonClicked.connect(self._on_normalization_changed)
+        self.cb_normalization.currentIndexChanged.connect(self._on_normalization_changed)
 
         # 데이터 가이드 버튼 연결
         self.btn_guide.clicked.connect(self.controller.open_guide)
@@ -254,7 +255,7 @@ class MainUI(QMainWindow):
         )
         self.table_files.setColumnWidth(1, 35)
         # 헤더가 사라진 만큼 뷰가 넓어졌으므로 높이 살짝 축소
-        self.table_files.setFixedHeight(145)
+        self.table_files.setFixedHeight(158)
         self.table_files.verticalHeader().setDefaultSectionSize(36)
         self.table_files.setFont(self.font_small)
         self.table_files.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
@@ -412,26 +413,18 @@ class MainUI(QMainWindow):
             outlier_h.addWidget(btn, stretch=1)
         dp_layout.addLayout(outlier_h, 0, 1, 1, 3)
         dp_layout.addWidget(QLabel("정규화"), 1, 0)
-        self.norm_group = QButtonGroup(self)
-        self.norm_group.setExclusive(True)
-        norm_h = QHBoxLayout()
-        norm_h.setSpacing(10)
-        for col, (text, val) in enumerate((("없음", ""), ("Lobanov", "Lobanov"))):
-            btn = QPushButton(text)
-            btn.setCheckable(True)
-            btn.setProperty("norm_val", val)
-            btn.setFont(self.font_small)
-            btn.setMinimumHeight(30)
-            btn.setToolTip(
-                "Lobanov: 화자 내 F1·F2 평균·표준편차 기준 Z-score.\n"
-                "모음이 1개뿐이면 해당 축 값은 0으로 처리됩니다."
-                if val == "Lobanov"
-                else "원본 Hz/Bark 스케일로 표시합니다."
-            )
-            self.norm_group.addButton(btn, col)
-            norm_h.addWidget(btn, stretch=1)
-        self.norm_group.button(0).setChecked(True)
-        dp_layout.addLayout(norm_h, 1, 1, 1, 3)
+        self.cb_normalization = NoWheelComboBox()
+        self.cb_normalization.setFont(self.font_small)
+        self.cb_normalization.setMinimumHeight(30)
+        self.cb_normalization.setFocusPolicy(Qt.FocusPolicy.ClickFocus)
+        self.cb_normalization.addItem("없음", "")
+        self.cb_normalization.addItem("Lobanov", "Lobanov")
+        self.cb_normalization.setCurrentIndex(0)
+        self.cb_normalization.setToolTip(
+            "Lobanov: 화자 내 F1·F2 평균·표준편차 기준 Z-score.\n"
+            "모음이 1개뿐이면 해당 축 값은 0으로 처리됩니다."
+        )
+        dp_layout.addWidget(self.cb_normalization, 1, 1, 1, 3)
         dp_layout.setColumnStretch(1, 1)
         dp_layout.setColumnStretch(2, 1)
         dp_layout.setColumnStretch(3, 1)
@@ -732,12 +725,14 @@ class MainUI(QMainWindow):
 
     def get_normalization(self):
         """정규화 방법: None | 'Lobanov' (1단계)"""
-        if not hasattr(self, "norm_group"):
+        if not hasattr(self, "cb_normalization"):
             return None
-        btn = self.norm_group.checkedButton()
-        if not btn or not btn.isEnabled():
+        if not self.cb_normalization.isEnabled():
             return None
-        val = btn.property("norm_val")
+        idx = self.cb_normalization.currentIndex()
+        if idx < 0:
+            return None
+        val = self.cb_normalization.currentData()
         return val if val else None
 
     def _set_norm_mode_active(self, active: bool):
@@ -747,22 +742,20 @@ class MainUI(QMainWindow):
 
     def _update_normalization_combo_for_plot_type(self):
         """파생 플롯 타입에서는 정규화 불가 (compare와 동일)."""
-        if not hasattr(self, "norm_group"):
+        if not hasattr(self, "cb_normalization"):
             return
         ptype = self.get_plot_type()
         unsupported = ptype in ("f1_f2_minus_f1", "f1_f2_prime_minus_f1")
+        self.cb_normalization.blockSignals(True)
         if unsupported:
-            self.norm_group.blockSignals(True)
-            self.norm_group.button(0).setChecked(True)
-            for b in self.norm_group.buttons():
-                b.setEnabled(False)
-            self.norm_group.blockSignals(False)
+            self.cb_normalization.setCurrentIndex(0)
+            self.cb_normalization.setEnabled(False)
             self._set_norm_mode_active(False)
         else:
             has_files = self.controller.get_plot_data_count() > 0
-            for b in self.norm_group.buttons():
-                b.setEnabled(has_files)
+            self.cb_normalization.setEnabled(has_files)
             self._set_norm_mode_active(bool(self.get_normalization()))
+        self.cb_normalization.blockSignals(False)
 
     def _on_normalization_changed(self, *_args):
         self._set_norm_mode_active(bool(self.get_normalization()))
@@ -809,12 +802,11 @@ class MainUI(QMainWindow):
         if hasattr(self, "outlier_group"):
             for b in self.outlier_group.buttons():
                 b.setChecked(False)
-        if hasattr(self, "norm_group"):
-            self.norm_group.blockSignals(True)
-            self.norm_group.button(0).setChecked(True)
-            for b in self.norm_group.buttons():
-                b.setEnabled(False)
-            self.norm_group.blockSignals(False)
+        if hasattr(self, "cb_normalization"):
+            self.cb_normalization.blockSignals(True)
+            self.cb_normalization.setCurrentIndex(0)
+            self.cb_normalization.setEnabled(False)
+            self.cb_normalization.blockSignals(False)
             self._set_norm_mode_active(False)
         self._on_plot_type_changed(self.plot_type_group.buttons()[0])
         self._set_settings_locked(True)

@@ -1858,17 +1858,53 @@ class MainController:
         return self._get_initial_save_dir()
 
     def create_batch_save_worker(
-        self, save_dir, ranges, sigma, img_format, design_settings=None
+        self,
+        save_dir,
+        ranges,
+        sigma,
+        img_format,
+        design_settings=None,
+        parent_popup=None,
+        batch_options=None,
     ):
         """일괄 저장을 위한 Worker 객체 생성 및 초기 설정만 수행."""
         self.set_last_save_dir(save_dir)
 
-        plot_params = self._get_current_plot_params()
+        batch_options = batch_options or {}
+        apply_global = batch_options.get("apply_global_design", True)
+        apply_layer = batch_options.get("apply_layer_design", True)
+        apply_visibility = batch_options.get("apply_layer_visibility", True)
+        apply_labels = batch_options.get("apply_label_positions", True)
+
+        plot_params = self._get_current_plot_params(parent_popup)
         plot_params["sigma"] = sigma
         plot_params["outlier_mode"] = getattr(
             self.ui, "get_outlier_mode", lambda: None
         )()
-        ds_settings = design_settings if design_settings else self._get_default_design()
+
+        if apply_global and design_settings:
+            ds_settings = design_settings
+        else:
+            ds_settings = self._get_default_design()
+
+        norm_name = plot_params.get("normalization")
+        normalize_fn = (
+            (lambda df: self._apply_normalization(df, norm_name)) if norm_name else None
+        )
+
+        per_file_overrides = {}
+        per_file_filters = {}
+        if parent_popup is not None:
+            if apply_layer:
+                per_file_overrides = dict(
+                    getattr(parent_popup, "layer_design_overrides_by_file", {})
+                )
+            if apply_visibility:
+                per_file_filters = dict(
+                    getattr(parent_popup, "vowel_filter_state_by_file", {})
+                )
+
+        label_offsets = dict(self.custom_label_offsets) if apply_labels else {}
 
         return BatchSaveWorker(
             save_dir,
@@ -1878,6 +1914,13 @@ class MainController:
             ranges,
             ds_settings,
             img_format,
+            normalize_fn=normalize_fn,
+            per_file_filters=per_file_filters,
+            per_file_overrides=per_file_overrides,
+            label_offsets=label_offsets,
+            apply_layer_visibility=apply_visibility,
+            apply_layer_design=apply_layer,
+            apply_label_positions=apply_labels,
         )
 
     # --- 공개 API (View는 이 메서드들만 사용) ---

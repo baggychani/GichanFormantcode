@@ -81,6 +81,17 @@ class NoWheelComboBox(QComboBox):
         event.ignore()
 
 
+def apply_combo_center_align(combo: QComboBox) -> None:
+    """콤보박스 표시 텍스트를 가운데 정렬 (읽기 전용 lineEdit 사용)."""
+    combo.setEditable(True)
+    editor = combo.lineEdit()
+    if editor is None:
+        return
+    editor.setReadOnly(True)
+    editor.setAlignment(Qt.AlignmentFlag.AlignCenter)
+    editor.setFrame(False)
+
+
 class ToggleSwitch(QWidget):
     """
     체크박스 대신 사용할 커스텀 ON/OFF 토글 스위치 위젯

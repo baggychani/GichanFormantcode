@@ -213,20 +213,20 @@ class FileNavBar(QWidget):
             return
         text = self.index_edit.text().strip()
         if not text:
-            self.jump_requested.emit(
-                max(1, min(self._parse_current_fallback(), self._total))
-            )
-            return
-        state, _, _ = self._validator.validate(text, 0)
-        if state != QIntValidator.State.Acceptable:
-            self.set_display(
-                self._last_index,
-                self._total,
-                self._last_filename,
-                self._last_data_item,
-            )
-            return
-        self.jump_requested.emit(int(text))
+            target = self._last_index
+        else:
+            try:
+                target = int(text)
+            except ValueError:
+                self.set_display(
+                    self._last_index,
+                    self._total,
+                    self._last_filename,
+                    self._last_data_item,
+                )
+                return
+            target = max(1, min(target, self._total))
+        self.jump_requested.emit(target)
 
     def _parse_current_fallback(self) -> int:
         text = self.index_edit.text().strip()

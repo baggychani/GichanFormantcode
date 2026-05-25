@@ -40,7 +40,7 @@ from ui.widgets.canvas_fixed import FixedFigureCanvas
 import config
 from utils import app_logger
 from ui.widgets.filter_panel import LiveVowelFilterPanel
-from ui.widgets.design_panel import DesignSettingsPanel, NoWheelComboBox
+from ui.widgets.design_panel import DesignSettingsPanel, NoWheelComboBox, apply_combo_center_align
 from ui.widgets.icon_widgets import BidirectionalArrowButton, ShortcutButton
 from ui.widgets.tool_indicator import ToolStatusIndicator
 from ui.widgets.layer_dock import LayerDockWidget
@@ -665,10 +665,7 @@ class PlotPopup(BasePlotWindow):
         nav_group.addLayout(btn_h)
 
         self._combined_export_block = QWidget()
-        export_block_layout = QVBoxLayout(self._combined_export_block)
-        export_block_layout.setContentsMargins(0, 2, 0, 0)
-        export_block_layout.setSpacing(0)
-        self.btn_export_combined_txt = QPushButton("Combined txt 저장")
+        self.btn_export_combined_txt = QPushButton("Combined txt 저장", self._combined_export_block)
         self.btn_export_combined_txt.setFixedHeight(30)
         font_export = QFont(self.ui_font_name, 8)
         self.btn_export_combined_txt.setFont(font_export)
@@ -693,9 +690,7 @@ class PlotPopup(BasePlotWindow):
         """
         self.btn_export_combined_txt.setStyleSheet(self._combined_export_btn_style)
         self.btn_export_combined_txt.clicked.connect(self._on_export_combined_txt)
-        export_block_layout.addWidget(self.btn_export_combined_txt)
-        self._combined_export_block.setVisible(False)
-        nav_group.addWidget(self._combined_export_block)
+        self._combined_export_block.hide()
 
         layout.addLayout(nav_group)
 
@@ -717,7 +712,7 @@ class PlotPopup(BasePlotWindow):
         self.lbl_norm_value.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.lbl_norm_value.setStyleSheet("color: #606266;")
         norm_group.addWidget(self.lbl_norm_value)
-        layout.addWidget(self.norm_section_widget)
+        self.norm_section_widget.hide()
 
         clean_line_edit_style = """
             QLineEdit { border: 1px solid #DCDFE6; border-radius: 3px; background-color: transparent; padding: 2px; font-size: 12px;}
@@ -879,6 +874,7 @@ class PlotPopup(BasePlotWindow):
         self.cb_sigma.setCurrentText(
             config.SIGMA_VALS[-1] if config.SIGMA_VALS else "2.0"
         )
+        apply_combo_center_align(self.cb_sigma)
         sig_h.addWidget(self.cb_sigma)
         sig_h.addWidget(QLabel("σ", font=font_normal))
         sig_h.addStretch()
@@ -1013,7 +1009,7 @@ class PlotPopup(BasePlotWindow):
             save_h.addWidget(btn)
         export_group.addLayout(save_h)
 
-        btn_batch = QPushButton("일괄 자동 저장")
+        btn_batch = QPushButton("일괄 저장")
         btn_batch.setFixedHeight(38)
         btn_batch.setFont(font_normal)
         btn_batch.setFocusPolicy(Qt.FocusPolicy.NoFocus)
@@ -1052,19 +1048,8 @@ class PlotPopup(BasePlotWindow):
         self.setWindowTitle(base)
 
     def _update_combined_txt_export_visibility(self, data_item=None):
-        block = getattr(self, "_combined_export_block", None)
-        if block is None:
-            return
-        if data_item is None:
-            data_list = (
-                getattr(self, "plot_data_snapshot", None)
-                or self.controller.get_plot_data_list()
-            )
-            idx = getattr(self, "current_idx", self.controller.get_current_index())
-            data_item = (
-                data_list[idx] if data_list and 0 <= idx < len(data_list) else {}
-            )
-        block.setVisible(bool(data_item.get("is_combined")))
+        """Combined txt 저장 UI는 재배치 전까지 숨김. 기능(_on_export_combined_txt)은 유지."""
+        pass
 
     def _on_export_combined_txt(self):
         self.controller.prompt_save_combined_txt(parent_window=self, parent_widget=self)
@@ -1132,6 +1117,8 @@ class PlotPopup(BasePlotWindow):
         Tab 키로 도구 도크와 레이어 도크를 함께 임시 숨김/복원합니다.
         두 도크의 가시성/플로팅 상태/geometry를 기억해 두었다가 되돌립니다.
         """
+        if self._is_input_focused():
+            return
         if not hasattr(self, "dock_widget") or not hasattr(self, "layer_dock_widget"):
             return
 

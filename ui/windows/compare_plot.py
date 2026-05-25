@@ -52,7 +52,7 @@ import config
 from utils import app_logger
 from ui.widgets.filter_panel import MultiVowelFilterPanel
 
-from ui.widgets.design_panel import CompareDesignSettingsPanel, NoWheelComboBox
+from ui.widgets.design_panel import CompareDesignSettingsPanel, NoWheelComboBox, apply_combo_center_align
 from ui.widgets.icon_widgets import create_legend_icon_design, BidirectionalArrowButton
 from ui.widgets.display_utils import truncate_display_name, MAX_DISPLAY_NAME_LEN
 from utils.math_utils import hz_to_bark, bark_to_hz
@@ -1069,6 +1069,7 @@ class ComparePlotPopup(BasePlotWindow):
         self.cb_sigma.setFocusPolicy(Qt.FocusPolicy.ClickFocus)
         self.cb_sigma.addItems(["1.0", "2.0"])
         self.cb_sigma.setCurrentText("2.0")
+        apply_combo_center_align(self.cb_sigma)
         sig_h.addWidget(self.cb_sigma)
         sig_h.addWidget(QLabel("σ", font=font_normal))
         sig_h.addStretch()
@@ -1305,6 +1306,8 @@ class ComparePlotPopup(BasePlotWindow):
             self.tab_widget.setCurrentIndex(index)
 
     def _toggle_panels_visibility(self):
+        if self._is_input_focused():
+            return
         if self.dock_widget.isVisible():
             self.was_dock_visible = True
             self.dock_floating_state = self.dock_widget.isFloating()

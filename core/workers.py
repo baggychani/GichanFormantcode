@@ -21,6 +21,14 @@ class BatchSaveWorker(QThread):
         ranges,
         ds_settings,
         img_format,
+        *,
+        normalize_fn=None,
+        per_file_filters=None,
+        per_file_overrides=None,
+        label_offsets=None,
+        apply_layer_visibility=True,
+        apply_layer_design=True,
+        apply_label_positions=True,
     ):
         super().__init__()
         self.save_dir = save_dir
@@ -30,7 +38,61 @@ class BatchSaveWorker(QThread):
         self.ranges = ranges
         self.ds_settings = ds_settings
         self.img_format = img_format
+        self.normalize_fn = normalize_fn
+        self.per_file_filters = per_file_filters or {}
+        self.per_file_overrides = per_file_overrides or {}
+        self.label_offsets = label_offsets or {}
+        self.apply_layer_visibility = apply_layer_visibility
+        self.apply_layer_design = apply_layer_design
+        self.apply_label_positions = apply_label_positions
         self.errors = []
+
+    def _plot_key_suffix(self):
+        norm = self.plot_params.get("normalization")
+        plot_type = "f1_f2" if norm else self.plot_params.get("type", "f1_f2")
+        return (plot_type, norm) if norm else (plot_type,)
+
+    def _render_plot(self, figure, df, file_index):
+        suffix = self._plot_key_suffix()
+        filter_state = None
+        if self.apply_layer_visibility:
+            filter_state = self.per_file_filters.get(file_index, {})
+
+        layer_overrides = (
+            self.per_file_overrides.get(file_index, {})
+            if self.apply_layer_design
+            else {}
+        )
+        custom_offsets = (
+            self.label_offsets.get((file_index, *suffix), {})
+            if self.apply_label_positions
+            else {}
+        )
+
+        norm = self.plot_params.get("normalization")
+        if norm:
+            return self.plot_engine.draw_single_normalized(
+                figure,
+                df,
+                norm,
+                manual_ranges=self.ranges,
+                filter_state=filter_state,
+                design_settings=self.ds_settings,
+                sigma=float(self.plot_params.get("sigma", 2.0)),
+                custom_label_offsets=custom_offsets,
+                layer_overrides=layer_overrides,
+                plot_params=self.plot_params,
+            )
+        return self.plot_engine.draw_plot(
+            figure,
+            df,
+            self.plot_params,
+            manual_ranges=self.ranges,
+            filter_state=filter_state,
+            design_settings=self.ds_settings,
+            custom_label_offsets=custom_offsets,
+            layer_overrides=layer_overrides,
+        )
 
     def run(self):
         from matplotlib.figure import Figure
@@ -50,14 +112,11 @@ class BatchSaveWorker(QThread):
             save_name = f"{base_name}{outlier_suffix}.{self.img_format}"
             save_path = os.path.join(self.save_dir, save_name)
             try:
+                df = data["df"]
+                if self.normalize_fn is not None:
+                    df = self.normalize_fn(df)
                 temp_fig = Figure(figsize=(6.5, 6.5), dpi=300)
-                self.plot_engine.draw_plot(
-                    temp_fig,
-                    data["df"],
-                    self.plot_params,
-                    manual_ranges=self.ranges,
-                    design_settings=self.ds_settings,
-                )
+                self._render_plot(temp_fig, df, i)
                 if self.img_format.lower() == "png":
                     temp_fig.savefig(save_path, format="png", dpi=300, transparent=True)
                 else:

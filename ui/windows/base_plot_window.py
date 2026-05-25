@@ -2,6 +2,10 @@ from PySide6.QtWidgets import (
     QMainWindow,
     QApplication,
     QLineEdit,
+    QComboBox,
+    QTextEdit,
+    QPlainTextEdit,
+    QAbstractSpinBox,
     QMessageBox,
     QFileDialog,
 )
@@ -90,7 +94,16 @@ class BasePlotWindow(QMainWindow):
         event.accept()
 
     def _is_input_focused(self):
-        return isinstance(QApplication.focusWidget(), QLineEdit)
+        """텍스트·선택 입력 위젯 포커스 시 창 단축키가 발동하지 않도록 한다."""
+        fw = QApplication.focusWidget()
+        if fw is None:
+            return False
+        if isinstance(
+            fw,
+            (QLineEdit, QTextEdit, QPlainTextEdit, QAbstractSpinBox, QComboBox),
+        ):
+            return True
+        return False
 
     def _bind_shortcuts(self):
         QShortcut(
@@ -122,16 +135,20 @@ class BasePlotWindow(QMainWindow):
         QShortcut(
             QKeySequence("Esc"), self, context=Qt.ShortcutContext.WindowShortcut
         ).activated.connect(self._safe_cancel_ruler_or_draw)
-        QShortcut(
+        self._shortcut_draw_return = QShortcut(
             QKeySequence(Qt.Key.Key_Return),
             self,
             context=Qt.ShortcutContext.WindowShortcut,
-        ).activated.connect(self._safe_draw_complete)
-        QShortcut(
+        )
+        self._shortcut_draw_return.activated.connect(self._safe_draw_complete)
+        self._shortcut_draw_return.setEnabled(False)
+        self._shortcut_draw_enter = QShortcut(
             QKeySequence(Qt.Key.Key_Enter),
             self,
             context=Qt.ShortcutContext.WindowShortcut,
-        ).activated.connect(self._safe_draw_complete)
+        )
+        self._shortcut_draw_enter.activated.connect(self._safe_draw_complete)
+        self._shortcut_draw_enter.setEnabled(False)
         QShortcut(
             QKeySequence(QKeySequence.StandardKey.Undo),
             self,
@@ -351,7 +368,14 @@ class BasePlotWindow(QMainWindow):
             return
         if hasattr(self, "tool_indicator") and self.tool_indicator is not None:
             self.tool_indicator.set_draw_mode_on(self.btn_draw.isChecked())
-        if self.btn_draw.isChecked():
+        draw_on = self.btn_draw.isChecked()
+        for sc in (
+            getattr(self, "_shortcut_draw_return", None),
+            getattr(self, "_shortcut_draw_enter", None),
+        ):
+            if sc is not None:
+                sc.setEnabled(draw_on)
+        if draw_on:
             self.draw_indicator.show()
             self.draw_indicator.set_mode(None)
             # 인디케이터가 키보드 포커스를 갖지 않도록 캔버스 또는 메인 창으로 포커스 이동
@@ -876,7 +900,7 @@ class BasePlotWindow(QMainWindow):
         """정규화 플롯일 때 좌표축 레이블/단위/범위 적용. Gerstman만 읽기 전용."""
         norm = getattr(self, "normalization", None)
         if hasattr(self, "norm_section_widget"):
-            self.norm_section_widget.setVisible(bool(norm))
+            self.norm_section_widget.setVisible(False)
         if hasattr(self, "lbl_norm_value"):
             self.lbl_norm_value.setText(norm or "없음")
         if not getattr(self, "range_widgets", None):
