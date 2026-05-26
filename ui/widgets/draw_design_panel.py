@@ -12,6 +12,12 @@ from PySide6.QtCore import Qt, QSize, Signal
 from PySide6.QtGui import QFont, QCursor
 
 from ui.widgets.design_panel import ToggleSwitch, ColorPalette, _field_caption
+from ui.widgets.opacity_slider import (
+    DEFAULT_LEGEND_FILL_OPACITY,
+    OpacitySlider,
+    opacity_to_slider,
+    slider_to_opacity,
+)
 from ui.widgets.icon_widgets import create_trajectory_icon
 from ui.widgets.segmented_control import create_line_preview_button_group
 
@@ -84,6 +90,35 @@ class DrawDesignPanel(QWidget):
         self._legend_switch_border = ToggleSwitch(checked=False)
         row_border.addWidget(self._legend_switch_border)
         layout.addLayout(row_border)
+        row_fill = QHBoxLayout()
+        row_fill.setContentsMargins(0, 0, 0, 0)
+        row_fill.setSpacing(8)
+        lbl_fill = QLabel("배경 채우기")
+        lbl_fill.setFont(font_normal)
+        row_fill.addWidget(lbl_fill)
+        row_fill.addStretch()
+        self._legend_switch_fill = ToggleSwitch(checked=False)
+        row_fill.addWidget(self._legend_switch_fill)
+        layout.addLayout(row_fill)
+        opacity_caption = QHBoxLayout()
+        opacity_caption.setContentsMargins(0, 0, 0, 0)
+        opacity_caption.setSpacing(8)
+        self._legend_fill_opacity_caption = QLabel("배경 불투명도")
+        self._legend_fill_opacity_caption.setFont(font_normal)
+        self._legend_fill_opacity_caption.setStyleSheet("color: #606266;")
+        opacity_caption.addWidget(self._legend_fill_opacity_caption)
+        opacity_caption.addStretch()
+        default_pct = opacity_to_slider(DEFAULT_LEGEND_FILL_OPACITY)
+        self._legend_fill_opacity_value = QLabel(f"{default_pct}%")
+        self._legend_fill_opacity_value.setFont(font_normal)
+        self._legend_fill_opacity_value.setStyleSheet("color: #909399;")
+        opacity_caption.addWidget(self._legend_fill_opacity_value)
+        layout.addLayout(opacity_caption)
+        self._legend_fill_opacity_slider = OpacitySlider(parent=page)
+        self._legend_fill_opacity_slider.setRange(0, 100)
+        self._legend_fill_opacity_slider.setValue(default_pct)
+        self._legend_fill_opacity_slider.setEnabled(False)
+        layout.addWidget(self._legend_fill_opacity_slider)
         self._legend_edit_btn = QPushButton("텍스트 편집…")
         self._legend_edit_btn.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
         self._legend_edit_btn.setFixedHeight(32)
@@ -407,6 +442,22 @@ class DrawDesignPanel(QWidget):
         )
 
         self._legend_switch_border.toggled.connect(self._on_any_control_changed)
+        self._legend_switch_fill.toggled.connect(self._on_legend_fill_toggled)
+        self._legend_switch_fill.toggled.connect(self._on_any_control_changed)
+        self._legend_fill_opacity_slider.valueChanged.connect(
+            self._on_legend_fill_opacity_changed
+        )
+        self._legend_fill_opacity_slider.valueChanged.connect(
+            self._on_any_control_changed
+        )
+
+    def _on_legend_fill_toggled(self, checked: bool):
+        self._legend_fill_opacity_slider.setEnabled(checked)
+        self._legend_fill_opacity_caption.setEnabled(checked)
+        self._legend_fill_opacity_value.setEnabled(checked)
+
+    def _on_legend_fill_opacity_changed(self, value: int):
+        self._legend_fill_opacity_value.setText(f"{value}%")
 
     # ------------------------------------------------------------------
     # 퍼블릭 API
@@ -544,6 +595,16 @@ class DrawDesignPanel(QWidget):
 
     def _apply_legend_settings(self, settings: dict):
         self._legend_switch_border.setChecked(bool(settings.get("show_border", False)))
+        if "show_fill" in settings:
+            show_fill = bool(settings["show_fill"])
+        else:
+            show_fill = bool(settings.get("show_border", False))
+        self._legend_switch_fill.setChecked(show_fill)
+        opacity = float(settings.get("fill_opacity", DEFAULT_LEGEND_FILL_OPACITY))
+        pct = opacity_to_slider(opacity)
+        self._legend_fill_opacity_slider.setValue(pct)
+        self._legend_fill_opacity_value.setText(f"{pct}%")
+        self._on_legend_fill_toggled(show_fill)
 
     def _collect_line_settings(self) -> dict:
         group = self._line_controls["group_style"]
@@ -614,6 +675,10 @@ class DrawDesignPanel(QWidget):
     def _collect_legend_settings(self) -> dict:
         return {
             "show_border": self._legend_switch_border.isChecked(),
+            "show_fill": self._legend_switch_fill.isChecked(),
+            "fill_opacity": slider_to_opacity(
+                self._legend_fill_opacity_slider.value()
+            ),
         }
 
     # ------------------------------------------------------------------

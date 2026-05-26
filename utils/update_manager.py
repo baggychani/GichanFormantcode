@@ -9,10 +9,13 @@ import config
 from utils import app_logger
 
 
+CHECK_INTERVAL = timedelta(hours=12)
+
+
 class UpdateManager(QObject):
     """
     GitHub API를 통해 최신 버전을 확인하고 업데이트 알림을 관리합니다.
-    점심(12시) 기준 하루 1회 확인 로직을 포함합니다.
+    마지막 확인 시각 기준 12시간에 한 번만 API를 호출합니다.
     """
 
     update_available = Signal(
@@ -41,7 +44,7 @@ class UpdateManager(QObject):
 
         if not self._should_check_now(now, last_check):
             app_logger.debug(
-                "[UpdateManager] Skipping update check (already checked within the current 12:00 PM cycle)."
+                "[UpdateManager] Skipping update check (checked within the last 12 hours)."
             )
             return False
 
@@ -60,15 +63,10 @@ class UpdateManager(QObject):
         return True
 
     def _should_check_now(self, now, last_check):
-        """정오(12시) 기준으로 새로운 확인 주기가 시작되었는지 검사합니다."""
+        """마지막 확인 후 CHECK_INTERVAL이 지났는지 검사합니다."""
         if last_check is None:
             return True
-
-        today_12 = now.replace(hour=12, minute=0, second=0, microsecond=0)
-        # 현재가 12시 이전이면 기준은 '어제의 12시', 12시 이후면 '오늘의 12시'
-        threshold = today_12 if now >= today_12 else today_12 - timedelta(days=1)
-
-        return last_check < threshold
+        return now - last_check >= CHECK_INTERVAL
 
     def _on_check_finished(self, current_version, check_time):
         """API 응답 결과를 처리합니다."""

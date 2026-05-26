@@ -15,7 +15,6 @@ from PySide6.QtWidgets import (
     QListWidgetItem,
     QDockWidget,
     QLineEdit,
-    QComboBox,
     QMessageBox,
     QFrame,
     QAbstractItemView,
@@ -23,8 +22,9 @@ from PySide6.QtWidgets import (
     QApplication,
     QSizePolicy,
     QStackedWidget,
+    QCheckBox,
 )
-from PySide6.QtCore import Qt, QObject, QEvent, QTimer
+from PySide6.QtCore import Qt, QObject, QEvent, QTimer, QSize
 
 
 class TabBarWheelBlocker(QObject):
@@ -59,7 +59,8 @@ from ui.widgets.design_panel import (
     apply_combo_center_align,
 )
 from ui.widgets.icon_widgets import create_legend_icon_design, BidirectionalArrowButton
-from ui.widgets.display_utils import truncate_display_name, MAX_DISPLAY_NAME_LEN
+from ui.widgets.display_utils import compare_item_legend_display
+from ui.dialogs.combined_members_dialog import add_compare_legend_name_widgets
 from utils.math_utils import hz_to_bark, bark_to_hz
 from ui.widgets.layer_dock import LayerDockWidget
 import ui.widgets.layout_constants as layout
@@ -167,18 +168,61 @@ class RangeInputFilter(QObject):
         return False
 
 
+class _SelectCompareFocusFilter(QObject):
+    """필터 입력란 포커스: 체크박스·리스트 등 NoFocus 위젯 클릭 시에도 커서를 해제."""
+
+    def __init__(self, filter_edits: list[QLineEdit], parent=None):
+        super().__init__(parent)
+        self._filter_edits = set(filter_edits)
+
+    def eventFilter(self, obj, event):
+        if (
+            event.type() != QEvent.Type.MouseButtonPress
+            or event.button() != Qt.MouseButton.LeftButton
+        ):
+            return False
+        focused = QApplication.focusWidget()
+        if focused not in self._filter_edits:
+            return False
+        pos = (
+            event.globalPosition().toPoint()
+            if hasattr(event, "globalPosition")
+            else event.globalPos()
+        )
+        for edit in self._filter_edits:
+            if edit.isVisible() and edit.rect().contains(edit.mapFromGlobal(pos)):
+                return False
+        focused.clearFocus()
+        return False
+
+
 class SelectCompareDialog(QDialog):
+    """양쪽에서 파일을 다중 선택해 그룹 vs 그룹 compare를 시작한다."""
+
+    _LIST_STYLE = """
+        QListWidget {
+            background-color: white; border: 1px solid #dcdfe6;
+            border-radius: 6px; outline: none; padding: 4px 2px;
+        }
+        QListWidget::item { border: none; padding: 0; margin: 0; }
     """
-    사용자가 비교 분석을 수행할 대상 파일을 선택할 수 있도록 제공하는 다이얼로그입니다.
-    QListWidget을 활용하여 직관적인 스크롤 및 키보드 네비게이션을 지원합니다.
-    """
+    _CHK_FONT = QFont("Malgun Gothic", 10)
+    _ROW_EXTRA_HEIGHT = 8
 
     def __init__(self, parent, controller, current_idx):
         super().__init__(parent)
         self.controller = controller
         self.current_idx = current_idx
+        self._syncing_checks = False
+        self._left_checks: dict[int, QCheckBox] = {}
+        self._right_checks: dict[int, QCheckBox] = {}
+        self._left_items: dict[int, QListWidgetItem] = {}
+        self._right_items: dict[int, QListWidgetItem] = {}
+        self._left_search: dict[int, str] = {}
+        self._right_search: dict[int, str] = {}
 
-        self.setWindowTitle("비교할 데이터 선택")
+        self.setWindowTitle("다중 모드 - 비교할 데이터 선택")
+        self.setFocusPolicy(Qt.FocusPolicy.ClickFocus)
         self.setFixedSize(
             config.DIALOG_SELECT_COMPARE_WIDTH_PX,
             config.DIALOG_SELECT_COMPARE_HEIGHT_PX,
@@ -186,10 +230,28 @@ class SelectCompareDialog(QDialog):
         self.setWindowModality(Qt.WindowModality.ApplicationModal)
 
         self._apply_window_icon()
+        self.file_entries = self.controller.get_compare_file_list()
         self._setup_ui()
+        self._populate_lists()
+        self._apply_default_selection()
+        self._update_selection_counts()
+        self._focus_filter = _SelectCompareFocusFilter(
+            [self.filter_left, self.filter_right], self
+        )
 
-        self.available_items = self.controller.get_compare_choices(self.current_idx)
-        self._populate_list()
+    def showEvent(self, event):
+        super().showEvent(event)
+        self.setFocus(Qt.FocusReason.OtherFocusReason)
+
+    def exec(self):
+        app = QApplication.instance()
+        if app is not None:
+            app.installEventFilter(self._focus_filter)
+        try:
+            return super().exec()
+        finally:
+            if app is not None:
+                app.removeEventFilter(self._focus_filter)
 
     def _apply_window_icon(self):
         try:
@@ -200,48 +262,117 @@ class SelectCompareDialog(QDialog):
     def _setup_ui(self):
         self.setStyleSheet("""
             QDialog { background-color: #f5f7fa; }
-            QListWidget { 
-                background-color: white; border: 1px solid #dcdfe6; 
-                border-radius: 6px; font-size: 13px; padding: 5px;
+            QCheckBox {
+                color: #303133; spacing: 8px;
+                padding: 8px 8px; background: transparent;
             }
-            QListWidget::item { padding: 8px; border-bottom: 1px solid #f0f2f5; }
-            QListWidget::item:selected { background-color: #ecf5ff; color: #409eff; font-weight: bold; }
-            QPushButton { 
-                background-color: #ffffff; border: 1px solid #dcdfe6; 
+            QCheckBox::indicator { width: 17px; height: 17px; }
+            QLineEdit#filter_edit {
+                background-color: #ffffff; border: 1px solid #dcdfe6;
+                border-radius: 4px; padding: 7px 10px; color: #303133;
+            }
+            QLineEdit#filter_edit:focus { border-color: #409eff; }
+            QComboBox#norm_combo {
+                background-color: #ffffff; border: 1px solid #dcdfe6;
+                border-radius: 4px; padding: 5px 8px; color: #303133;
+            }
+            QComboBox#norm_combo:focus { border-color: #409eff; }
+            QComboBox#norm_combo::drop-down { border: none; width: 22px; }
+            QPushButton {
+                background-color: #ffffff; border: 1px solid #dcdfe6;
                 border-radius: 4px; padding: 8px; color: #606266; font-weight: bold;
+            }
+            QPushButton#btn_reset {
+                font-size: 11px; padding: 4px 10px; font-weight: normal;
+                color: #909399; min-width: 0;
+            }
+            QPushButton#btn_reset:hover {
+                color: #409eff; border-color: #c6e2ff; background-color: #ecf5ff;
             }
             QPushButton#btn_confirm { background-color: #67c23a; color: white; border: none; }
             QPushButton#btn_confirm:hover { background-color: #85ce61; }
+            QPushButton#btn_confirm:disabled { background-color: #c0c4cc; color: #f5f7fa; }
             QPushButton:hover { background-color: #ecf5ff; color: #409eff; border-color: #c6e2ff; }
         """)
 
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(20, 20, 20, 20)
-        layout.setSpacing(15)
+        layout.setContentsMargins(20, 18, 20, 18)
+        layout.setSpacing(12)
 
-        lbl_title = QLabel("비교할 대상 파일을 선택하세요")
-        lbl_title.setFont(QFont("Malgun Gothic", 12, QFont.Weight.Bold))
-        layout.addWidget(lbl_title)
+        columns = QHBoxLayout()
+        columns.setSpacing(14)
 
-        current_item = self.controller.get_data_item_at(self.current_idx)
-        current_name = current_item["name"] if current_item else ""
-        self.lbl_current_file = QLabel(f"현재 파일: {current_name}")
-        self.lbl_current_file.setFont(QFont("Malgun Gothic", 10))
-        self.lbl_current_file.setStyleSheet("color: #606266; padding: 4px 0;")
-        layout.addWidget(self.lbl_current_file)
+        left_col = QVBoxLayout()
+        left_col.setSpacing(8)
+        left_header = QHBoxLayout()
+        self.lbl_left_count = QLabel("0개 선택")
+        self.lbl_left_count.setFont(QFont("Malgun Gothic", 10, QFont.Weight.Bold))
+        self.lbl_left_count.setStyleSheet("color: #1976D2;")
+        left_header.addWidget(self.lbl_left_count)
+        left_header.addStretch()
+        btn_select_all_left = QPushButton("모두 선택")
+        btn_select_all_left.setObjectName("btn_reset")
+        btn_select_all_left.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        btn_select_all_left.setFixedHeight(26)
+        btn_select_all_left.clicked.connect(lambda: self._select_all_visible("left"))
+        left_header.addWidget(btn_select_all_left)
+        btn_reset_left = QPushButton("초기화")
+        btn_reset_left.setObjectName("btn_reset")
+        btn_reset_left.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        btn_reset_left.setFixedHeight(26)
+        btn_reset_left.clicked.connect(lambda: self._reset_side("left"))
+        left_header.addWidget(btn_reset_left)
+        left_col.addLayout(left_header)
+        self.list_left = self._make_check_list()
+        left_col.addWidget(self.list_left, 1)
+        self.filter_left = self._make_filter_edit("left")
+        left_col.addWidget(self.filter_left)
 
-        self.list_widget = QListWidget()
-        self.list_widget.setSelectionMode(
-            QAbstractItemView.SelectionMode.SingleSelection
-        )
-        self.list_widget.itemDoubleClicked.connect(self.on_confirm)
-        self.list_widget.itemActivated.connect(self.on_confirm)
-        layout.addWidget(self.list_widget)
+        vs_lbl = QLabel("vs")
+        vs_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        vs_lbl.setFont(QFont("Malgun Gothic", 11, QFont.Weight.Bold))
+        vs_lbl.setStyleSheet("color: #909399;")
+        vs_lbl.setFixedWidth(28)
+
+        right_col = QVBoxLayout()
+        right_col.setSpacing(8)
+        right_header = QHBoxLayout()
+        self.lbl_right_count = QLabel("0개 선택")
+        self.lbl_right_count.setFont(QFont("Malgun Gothic", 10, QFont.Weight.Bold))
+        self.lbl_right_count.setStyleSheet("color: #E64A19;")
+        right_header.addWidget(self.lbl_right_count)
+        right_header.addStretch()
+        btn_select_all_right = QPushButton("모두 선택")
+        btn_select_all_right.setObjectName("btn_reset")
+        btn_select_all_right.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        btn_select_all_right.setFixedHeight(26)
+        btn_select_all_right.clicked.connect(lambda: self._select_all_visible("right"))
+        right_header.addWidget(btn_select_all_right)
+        btn_reset_right = QPushButton("초기화")
+        btn_reset_right.setObjectName("btn_reset")
+        btn_reset_right.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        btn_reset_right.setFixedHeight(26)
+        btn_reset_right.clicked.connect(lambda: self._reset_side("right"))
+        right_header.addWidget(btn_reset_right)
+        right_col.addLayout(right_header)
+        self.list_right = self._make_check_list()
+        right_col.addWidget(self.list_right, 1)
+        self.filter_right = self._make_filter_edit("right")
+        right_col.addWidget(self.filter_right)
+
+        columns.addLayout(left_col, 1)
+        columns.addWidget(vs_lbl)
+        columns.addLayout(right_col, 1)
+        layout.addLayout(columns, 1)
 
         norm_row = QHBoxLayout()
         norm_row.addWidget(QLabel("정규화:", font=QFont("Malgun Gothic", 9)))
-        self.combo_normalization = QComboBox()
+        self.combo_normalization = NoWheelComboBox()
+        self.combo_normalization.setObjectName("norm_combo")
         self.combo_normalization.setFont(QFont("Malgun Gothic", 9))
+        self.combo_normalization.setFixedWidth(200)
+        self.combo_normalization.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
+        self.combo_normalization.setMaxVisibleItems(12)
         for label, data in config.NORMALIZATION_OPTIONS:
             self.combo_normalization.addItem(label, data)
         ptype = self.controller.get_plot_type()
@@ -250,39 +381,198 @@ class SelectCompareDialog(QDialog):
         else:
             for i in range(self.combo_normalization.count()):
                 data = self.combo_normalization.itemData(i)
-                # 2mW/F와 Bigham은 f1_f2일 때만 허용, Nearey1은 f1_f2·f1_f3에서만 허용
                 if data in ("2mW/F", "Bigham") and ptype != "f1_f2":
                     self.combo_normalization.model().item(i).setEnabled(False)
                 if data == "Nearey1" and ptype not in ("f1_f2", "f1_f3"):
                     self.combo_normalization.model().item(i).setEnabled(False)
-        norm_row.addWidget(self.combo_normalization, stretch=1)
+        norm_row.addWidget(self.combo_normalization)
+        norm_row.addStretch()
         layout.addLayout(norm_row)
 
         btn_layout = QHBoxLayout()
         btn_layout.addStretch()
-
         btn_cancel = QPushButton("취소")
         btn_cancel.setFixedWidth(80)
         btn_cancel.clicked.connect(self.reject)
-
         self.btn_confirm = QPushButton("비교 시작")
         self.btn_confirm.setObjectName("btn_confirm")
         self.btn_confirm.setFixedWidth(120)
         self.btn_confirm.setDefault(True)
         self.btn_confirm.clicked.connect(self.on_confirm)
-
         btn_layout.addWidget(btn_cancel)
         btn_layout.addWidget(self.btn_confirm)
         layout.addLayout(btn_layout)
 
-    def _populate_list(self):
-        for idx, name in self.available_items:
-            item = QListWidgetItem(name)
-            item.setData(Qt.ItemDataRole.UserRole, idx)
-            self.list_widget.addItem(item)
+    def _make_check_list(self) -> QListWidget:
+        lst = QListWidget()
+        lst.setStyleSheet(self._LIST_STYLE)
+        lst.setSelectionMode(QAbstractItemView.SelectionMode.NoSelection)
+        lst.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        lst.setSpacing(3)
+        return lst
 
-        if self.list_widget.count() > 0:
-            self.list_widget.setCurrentRow(0)
+    def _make_filter_edit(self, side: str) -> QLineEdit:
+        edit = QLineEdit()
+        edit.setObjectName("filter_edit")
+        edit.setFont(QFont("Malgun Gothic", 10))
+        edit.setPlaceholderText("파일명 필터…")
+        edit.setClearButtonEnabled(True)
+        edit.setFocusPolicy(Qt.FocusPolicy.ClickFocus)
+        edit.textChanged.connect(lambda _text, s=side: self._apply_side_filter(s))
+        return edit
+
+    def _side_maps(self, side: str):
+        if side == "left":
+            return (
+                self._left_checks,
+                self._right_checks,
+                self._left_items,
+                self._left_search,
+                self.filter_left,
+            )
+        return (
+            self._right_checks,
+            self._left_checks,
+            self._right_items,
+            self._right_search,
+            self.filter_right,
+        )
+
+    def _apply_side_filter(self, side: str):
+        _, _, items, search_map, filter_edit = self._side_maps(side)
+        needle = filter_edit.text().strip().lower()
+        for file_idx, item in items.items():
+            haystack = search_map.get(file_idx, "")
+            item.setHidden(bool(needle) and needle not in haystack)
+
+    def _select_all_visible(self, side: str):
+        checks, other_checks, items, search_map, filter_edit = self._side_maps(side)
+        needle = filter_edit.text().strip().lower()
+        self._syncing_checks = True
+        try:
+            for file_idx, item in items.items():
+                if item.isHidden():
+                    continue
+                if needle and needle not in search_map.get(file_idx, ""):
+                    continue
+                other_cb = other_checks.get(file_idx)
+                if other_cb is not None and other_cb.isChecked():
+                    other_cb.setChecked(False)
+                cb = checks.get(file_idx)
+                if cb is not None:
+                    cb.setChecked(True)
+        finally:
+            self._syncing_checks = False
+        self._update_selection_counts()
+
+    def _add_check_row(
+        self,
+        list_widget: QListWidget,
+        checks: dict[int, QCheckBox],
+        items: dict[int, QListWidgetItem],
+        search_map: dict[int, str],
+        side: str,
+        file_idx: int,
+        name: str,
+    ) -> QCheckBox:
+        from ui.widgets.display_utils import strip_gichan_prefix
+
+        display = strip_gichan_prefix(name) or name
+        cb = QCheckBox(display)
+        cb.setFont(self._CHK_FONT)
+        cb.setToolTip(name)
+        cb.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        cb.stateChanged.connect(
+            lambda _state, s=side, idx=file_idx: self._on_check_changed(s, idx)
+        )
+        item = QListWidgetItem()
+        item.setSizeHint(QSize(0, cb.sizeHint().height() + self._ROW_EXTRA_HEIGHT))
+        list_widget.addItem(item)
+        list_widget.setItemWidget(item, cb)
+        checks[file_idx] = cb
+        items[file_idx] = item
+        search_map[file_idx] = f"{display} {name}".lower()
+        return cb
+
+    def _populate_lists(self):
+        for file_idx, name in self.file_entries:
+            self._add_check_row(
+                self.list_left,
+                self._left_checks,
+                self._left_items,
+                self._left_search,
+                "left",
+                file_idx,
+                name,
+            )
+            self._add_check_row(
+                self.list_right,
+                self._right_checks,
+                self._right_items,
+                self._right_search,
+                "right",
+                file_idx,
+                name,
+            )
+
+    def _apply_default_selection(self):
+        if not (0 <= self.current_idx < len(self.controller.plot_data_list)):
+            return
+        if self.controller.plot_data_list[self.current_idx].get("is_combined"):
+            return
+        cb = self._left_checks.get(self.current_idx)
+        if cb is None:
+            return
+        self._syncing_checks = True
+        cb.setChecked(True)
+        self._syncing_checks = False
+        for row in range(self.list_left.count()):
+            item = self.list_left.item(row)
+            if self.list_left.itemWidget(item) is cb:
+                self.list_left.scrollToItem(
+                    item, QAbstractItemView.ScrollHint.PositionAtCenter
+                )
+                break
+
+    def _checked_indices(self, checks: dict[int, QCheckBox]) -> list[int]:
+        return [idx for idx, cb in checks.items() if cb.isChecked()]
+
+    def _reset_side(self, side: str):
+        checks = self._left_checks if side == "left" else self._right_checks
+        self._syncing_checks = True
+        try:
+            for cb in checks.values():
+                cb.setChecked(False)
+        finally:
+            self._syncing_checks = False
+        self._update_selection_counts()
+
+    def _update_selection_counts(self):
+        left_n = len(self._checked_indices(self._left_checks))
+        right_n = len(self._checked_indices(self._right_checks))
+        self.lbl_left_count.setText(f"{left_n}개 선택")
+        self.lbl_right_count.setText(f"{right_n}개 선택")
+        self.btn_confirm.setEnabled(left_n >= 1 and right_n >= 1)
+
+    def _on_check_changed(self, side: str, file_idx: int):
+        if self._syncing_checks:
+            return
+        checks = self._left_checks if side == "left" else self._right_checks
+        cb = checks.get(file_idx)
+        if cb is None or not cb.isChecked():
+            self._update_selection_counts()
+            return
+        other_checks = self._right_checks if side == "left" else self._left_checks
+        other_cb = other_checks.get(file_idx)
+        if other_cb is None or not other_cb.isChecked():
+            self._update_selection_counts()
+            return
+        self._syncing_checks = True
+        try:
+            other_cb.setChecked(False)
+        finally:
+            self._syncing_checks = False
+        self._update_selection_counts()
 
     def _labels_in_df(self, df):
         col = "Label" if "Label" in df.columns else "label"
@@ -290,56 +580,59 @@ class SelectCompareDialog(QDialog):
             return set()
         return set(df[col].dropna().astype(str).str.strip().str.lower())
 
+    def _labels_for_group(self, indices: list[int]) -> set:
+        entry = self.controller.build_compare_group_from_indices(indices)
+        if not entry or entry.get("df") is None:
+            return set()
+        return self._labels_in_df(entry["df"])
+
     def on_confirm(self):
         if getattr(self, "_confirming", False):
             return
-        selected_item = self.list_widget.currentItem()
-        if not selected_item:
+        left_indices = self._checked_indices(self._left_checks)
+        right_indices = self._checked_indices(self._right_checks)
+        if len(left_indices) < 1 or len(right_indices) < 1:
             QMessageBox.warning(
-                self, "선택 오류", "비교할 대상을 올바르게 선택해주세요."
+                self, "선택 오류", "양쪽 각각 1개 이상 선택해 주세요."
             )
             return
 
-        target_idx = selected_item.data(Qt.ItemDataRole.UserRole)
         norm = (
             self.combo_normalization.currentData()
             if self.combo_normalization.isEnabled()
             else None
         )
         if norm == "2mW/F":
-            cur_item = self.controller.get_data_item_at(self.current_idx)
-            tgt_item = self.controller.get_data_item_at(target_idx)
-            lb = self._labels_in_df(cur_item["df"]) if cur_item else set()
-            lr = self._labels_in_df(tgt_item["df"]) if tgt_item else set()
+            lb = self._labels_for_group(left_indices)
+            lr = self._labels_for_group(right_indices)
             if not ({"i", "a"} <= lb and {"i", "a"} <= lr):
                 QMessageBox.warning(
                     self,
                     "정규화 불가",
-                    "2mW/F 정규화는 두 파일 모두 모음 i, a가 필요합니다.",
+                    "2mW/F 정규화는 두 그룹 모두 모음 i, a가 필요합니다.",
                 )
                 return
         elif norm == "Bigham":
-            cur_item = self.controller.get_data_item_at(self.current_idx)
-            tgt_item = self.controller.get_data_item_at(target_idx)
-            lb = self._labels_in_df(cur_item["df"]) if cur_item else set()
-            lr = self._labels_in_df(tgt_item["df"]) if tgt_item else set()
+            lb = self._labels_for_group(left_indices)
+            lr = self._labels_for_group(right_indices)
             required = {"i", "a", "o", "u"}
             if not (required <= lb and required <= lr):
                 QMessageBox.warning(
                     self,
                     "정규화 불가",
-                    "Bigham 정규화는 두 파일 모두 모음 i, a, o, u가 필요합니다.",
+                    "Bigham 정규화는 두 그룹 모두 모음 i, a, o, u가 필요합니다.",
                 )
                 return
 
         self._confirming = True
         self.btn_confirm.setEnabled(False)
-        self.list_widget.setEnabled(False)
+        self.list_left.setEnabled(False)
+        self.list_right.setEnabled(False)
 
         self.accept()
-        self.controller.open_compare_plot(
-            self.current_idx,
-            target_idx,
+        self.controller.open_compare_plot_for_groups(
+            left_indices,
+            right_indices,
             normalization=norm,
             parent_window=self.parent(),
         )
@@ -411,6 +704,8 @@ class ComparePlotPopup(BasePlotWindow):
         data_blue_item, data_red_item = self.controller.get_compare_data(
             self.idx_blue, self.idx_red
         )
+        self._compare_data_blue = data_blue_item
+        self._compare_data_red = data_red_item
         data_blue = data_blue_item["name"] if data_blue_item else ""
         data_red = data_red_item["name"] if data_red_item else ""
         self.default_save_name = (
@@ -462,7 +757,7 @@ class ComparePlotPopup(BasePlotWindow):
         )
 
         self.current_unit = "Hz"
-        self._setup_ui(data_blue, data_red)
+        self._setup_ui(data_blue_item, data_red_item)
         self._bind_shortcuts()
 
         # 창을 닫을 때 메모리에서 즉시 해제되도록 설정 (Memory Leak 방지)
@@ -499,7 +794,7 @@ class ComparePlotPopup(BasePlotWindow):
     def get_layer_design_overrides_red(self):
         return self.layer_design_overrides_red
 
-    def _setup_ui(self, data_blue, data_red):
+    def _setup_ui(self, data_blue_item, data_red_item):
         self.central_widget = QWidget()
         self.central_widget.setObjectName("CentralWidget")
         self.setCentralWidget(self.central_widget)
@@ -573,9 +868,11 @@ class ComparePlotPopup(BasePlotWindow):
         self.central_outer_layout.addWidget(canvas_container)
         self.central_outer_layout.addWidget(self.sep_right)
 
-        self._build_unified_dock(data_blue, data_red)
+        self._build_unified_dock(data_blue_item, data_red_item)
 
-    def _build_unified_dock(self, data_blue, data_red):
+    def _build_unified_dock(self, data_blue_item, data_red_item):
+        data_blue = (data_blue_item or {}).get("name", "")
+        data_red = (data_red_item or {}).get("name", "")
         self.dock_widget = QDockWidget("도구 및 설정", self)
         self.dock_widget.setAllowedAreas(
             Qt.DockWidgetArea.LeftDockWidgetArea | Qt.DockWidgetArea.RightDockWidgetArea
@@ -603,12 +900,14 @@ class ComparePlotPopup(BasePlotWindow):
         self.tab_widget.tabBar().installEventFilter(self._tab_wheel_blocker1)
 
         self.analysis_tab = QWidget()
-        self._setup_analysis_ui(self.analysis_tab, data_blue, data_red)
+        self._setup_analysis_ui(self.analysis_tab, data_blue_item, data_red_item)
         self.tab_widget.addTab(self.analysis_tab, "분석 도구")
 
         self.design_tab = CompareDesignSettingsPanel(
             name_blue=data_blue,
             name_red=data_red,
+            legend_meta_blue=compare_item_legend_display(data_blue_item),
+            legend_meta_red=compare_item_legend_display(data_red_item),
             parent=self,
             ui_font_name=self.ui_font_name,
             is_normalized=bool(self.normalization),
@@ -653,6 +952,8 @@ class ComparePlotPopup(BasePlotWindow):
         )
         name_blue = (data_blue_item or {}).get("name", data_blue)
         name_red = (data_red_item or {}).get("name", data_red)
+        lbl_blue = compare_item_legend_display(data_blue_item)
+        lbl_red = compare_item_legend_display(data_red_item)
 
         self.layer_dock_widget = QDockWidget("레이어 설정", self)
         self.layer_dock_widget.setAllowedAreas(
@@ -686,6 +987,10 @@ class ComparePlotPopup(BasePlotWindow):
             compare_mode=True,
             file_a_name=name_blue,
             file_b_name=name_red,
+            file_a_label=lbl_blue[0],
+            file_b_label=lbl_red[0],
+            file_a_tooltip=lbl_blue[1],
+            file_b_tooltip=lbl_red[1],
             get_default_design=lambda: self._get_layer_dock_default_design("blue"),
         )
         self._layer_dock_blue.filter_state_changed.connect(
@@ -712,6 +1017,10 @@ class ComparePlotPopup(BasePlotWindow):
             compare_mode=True,
             file_a_name=name_blue,
             file_b_name=name_red,
+            file_a_label=lbl_blue[0],
+            file_b_label=lbl_red[0],
+            file_a_tooltip=lbl_blue[1],
+            file_b_tooltip=lbl_red[1],
             get_default_design=lambda: self._get_layer_dock_default_design("red"),
         )
         self._layer_dock_red.filter_state_changed.connect(
@@ -826,6 +1135,8 @@ class ComparePlotPopup(BasePlotWindow):
         _feed_layer_vowels()
         self._layer_dock_blue.set_compare_file_index(0)
         self._layer_dock_red.set_compare_file_index(0)
+        self._layer_dock_red.set_splitter_sizes(self.layer_dock_splitter_sizes)
+        self._compare_layer_layout_inited = False
 
         self._on_dock_state_changed()
 
@@ -855,7 +1166,7 @@ class ComparePlotPopup(BasePlotWindow):
             self.sep_left.setVisible(sep_left_show)
             self.sep_right.setVisible(sep_right_show)
 
-    def _setup_analysis_ui(self, parent_widget, data_blue, data_red):
+    def _setup_analysis_ui(self, parent_widget, data_blue_item, data_red_item):
         parent_widget.setFocusPolicy(Qt.FocusPolicy.ClickFocus)
         layout = QVBoxLayout(parent_widget)
         layout.setContentsMargins(12, 15, 12, 15)
@@ -871,7 +1182,7 @@ class ComparePlotPopup(BasePlotWindow):
         legend_group.addWidget(lbl_title)
 
         def create_legend_item(
-            group_id, default_color, default_style, file_name, default_marker="o"
+            group_id, default_color, default_style, data_item, default_marker="o"
         ):
             row = QWidget()
             rlayout = QHBoxLayout(row)
@@ -888,30 +1199,30 @@ class ComparePlotPopup(BasePlotWindow):
             lbl_a.setFont(font_bold)
             lbl_a.setStyleSheet(f"color: {default_color};")
 
-            clean_name = os.path.splitext(file_name)[0]
-            display_name = truncate_display_name(clean_name, MAX_DISPLAY_NAME_LEN)
-            lbl_text = QLabel(display_name)
-            lbl_text.setFont(font_normal)
-            lbl_text.setStyleSheet("color: #333333;")
-            lbl_text.setToolTip(clean_name)
-            lbl_text.setSizePolicy(
-                QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred
-            )
+            display_name, tooltip, members = compare_item_legend_display(data_item)
 
             rlayout.addWidget(icon_lbl)
             rlayout.addSpacing(6)
             rlayout.addWidget(lbl_a)
             rlayout.addSpacing(15)
-            rlayout.addWidget(lbl_text, stretch=1)
+            add_compare_legend_name_widgets(
+                rlayout,
+                display_name=display_name,
+                tooltip=tooltip,
+                member_names=members,
+                font=font_normal,
+                dialog_parent=self,
+                ui_font_name=self.ui_font_name,
+            )
 
             self.legend_refs[group_id] = {"icon": icon_lbl, "text": lbl_a}
             return row
 
         legend_group.addWidget(
-            create_legend_item("blue", "#1976D2", "-", data_blue, "o")
+            create_legend_item("blue", "#1976D2", "-", data_blue_item, "o")
         )
         legend_group.addWidget(
-            create_legend_item("red", "#E64A19", "---", data_red, "o")
+            create_legend_item("red", "#E64A19", "---", data_red_item, "o")
         )
         layout.addLayout(legend_group)
         legend_group.addSpacing(8)
@@ -1640,18 +1951,83 @@ class ComparePlotPopup(BasePlotWindow):
         """레이어 도크에서 필터(눈/반투명) 변경 시 플롯만 갱신. 상태는 도크가 이미 반영함."""
         self.on_apply()
 
+    def _init_compare_layer_dock_layout(self):
+        """Compare 레이어 도크: 스플리터 비율 고정 + 숨겨진 스택 페이지 선레이아웃."""
+        blue_sizes = self._layer_dock_blue._splitter.sizes()
+        total = sum(blue_sizes)
+        if total > 0:
+            self._layer_splitter_top_ratio = blue_sizes[0] / total
+            self.layer_dock_splitter_sizes = list(blue_sizes)
+        self._layer_splitter_sync_block = True
+        container = self._layer_dock_container
+        container.setUpdatesEnabled(False)
+        try:
+            cur = self._layer_stack.currentIndex()
+            for idx in (1, cur):
+                self._layer_stack.setCurrentIndex(idx)
+                self._apply_compare_layer_splitter_to_dock(
+                    self._layer_stack.currentWidget()
+                )
+            self._layer_stack.setCurrentIndex(cur)
+            self._apply_compare_layer_splitter_to_dock(
+                self._layer_stack.currentWidget()
+            )
+        finally:
+            container.setUpdatesEnabled(True)
+            self._layer_splitter_sync_block = False
+
+    def _apply_compare_layer_splitter_to_dock(self, dock):
+        if dock is None:
+            return
+        sp = dock._splitter
+        height = sp.height()
+        ratio = getattr(self, "_layer_splitter_top_ratio", None)
+        if height >= 160 and ratio is not None:
+            top = max(80, int(height * ratio))
+            dock.set_splitter_sizes([top, height - top])
+        elif self.layer_dock_splitter_sizes:
+            dock.set_splitter_sizes(self.layer_dock_splitter_sizes)
+
+    def _sync_compare_layer_splitters(self):
+        for dock in (self._layer_dock_blue, self._layer_dock_red):
+            self._apply_compare_layer_splitter_to_dock(dock)
+
     def _on_compare_layer_switch_requested(self, index):
         """레이어 도크 내 파일 선택 버튼 클릭 시 스택 전환 및 양쪽 도크 버튼 상태 동기화."""
-        self._layer_stack.setCurrentIndex(index)
+        target = self._layer_dock_blue if index == 0 else self._layer_dock_red
+        self._layer_splitter_sync_block = True
+        try:
+            self._sync_compare_layer_splitters()
+            self._layer_stack.setCurrentIndex(index)
+            self._apply_compare_layer_splitter_to_dock(target)
+        finally:
+            self._layer_splitter_sync_block = False
         self._layer_dock_blue.set_compare_file_index(index)
         self._layer_dock_red.set_compare_file_index(index)
         self._rebind_draw_tool_if_active()
 
     def _on_compare_layer_splitter_changed(self, sizes):
         """한쪽 레이어 도크 스플리터 조절 시 비율 저장 후 다른 쪽에 동일 적용."""
+        if getattr(self, "_layer_splitter_sync_block", False):
+            return
+        if not sizes or len(sizes) != 2:
+            return
+        total = sum(sizes) or 1
+        self._layer_splitter_top_ratio = sizes[0] / total
         self.layer_dock_splitter_sizes = list(sizes)
-        self._layer_dock_blue.set_splitter_sizes(sizes)
-        self._layer_dock_red.set_splitter_sizes(sizes)
+        sender = self.sender()
+        other = (
+            self._layer_dock_red
+            if sender is self._layer_dock_blue
+            else self._layer_dock_blue
+        )
+        if sender not in (self._layer_dock_blue, self._layer_dock_red):
+            return
+        self._layer_splitter_sync_block = True
+        try:
+            other.set_splitter_sizes(sizes)
+        finally:
+            self._layer_splitter_sync_block = False
 
     def _on_compare_layer_overrides_changed(self, overrides):
         """레이어 도크에서 디자인 오버라이드 변경 시 플롯만 갱신. 상태는 도크가 이미 반영함."""
@@ -1877,6 +2253,13 @@ class ComparePlotPopup(BasePlotWindow):
             except Exception:
                 pass
             self._area_label_cursor_changed = False
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        if getattr(self, "_compare_layer_layout_inited", False):
+            return
+        self._compare_layer_layout_inited = True
+        QTimer.singleShot(0, self._init_compare_layer_dock_layout)
 
     def closeEvent(self, event):
         """창 종료 시 전역 필터/툴 상태를 정리한 뒤 부모 종료 로직을 호출합니다."""

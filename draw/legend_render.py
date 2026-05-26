@@ -94,7 +94,12 @@ def render_legend(
     x0, y0, x1, y1 = legend_box_axes_bounds(legend)
     alpha = 0.35 if getattr(legend, "semi", False) else 1.0
     trans = fig.transFigure
-    show_border = getattr(legend, "show_border", False)
+    show_border = bool(getattr(legend, "show_border", False))
+    # 예전에는 show_border 하나로 테두리+흰 배경을 함께 켰음.
+    if hasattr(legend, "show_fill"):
+        show_fill = bool(getattr(legend, "show_fill", False))
+    else:
+        show_fill = show_border
     box_w = x1 - x0
     box_h = y1 - y0
     n_entries = max(len(entries), 1)
@@ -103,29 +108,29 @@ def render_legend(
     font_size = float(getattr(legend, "font_size", 10.0)) * scale
     chrome = show_editor_chrome and selected
 
-    if show_border:
-        bg = Rectangle(
-            (x0, y0),
-            box_w,
-            box_h,
-            transform=trans,
-            facecolor=(1, 1, 1, 0.92 * alpha),
-            edgecolor="#D0D3D9" if not chrome else "#409EFF",
-            linewidth=0.5 if not chrome else 0.8,
-            zorder=200,
-            clip_on=False,
+    if show_fill or show_border or chrome:
+        fill_opacity = float(getattr(legend, "fill_opacity", 0.92))
+        fill_opacity = max(0.0, min(1.0, fill_opacity))
+        face = (
+            (1, 1, 1, fill_opacity * alpha) if show_fill else (1, 1, 1, 0)
         )
-        ax.add_patch(bg)
-        artists.append(bg)
-    elif chrome:
+        if show_border:
+            edge = "#409EFF" if chrome else "#D0D3D9"
+            lw = 0.8 if chrome else 0.5
+        elif chrome:
+            edge = "#409EFF"
+            lw = 0.8
+        else:
+            edge = "none"
+            lw = 0.0
         bg = Rectangle(
             (x0, y0),
             box_w,
             box_h,
             transform=trans,
-            facecolor=(1, 1, 1, 0),
-            edgecolor="#409EFF",
-            linewidth=0.8,
+            facecolor=face,
+            edgecolor=edge,
+            linewidth=lw,
             zorder=200,
             clip_on=False,
         )

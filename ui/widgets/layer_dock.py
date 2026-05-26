@@ -47,8 +47,10 @@ from ui.widgets.design_panel import (
     ColorPalette,
     _field_group,
     _wrap_marker_shape_bar,
+    _ell_fill_has_color,
 )
-from ui.widgets.collapsible_section import CollapsibleSection, AdvancedOptionsBlock
+from ui.widgets.collapsible_section import CollapsibleSection
+from ui.widgets.opacity_slider import DEFAULT_ELL_FILL_OPACITY, OpacitySliderRow
 from ui.widgets.segmented_control import create_line_preview_button_group
 from ui.widgets.draw_design_panel import DrawDesignPanel
 from ui.widgets.layer_data_model import LayerDataModel
@@ -234,6 +236,10 @@ class LayerDockWidget(QWidget):
         compare_mode=False,
         file_a_name="",
         file_b_name="",
+        file_a_label=None,
+        file_b_label=None,
+        file_a_tooltip=None,
+        file_b_tooltip=None,
         get_default_design=None,
     ):
         """state_key: None=단일 플롯, 'blue'/'red'=compare_plot 쪽 탭별 상태. compare_mode 시 레이어 탭 내에 파일 선택 행 표시.
@@ -245,6 +251,10 @@ class LayerDockWidget(QWidget):
         self._compare_mode = compare_mode
         self._file_a_name = file_a_name
         self._file_b_name = file_b_name
+        self._file_a_label = file_a_label
+        self._file_b_label = file_b_label
+        self._file_a_tooltip = file_a_tooltip
+        self._file_b_tooltip = file_b_tooltip
         self._get_default_design = get_default_design  # callable() -> dict | None
         self.label_manager = LabelManager(self.popup, state_key=self._state_key)
         self.draw_manager = DrawManager(self.popup)
@@ -424,12 +434,6 @@ class LayerDockWidget(QWidget):
         ell_line_color_layout.addWidget(self.ell_color_picker)
         ell_body.addLayout(ell_line_color_layout)
 
-        ell_advanced = AdvancedOptionsBlock(
-            panel_id="layer_design",
-            settings_key="ellipse_fill",
-            default_collapsed=True,
-            ui_font_name=self.ui_font_name,
-        )
         ell_fill_layout = _field_group("타원 내부 색상", font_normal)
         self.ell_fill_picker = ColorPalette(
             default_color="transparent",
@@ -437,8 +441,15 @@ class LayerDockWidget(QWidget):
             parent=self.vowel_design_container,
         )
         ell_fill_layout.addWidget(self.ell_fill_picker)
-        ell_advanced.body_layout().addLayout(ell_fill_layout)
-        ell_body.addWidget(ell_advanced)
+        self.ell_fill_opacity_row = OpacitySliderRow(
+            "내부 색상 불투명도",
+            font_normal,
+            default_percent=int(round(DEFAULT_ELL_FILL_OPACITY * 100)),
+            enabled=False,
+            parent=self.vowel_design_container,
+        )
+        ell_fill_layout.addWidget(self.ell_fill_opacity_row)
+        ell_body.addLayout(ell_fill_layout)
         top_layout.addWidget(sec_ellipse)
 
         top_layout.addStretch()
@@ -608,6 +619,9 @@ class LayerDockWidget(QWidget):
             )
         )
         self.ell_fill_picker.color_changed.connect(
+            lambda: self._sync_ell_fill_opacity_enabled()
+        )
+        self.ell_fill_picker.color_changed.connect(
             make_apply(
                 "ell_fill_color",
                 lambda: (
@@ -615,6 +629,12 @@ class LayerDockWidget(QWidget):
                     if self.ell_fill_picker.current_color != "transparent"
                     else None
                 ),
+            )
+        )
+        self.ell_fill_opacity_row.slider.valueChanged.connect(
+            make_apply(
+                "ell_fill_opacity",
+                lambda: self.ell_fill_opacity_row.get_opacity(),
             )
         )
         self.raw_color_picker.color_changed.connect(
@@ -645,6 +665,11 @@ class LayerDockWidget(QWidget):
         self.group_centroid_marker.buttonToggled.connect(on_centroid_toggled)
         self.group_ell_thick.buttonToggled.connect(on_ell_thick_toggled)
         self.group_ell_style.buttonToggled.connect(on_ell_style_toggled)
+
+    def _sync_ell_fill_opacity_enabled(self):
+        self.ell_fill_opacity_row.set_enabled(
+            _ell_fill_has_color(self.ell_fill_picker.current_color)
+        )
 
     def _get_current_filter_state(self):
         return self.data_model.get_filter_state()
@@ -1608,8 +1633,17 @@ class LayerDockWidget(QWidget):
 
     def set_splitter_sizes(self, sizes):
         """다중플롯에서 다른 도크와 스플리터 비율 동기화. sizes: [상단, 하단] 픽셀."""
-        if getattr(self, "_splitter", None) is not None and sizes and len(sizes) == 2:
-            self._splitter.setSizes(list(sizes))
+        sp = getattr(self, "_splitter", None)
+        if sp is None or not sizes or len(sizes) != 2:
+            return
+        normalized = [max(0, int(sizes[0])), max(0, int(sizes[1]))]
+        if list(sp.sizes()) == normalized:
+            return
+        sp.blockSignals(True)
+        try:
+            sp.setSizes(normalized)
+        finally:
+            sp.blockSignals(False)
 
     def _build_layer_row(self, vowel, state):
         row = _LayerRowFrame(self, vowel)
@@ -2128,6 +2162,10 @@ class LayerDockWidget(QWidget):
             settings["line_color"] = getattr(obj, "line_color", "#AAAAAA") or "#AAAAAA"
         elif layer_type == "legend":
             settings["show_border"] = getattr(obj, "show_border", False)
+            settings["show_fill"] = getattr(
+                obj, "show_fill", getattr(obj, "show_border", False)
+            )
+            settings["fill_opacity"] = float(getattr(obj, "fill_opacity", 0.92))
 
         if layer_type == "legend":
             self.popup.select_legend_object(layer_id)
@@ -2169,6 +2207,11 @@ class LayerDockWidget(QWidget):
         if base_type == "legend":
             if "show_border" in settings_for_apply:
                 base_obj.show_border = bool(settings_for_apply["show_border"])
+            if "show_fill" in settings_for_apply:
+                base_obj.show_fill = bool(settings_for_apply["show_fill"])
+            if "fill_opacity" in settings_for_apply:
+                opacity = float(settings_for_apply["fill_opacity"])
+                base_obj.fill_opacity = max(0.0, min(1.0, opacity))
             settings_for_summary = dict(settings_for_apply)
             self.draw_manager.set_draw_objects(objs)
             self.draw_manager.redraw()
@@ -2490,6 +2533,11 @@ class LayerDockWidget(QWidget):
                 self.ell_fill_picker.set_color(
                     o.get("ell_fill_color") or ds.get("ell_fill_color") or "transparent"
                 )
+                fill_opacity = o.get("ell_fill_opacity", ds.get("ell_fill_opacity"))
+                if fill_opacity is None:
+                    fill_opacity = DEFAULT_ELL_FILL_OPACITY
+                self.ell_fill_opacity_row.set_opacity(float(fill_opacity))
+                self._sync_ell_fill_opacity_enabled()
                 self.raw_color_picker.set_color(
                     o.get("raw_color") or ds.get("raw_color") or "#606060"
                 )
@@ -2504,6 +2552,9 @@ class LayerDockWidget(QWidget):
                 self.ell_fill_picker.set_color(
                     ds.get("ell_fill_color") or "transparent"
                 )
+                fill_opacity = ds.get("ell_fill_opacity", DEFAULT_ELL_FILL_OPACITY)
+                self.ell_fill_opacity_row.set_opacity(float(fill_opacity))
+                self._sync_ell_fill_opacity_enabled()
                 self.raw_color_picker.set_color(ds.get("raw_color") or "#606060")
         finally:
             self._updating = False
@@ -2521,6 +2572,8 @@ class LayerDockWidget(QWidget):
             return STYLE_LABELS.get(value, str(value))
         if key in ["ell_color", "ell_fill_color", "raw_color"]:
             return _format_color_display(value)
+        if key == "ell_fill_opacity":
+            return f"{int(round(float(value) * 100))}%"
         return str(value)[:20]
 
     def _effect_label(self, key):
@@ -2531,6 +2584,7 @@ class LayerDockWidget(QWidget):
             "ell_style": "타원 선 모양",
             "ell_color": "타원 선 색",
             "ell_fill_color": "타원 내부 색",
+            "ell_fill_opacity": "내부 색상 불투명도",
             "raw_color": "데이터 포인트 색상",
         }
         return labels.get(key, key)
@@ -2565,6 +2619,7 @@ class LayerDockWidget(QWidget):
                 "ell_style",
                 "ell_color",
                 "ell_fill_color",
+                "ell_fill_opacity",
                 "raw_color",
             ]:
                 if key not in o:

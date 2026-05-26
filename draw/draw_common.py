@@ -129,6 +129,8 @@ class LegendObject:
     height_frac: float = 0.14
     font_size: float = 10.0
     show_border: bool = False
+    show_fill: bool = False
+    fill_opacity: float = 0.92
     entries: list[LegendEntry] = field(default_factory=list)
     is_compare: bool = False
 

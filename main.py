@@ -1,4 +1,4 @@
-# main.py — 진입점
+﻿# main.py — 진입점
 
 import sys
 import platform
@@ -156,25 +156,24 @@ if __name__ == "__main__":
         pending_update_holder.append((version, url, notes))
         app_logger.debug(f"[Update] New version {version} detected and queued.")
 
+    def show_update_dialog(parent, version, url, notes):
+        from ui.dialogs.update_dialog import CustomUpdateDialog
+        from PySide6.QtWidgets import QDialog
+        from PySide6.QtGui import QDesktopServices
+        from PySide6.QtCore import QUrl
+
+        dlg = CustomUpdateDialog(parent, version, url, notes)
+        if dlg.exec() == QDialog.DialogCode.Accepted:
+            QDesktopServices.openUrl(QUrl(url))
+
     def show_update_dialog_if_pending():
         if not pending_update_holder:
             return
-
         try:
             version, url, notes = pending_update_holder[0]
-            from ui.dialogs.update_dialog import CustomUpdateDialog
-            from PySide6.QtWidgets import QDialog
-            from PySide6.QtGui import QDesktopServices
-            from PySide6.QtCore import QUrl
-
             parent = controller.ui if hasattr(controller, "ui") else None
-            dlg = CustomUpdateDialog(parent, version, url, notes)
-            if dlg.exec() == QDialog.DialogCode.Accepted:
-                QDesktopServices.openUrl(QUrl(url))
-
+            show_update_dialog(parent, version, url, notes)
         except Exception as e:
-            from utils import app_logger
-
             app_logger.debug(f"[UpdateUI] Failed to show custom dialog: {e}")
 
     # 시그널 연결
@@ -199,19 +198,18 @@ if __name__ == "__main__":
 
     # 4. 메인 컨트롤러 생성 및 실행 (사전 초기화된 객체 및 콜백 전달)
     from core.controller import MainController
+    from PySide6.QtCore import QTimer
 
     controller = MainController(
         startup_context=startup_context, status_callback=status_callback
     )
 
-    # 메인 윈도우가 준비되면 창을 띄우고 스플래시 종료
+    # 메인 윈도우가 뜬 뒤 이벤트 루프에서 업데이트 알림 표시
     if hasattr(controller, "ui") and controller.ui:
         controller.ui.show()
         splash.finish(controller.ui)
-        # 스플래시가 끝난 직후 (메인 창이 활성화된 상태) 알림창 띄움
-        show_update_dialog_if_pending()
     else:
         splash.close()
-        show_update_dialog_if_pending()
+    QTimer.singleShot(300, show_update_dialog_if_pending)
 
     sys.exit(app.exec())

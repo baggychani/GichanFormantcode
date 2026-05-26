@@ -67,4 +67,27 @@ def build_combined_entry(real_items: list[dict]) -> Optional[dict]:
         "df_original": df_orig_combined,
         "has_f3": has_f3,
         "is_combined": True,
+        "combined_source_names": [it.get("name", "") for it in real_items],
     }
+
+
+def build_compare_group_entry(real_items: list[dict]) -> Optional[dict]:
+    """Compare 한쪽(A/B) 그룹 — 1명이면 그 파일, 2명 이상이면 subset Combined."""
+    if not real_items:
+        return None
+    if len(real_items) == 1:
+        it = real_items[0]
+        df = it.get("df")
+        if not isinstance(df, pd.DataFrame) or df.empty:
+            return None
+        df_orig = it.get("df_original")
+        if not isinstance(df_orig, pd.DataFrame) or df_orig.empty:
+            df_orig = df
+        return {
+            "name": it.get("name", ""),
+            "df": df,
+            "df_original": df_orig,
+            "has_f3": bool(it.get("has_f3", False)),
+            "is_combined": False,
+        }
+    return build_combined_entry(real_items)

@@ -157,6 +157,8 @@ def create_legend_object(popup: Any, *, is_compare: bool) -> LegendObject:
         width_frac=width_frac,
         height_frac=height_frac,
         show_border=False,
+        show_fill=False,
+        fill_opacity=0.92,
         font_size=10.0,
     )
 

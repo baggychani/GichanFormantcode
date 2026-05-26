@@ -40,8 +40,10 @@ from ui.widgets.display_utils import (
     MAX_DISPLAY_NAME_LEN,
     strip_gichan_prefix,
 )
+from ui.dialogs.combined_members_dialog import add_compare_legend_name_widgets
 import ui.widgets.layout_constants as lc
 from ui.widgets.collapsible_section import CollapsibleSection, AdvancedOptionsBlock
+from ui.widgets.opacity_slider import DEFAULT_ELL_FILL_OPACITY, OpacitySliderRow, opacity_to_slider
 from core.compare_settings import pack_compare_design_settings
 from ui.widgets.segmented_control import (
     wrap_segmented_buttons,
@@ -65,6 +67,10 @@ def _field_group(caption: str, font: QFont) -> QVBoxLayout:
     group.setSpacing(lc.SPACING_CAPTION_TO_CONTROL_PX)
     group.addWidget(_field_caption(caption, font))
     return group
+
+
+def _ell_fill_has_color(color) -> bool:
+    return color not in (None, "transparent", "") and str(color).lower() != "transparent"
 
 
 def _wrap_marker_shape_bar(buttons, parent=None, *, columns: int = 4) -> QFrame:
@@ -637,19 +643,20 @@ class DesignSettingsPanel(QWidget):
         ell_line_color_layout.addWidget(self.ell_line_picker)
         ell_body.addLayout(ell_line_color_layout)
 
-        ell_advanced = AdvancedOptionsBlock(
-            panel_id="design",
-            settings_key="ellipse_fill",
-            default_collapsed=True,
-            ui_font_name=self.ui_font_name,
-        )
         ell_fill_color_layout = _field_group("타원 내부 색상", font_normal)
         self.ell_fill_picker = ColorPalette(
             default_color="transparent", allow_transparent=True, parent=self
         )
         ell_fill_color_layout.addWidget(self.ell_fill_picker)
-        ell_advanced.body_layout().addLayout(ell_fill_color_layout)
-        ell_body.addWidget(ell_advanced)
+        self.ell_fill_opacity_row = OpacitySliderRow(
+            "내부 색상 불투명도",
+            font_normal,
+            default_percent=opacity_to_slider(DEFAULT_ELL_FILL_OPACITY),
+            enabled=False,
+            parent=self,
+        )
+        ell_fill_color_layout.addWidget(self.ell_fill_opacity_row)
+        ell_body.addLayout(ell_fill_color_layout)
 
         layout.addWidget(sec_ellipse)
         self._add_separator(layout)
@@ -795,7 +802,14 @@ class DesignSettingsPanel(QWidget):
         self.lbl_color_picker.color_changed.connect(self._on_setting_changed)
         self.raw_color_picker.color_changed.connect(self._on_setting_changed)
         self.ell_line_picker.color_changed.connect(self._on_setting_changed)
+        self.ell_fill_picker.color_changed.connect(self._sync_ell_fill_opacity_enabled)
         self.ell_fill_picker.color_changed.connect(self._on_setting_changed)
+        self.ell_fill_opacity_row.slider.valueChanged.connect(self._on_setting_changed)
+
+    def _sync_ell_fill_opacity_enabled(self, *_args):
+        self.ell_fill_opacity_row.set_enabled(
+            _ell_fill_has_color(self.ell_fill_picker.current_color)
+        )
 
     def _on_setting_changed(self, *args):
         if self._is_loading:
@@ -824,6 +838,8 @@ class DesignSettingsPanel(QWidget):
 
         self.ell_line_picker.set_color("#606060")
         self.ell_fill_picker.set_color("transparent")
+        self.ell_fill_opacity_row.set_opacity(DEFAULT_ELL_FILL_OPACITY)
+        self._sync_ell_fill_opacity_enabled()
 
         self.sw_axis_position_swap.setChecked(False)
         self.sw_y_label_rotation.setChecked(False)
@@ -882,6 +898,7 @@ class DesignSettingsPanel(QWidget):
             "ell_style": style_map.get(self.group_ell_style.checkedId(), "--"),
             "ell_color": line_color if line_color != "transparent" else None,
             "ell_fill_color": fill_color if fill_color != "transparent" else None,
+            "ell_fill_opacity": self.ell_fill_opacity_row.get_opacity(),
             "axis_position_swap": self.sw_axis_position_swap.isChecked(),
             "y_label_rotation": self.sw_y_label_rotation.isChecked(),
             "box_spines": self.sw_box_spines.isChecked(),
@@ -907,11 +924,17 @@ class CompareDesignSettingsPanel(QWidget):
         parent=None,
         ui_font_name="Malgun Gothic",
         is_normalized=False,
+        legend_meta_blue=None,
+        legend_meta_red=None,
     ):
         super().__init__(parent)
         self.ui_font_name = ui_font_name
         self.name_blue = name_blue
         self.name_red = name_red
+        self._legend_meta = {
+            "blue": legend_meta_blue,
+            "red": legend_meta_red,
+        }
         self._is_loading = True
         self._is_normalized = is_normalized
 
@@ -948,9 +971,15 @@ class CompareDesignSettingsPanel(QWidget):
         font_normal = QFont(self.ui_font_name, 9)
 
         # 0. 데이터 범례 (현재 탭 파일명)
-        file_name = self.name_blue if series == "blue" else self.name_red
-        clean_name = os.path.splitext(file_name)[0]
-        display_name = truncate_display_name(clean_name, MAX_DISPLAY_NAME_LEN)
+        meta = self._legend_meta.get(series)
+        if meta:
+            display_name, tooltip, members = meta
+        else:
+            file_name = self.name_blue if series == "blue" else self.name_red
+            clean_name = os.path.splitext(strip_gichan_prefix(file_name))[0]
+            display_name = truncate_display_name(clean_name, MAX_DISPLAY_NAME_LEN)
+            tooltip = clean_name
+            members = None
         legend_row = QHBoxLayout()
         legend_row.setContentsMargins(0, 0, 0, 8)
         legend_row.setSpacing(6)
@@ -960,15 +989,18 @@ class CompareDesignSettingsPanel(QWidget):
         lbl_a = QLabel("a")
         lbl_a.setFont(font_bold)
         lbl_a.setStyleSheet(f"color: {default_color};")
-        lbl_name = QLabel(display_name)
-        lbl_name.setFont(font_normal)
-        lbl_name.setStyleSheet("color: #333333;")
-        lbl_name.setToolTip(clean_name)
-        lbl_name.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred)
         legend_row.addWidget(icon_lbl)
         legend_row.addWidget(lbl_a)
         legend_row.addSpacing(8)
-        legend_row.addWidget(lbl_name, stretch=1)
+        add_compare_legend_name_widgets(
+            legend_row,
+            display_name=display_name,
+            tooltip=tooltip,
+            member_names=members,
+            font=font_normal,
+            dialog_parent=self.window(),
+            ui_font_name=self.ui_font_name,
+        )
         layout.addLayout(legend_row)
 
         # 1. 라벨과 중심점 설정
@@ -1125,19 +1157,20 @@ class CompareDesignSettingsPanel(QWidget):
         ell_line_color_layout.addWidget(ell_line_picker)
         ell_body.addLayout(ell_line_color_layout)
 
-        ell_advanced = AdvancedOptionsBlock(
-            panel_id="compare_design",
-            settings_key=f"ellipse_fill_{series}",
-            default_collapsed=True,
-            ui_font_name=self.ui_font_name,
-        )
         ell_fill_color_layout = _field_group("타원 내부 색상", font_normal)
         ell_fill_picker = ColorPalette(
             default_color="transparent", allow_transparent=True, parent=self
         )
         ell_fill_color_layout.addWidget(ell_fill_picker)
-        ell_advanced.body_layout().addLayout(ell_fill_color_layout)
-        ell_body.addWidget(ell_advanced)
+        ell_fill_opacity_row = OpacitySliderRow(
+            "내부 색상 불투명도",
+            font_normal,
+            default_percent=opacity_to_slider(DEFAULT_ELL_FILL_OPACITY),
+            enabled=False,
+            parent=self,
+        )
+        ell_fill_color_layout.addWidget(ell_fill_opacity_row)
+        ell_body.addLayout(ell_fill_color_layout)
 
         layout.addWidget(sec_ellipse)
         layout.addStretch()
@@ -1155,6 +1188,7 @@ class CompareDesignSettingsPanel(QWidget):
             "group_ell_style": group_ell_style,
             "ell_line_picker": ell_line_picker,
             "ell_fill_picker": ell_fill_picker,
+            "ell_fill_opacity_row": ell_fill_opacity_row,
             "raw_color_picker": raw_color_picker,
         }
         return tab_widget, controls
@@ -1492,13 +1526,24 @@ class CompareDesignSettingsPanel(QWidget):
             ctrl["group_ell_style"].buttonToggled.connect(self._on_setting_changed)
             ctrl["lbl_color_picker"].color_changed.connect(self._on_setting_changed)
             ctrl["ell_line_picker"].color_changed.connect(self._on_setting_changed)
+            ctrl["ell_fill_picker"].color_changed.connect(
+                lambda *_a, c=ctrl: self._sync_compare_ell_fill_opacity(c)
+            )
             ctrl["ell_fill_picker"].color_changed.connect(self._on_setting_changed)
+            ctrl["ell_fill_opacity_row"].slider.valueChanged.connect(
+                self._on_setting_changed
+            )
             ctrl["raw_color_picker"].color_changed.connect(self._on_setting_changed)
         self.ctrl_blue["ell_line_picker"].color_changed.connect(
             self._update_compare_tab_text_colors
         )
         self.ctrl_red["ell_line_picker"].color_changed.connect(
             self._update_compare_tab_text_colors
+        )
+
+    def _sync_compare_ell_fill_opacity(self, ctrl):
+        ctrl["ell_fill_opacity_row"].set_enabled(
+            _ell_fill_has_color(ctrl["ell_fill_picker"].current_color)
         )
 
     def _update_compare_tab_text_colors(self):
@@ -1565,7 +1610,9 @@ class CompareDesignSettingsPanel(QWidget):
         self.ctrl_blue["group_ell_style"].button(0).setChecked(True)  # 실선
         self.ctrl_blue["ell_line_picker"].set_color(config.COLOR_PRIMARY_BLUE)
         self.ctrl_blue["ell_fill_picker"].set_color("transparent")
+        self.ctrl_blue["ell_fill_opacity_row"].set_opacity(DEFAULT_ELL_FILL_OPACITY)
         self.ctrl_blue["raw_color_picker"].set_color("#606060")
+        self._sync_compare_ell_fill_opacity(self.ctrl_blue)
 
         # Red 초기화
         self.ctrl_red["lbl_color_picker"].set_color(config.COLOR_PRIMARY_RED)
@@ -1577,7 +1624,9 @@ class CompareDesignSettingsPanel(QWidget):
         self.ctrl_red["group_ell_style"].button(1).setChecked(True)  # 긴 점선
         self.ctrl_red["ell_line_picker"].set_color(config.COLOR_PRIMARY_RED)
         self.ctrl_red["ell_fill_picker"].set_color("transparent")
+        self.ctrl_red["ell_fill_opacity_row"].set_opacity(DEFAULT_ELL_FILL_OPACITY)
         self.ctrl_red["raw_color_picker"].set_color("#606060")
+        self._sync_compare_ell_fill_opacity(self.ctrl_red)
 
         self._is_loading = False
         self._on_setting_changed()
@@ -1619,6 +1668,7 @@ class CompareDesignSettingsPanel(QWidget):
             "ell_style": ell_style,
             "ell_color": line_color if line_color != "transparent" else None,
             "ell_fill_color": fill_color if fill_color != "transparent" else None,
+            "ell_fill_opacity": ctrl["ell_fill_opacity_row"].get_opacity(),
             "raw_color": ctrl["raw_color_picker"].current_color,
         }
 

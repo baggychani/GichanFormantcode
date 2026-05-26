@@ -48,7 +48,7 @@ from utils.math_utils import (
     nearey1_normalization,
     to_phonetic_vowel,
 )
-from model.combined_dataset import build_combined_entry
+from model.combined_dataset import build_combined_entry, build_compare_group_entry
 from model.formant_txt_export import formant_dataframe_to_txt
 from .workers import BatchSaveWorker
 from utils import path_prefs
@@ -103,6 +103,8 @@ class MainController:
         # PySide6에서는 팝업 창이 가비지 컬렉터(GC)에 의해 증발하는 것을
         # 막기 위해 리스트에 참조를 보관해야 합니다.
         self.open_popups = []
+        self._compare_virtual_items: dict[int, dict] = {}
+        self._compare_virtual_next_id = -1
 
         self.ruler_tool = RulerTool()
         self.label_move_tool = None  # LabelMoveTool: 단일 플롯 팝업에서만 생성
@@ -630,6 +632,7 @@ class MainController:
             "ell_style": ":",
             "ell_color": "#606060",
             "ell_fill_color": None,
+            "ell_fill_opacity": 0.15,
             "box_spines": False,
             "show_grid": False,
             "y_label_rotation": False,
@@ -1031,10 +1034,36 @@ class MainController:
         self, current_idx, target_idx, normalization=None, parent_window=None
     ):
         """선택된 두 데이터로 다중 비교 시각화 창(ComparePlotPopup)을 생성합니다."""
-        self.open_compare_plot_for_indices(
-            [current_idx, target_idx],
+        self.open_compare_plot_for_groups(
+            [current_idx],
+            [target_idx],
             normalization=normalization,
             parent_window=parent_window,
+        )
+
+    def open_compare_plot_for_groups(
+        self,
+        left_indices: list[int],
+        right_indices: list[int],
+        normalization=None,
+        parent_window=None,
+    ):
+        """양쪽 그룹(각 1~N 파일)을 combine한 뒤 compare 창을 연다."""
+        left_item = self.build_compare_group_from_indices(left_indices)
+        right_item = self.build_compare_group_from_indices(right_indices)
+        if left_item is None or right_item is None:
+            (parent_window or self.ui).show_warning(
+                "비교 불가",
+                "선택한 그룹에서 비교할 데이터를 만들 수 없습니다.",
+            )
+            return
+        idx_left = self.register_compare_virtual_item(left_item)
+        idx_right = self.register_compare_virtual_item(right_item)
+        self.open_compare_plot_for_indices(
+            [idx_left, idx_right],
+            normalization=normalization,
+            parent_window=parent_window,
+            virtual_indices=(idx_left, idx_right),
         )
 
     def open_compare_plot_for_indices(
@@ -1042,6 +1071,8 @@ class MainController:
         indices: list[int],
         normalization=None,
         parent_window=None,
+        *,
+        virtual_indices: tuple[int, ...] | None = None,
     ):
         """N개 데이터 인덱스로 compare 창을 연다. UI 탭은 0·1번만, 렌더는 session 전체."""
         if len(indices) < 2:
@@ -1073,6 +1104,13 @@ class MainController:
             )
             popup.compare_session = session
             popup.fixed_plot_params = self._get_current_plot_params()
+            if virtual_indices:
+                popup._compare_virtual_indices = tuple(virtual_indices)
+                popup.destroyed.connect(
+                    lambda *_args, v=tuple(virtual_indices): self._release_compare_virtual_indices(
+                        v
+                    )
+                )
 
             if not normalization:
                 f1_scale = popup.fixed_plot_params.get("f1_scale", "linear")
@@ -1975,9 +2013,41 @@ class MainController:
 
     def get_data_item_at(self, index):
         """지정 인덱스의 데이터 항목. 범위 밖이면 None."""
+        if index in self._compare_virtual_items:
+            return self._compare_virtual_items[index]
         if index < 0 or index >= len(self.plot_data_list):
             return None
         return self.plot_data_list[index]
+
+    def register_compare_virtual_item(self, item: dict) -> int:
+        """Compare 전용 임시 항목 — plot_data_list에 넣지 않고 음수 인덱스로 등록."""
+        idx = self._compare_virtual_next_id
+        self._compare_virtual_next_id -= 1
+        self._compare_virtual_items[idx] = item
+        return idx
+
+    def _release_compare_virtual_indices(self, indices: tuple[int, ...]) -> None:
+        for idx in indices:
+            self._compare_virtual_items.pop(idx, None)
+
+    def build_compare_group_from_indices(self, indices: list[int]) -> dict | None:
+        items = []
+        for i in indices:
+            if i < 0 or i >= len(self.plot_data_list):
+                continue
+            it = self.plot_data_list[i]
+            if it.get("is_combined"):
+                continue
+            items.append(it)
+        return build_compare_group_entry(items)
+
+    def get_compare_file_list(self):
+        """비교 선택 UI용 — Combined 제외 전체 real 파일 [(idx, name), ...]."""
+        return [
+            (i, item["name"])
+            for i, item in enumerate(self.plot_data_list)
+            if not item.get("is_combined")
+        ]
 
     def set_current_index(self, index):
         """현재 선택 인덱스 설정(네비게이션 등). 범위 내로 클램프."""

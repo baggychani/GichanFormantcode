@@ -90,6 +90,7 @@ class PlotEngine:
             "ell_style": "--",
             "ell_color": "#606060",
             "ell_fill_color": None,
+            "ell_fill_opacity": 0.15,
             "box_spines": False,
             "show_grid": False,
             "y_label_rotation": False,
@@ -278,6 +279,7 @@ class PlotEngine:
         ell_style = design_settings.get("ell_style", "--")
         ell_color = design_settings.get("ell_color", "#606060")
         ell_fill = design_settings.get("ell_fill_color", None)
+        ell_fill_opacity = design_settings.get("ell_fill_opacity", None)
         centroid_marker = design_settings.get("centroid_marker", "o")
 
         box_spines = design_settings.get("box_spines", False)
@@ -331,6 +333,7 @@ class PlotEngine:
             v_ell_style = eff.get("ell_style", ell_style)
             v_ell_color = eff.get("ell_color", ell_color)
             v_ell_fill = eff.get("ell_fill_color", ell_fill)
+            v_ell_fill_opacity = eff.get("ell_fill_opacity", ell_fill_opacity)
             v_centroid_marker = eff.get("centroid_marker", centroid_marker)
             v_raw_marker = eff.get("raw_marker", design_settings.get("raw_marker", "o"))
             v_raw_color = self._resolve_plot_color(
@@ -408,11 +411,9 @@ class PlotEngine:
                         )
 
             if len(subset) >= 3 and (v_ell_color or v_ell_fill):
-                fc = mcolors.to_rgba(v_ell_fill, 0.15) if v_ell_fill else "none"
+                fc = self._resolve_ell_fill_rgba(v_ell_fill, v_ell_fill_opacity)
                 ec = mcolors.to_rgba(v_ell_color, 1.0) if v_ell_color else "none"
                 if is_semi:
-                    if v_ell_fill:
-                        fc = mcolors.to_rgba(v_ell_fill, 0.05)
                     if v_ell_color:
                         ec = mcolors.to_rgba(v_ell_color, 0.2)
 
@@ -898,6 +899,9 @@ class PlotEngine:
                     cfg.get("ell_color", default_color),
                 )
                 ell_fill = cfg_v.get("ell_fill_color", cfg.get("ell_fill_color", None))
+                ell_fill_opacity = cfg_v.get(
+                    "ell_fill_opacity", cfg.get("ell_fill_opacity", None)
+                )
                 point_color = self._resolve_plot_color(
                     cfg_v.get("raw_color", cfg.get("raw_color")),
                     default_color,
@@ -970,12 +974,10 @@ class PlotEngine:
 
                 if len(subset) >= 3 and (ell_color or ell_fill):
                     z_offset = -10 if is_semi else 0
-                    fc = mcolors.to_rgba(ell_fill, 0.15) if ell_fill else "none"
+                    fc = self._resolve_ell_fill_rgba(ell_fill, ell_fill_opacity)
                     ec = mcolors.to_rgba(ell_color, 1.0) if ell_color else "none"
 
                     if is_semi:
-                        if ell_fill:
-                            fc = mcolors.to_rgba(ell_fill, 0.05)
                         if ell_color:
                             ec = mcolors.to_rgba(ell_color, 0.2)
 
@@ -1408,6 +1410,7 @@ class PlotEngine:
         ell_style = design_settings.get("ell_style", "--")
         ell_color = design_settings.get("ell_color", "#606060")
         ell_fill = design_settings.get("ell_fill_color", None)
+        ell_fill_opacity = design_settings.get("ell_fill_opacity", None)
         centroid_marker = design_settings.get("centroid_marker", "o")
         box_spines = design_settings.get("box_spines", False)
         show_grid = design_settings.get("show_grid", False)
@@ -1540,6 +1543,7 @@ class PlotEngine:
             v_ell_style = eff.get("ell_style", ell_style)
             v_ell_color = eff.get("ell_color", ell_color)
             v_ell_fill = eff.get("ell_fill_color", ell_fill)
+            v_ell_fill_opacity = eff.get("ell_fill_opacity", ell_fill_opacity)
             v_centroid_marker = eff.get("centroid_marker", centroid_marker)
             v_raw_marker = eff.get("raw_marker", design_settings.get("raw_marker", "o"))
             v_raw_color = self._resolve_plot_color(
@@ -1610,11 +1614,9 @@ class PlotEngine:
                         )
 
             if len(subset) >= 3 and (v_ell_color or v_ell_fill):
-                fc = mcolors.to_rgba(v_ell_fill, 0.15) if v_ell_fill else "none"
+                fc = self._resolve_ell_fill_rgba(v_ell_fill, v_ell_fill_opacity)
                 ec = mcolors.to_rgba(v_ell_color, 1.0) if v_ell_color else "none"
                 if is_semi:
-                    if v_ell_fill:
-                        fc = mcolors.to_rgba(v_ell_fill, 0.05)
                     if v_ell_color:
                         ec = mcolors.to_rgba(v_ell_color, 0.2)
                 self._draw_confidence_ellipse(
@@ -1948,6 +1950,7 @@ class PlotEngine:
                 ell_style = cfg_v.get("ell_style", default_ell_style)
                 ell_thick = cfg_v.get("ell_thick", 1.0)
                 ell_fill = cfg_v.get("ell_fill_color", None)
+                ell_fill_opacity = cfg_v.get("ell_fill_opacity", None)
                 centroid_marker = cfg_v.get("centroid_marker", "o")
                 lbl_size = cfg_v.get("lbl_size", 16)
                 lbl_bold = "bold" if cfg_v.get("lbl_bold", True) else "normal"
@@ -2007,7 +2010,7 @@ class PlotEngine:
                             )
                             t.set_fontfamily(font_family)
                 if len(subset) >= 3:
-                    fc = mcolors.to_rgba(ell_fill, 0.15) if ell_fill else "none"
+                    fc = self._resolve_ell_fill_rgba(ell_fill, ell_fill_opacity)
                     ec = mcolors.to_rgba(ell_color, 1.0) if ell_color else "none"
                     if is_semi and ell_color:
                         ec = mcolors.to_rgba(ell_color, 0.2)
@@ -2456,6 +2459,14 @@ class PlotEngine:
     def normalized_x_axis_label(plot_type):
         """정규화 플롯 UI·참조선 도구용 X축 표시 이름 (데이터 열은 여전히 F1/F2/F3 기반 정규화)."""
         return config.PLOT_X_AXIS_LABEL_NORMALIZED.get(plot_type, "nF2")
+
+    @staticmethod
+    def _resolve_ell_fill_rgba(fill_color, fill_opacity=None):
+        if not fill_color:
+            return "none"
+        alpha = float(fill_opacity if fill_opacity is not None else 0.15)
+        alpha = max(0.0, min(1.0, alpha))
+        return mcolors.to_rgba(fill_color, alpha)
 
     def _draw_confidence_ellipse(self, x, y, ax, n_std=2.0, **kwargs):
         try:

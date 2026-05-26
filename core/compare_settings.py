@@ -24,6 +24,7 @@ def _default_series_cfg(series_id: int) -> dict[str, Any]:
         "ell_style": default_series_ell_style(series_id),
         "ell_color": color,
         "ell_fill_color": None,
+        "ell_fill_opacity": 0.15,
         "raw_color": "#606060",
         "centroid_marker": "o",
     }

@@ -11,7 +11,7 @@ GichanFormant 전역 설정 (Configuration)
 # =============================================================================
 # 1. 프로그램 기본 정보 (App Info)
 # =============================================================================
-APP_VERSION = "2.3.7"
+APP_VERSION = "2.3.7.1"
 APP_TITLE = f"GichanFormant v{APP_VERSION}"
 AUTHOR = "Bae Gichan"
 COPYRIGHT_TEXT = f"Copyright © 2026 {AUTHOR}. All rights reserved."
@@ -109,8 +109,8 @@ PREVIEW_CFG = {
 # 3. 다이얼로그 크기 (compare_plot / popup_plot 공통으로 참조)
 # =============================================================================
 # 비교 대상 선택 다이얼로그 (compare_plot.SelectCompareDialog)
-DIALOG_SELECT_COMPARE_WIDTH_PX = 380
-DIALOG_SELECT_COMPARE_HEIGHT_PX = 450
+DIALOG_SELECT_COMPARE_WIDTH_PX = 640
+DIALOG_SELECT_COMPARE_HEIGHT_PX = 540
 
 # 일괄 저장 설정 다이얼로그 (popup_plot.BatchSaveOptionsDialog)
 DIALOG_BATCH_SAVE_WIDTH_PX = 460
