@@ -70,6 +70,7 @@ jobs:
         uses: actions/upload-artifact@v6
         with:
           name: version-metadata
+          retention-days: 1
           path: |
             config.py
             GichanFormant.iss
@@ -165,6 +166,7 @@ jobs:
       - uses: actions/upload-artifact@v6
         with:
           name: windows-release
+          retention-days: 1
           path: |
             release/GichanFormant_v*_Setup.exe
             GichanFormant-windows-x64-portable-v*.zip
@@ -214,6 +216,7 @@ jobs:
       - uses: actions/upload-artifact@v6
         with:
           name: ${{ matrix.artifact }}-release
+          retention-days: 1
           path: ${{ matrix.artifact }}-v*.zip
 
   publish-deploy:
@@ -305,3 +308,31 @@ jobs:
           generate_release_notes: true
           files: dist-upload/**/*
           fail_on_unmatched_files: true
+
+  cleanup-artifacts:
+    name: Delete workflow artifacts
+    needs: [build-windows, build-macos, publish-deploy, publish-code-repo]
+    if: >-
+      always() &&
+      needs.build-windows.result == 'success' &&
+      needs.build-macos.result == 'success' &&
+      needs.publish-deploy.result != 'failure' &&
+      needs.publish-code-repo.result != 'failure'
+    runs-on: ubuntu-latest
+    permissions:
+      actions: write
+    steps:
+      - name: Remove Actions artifacts for this run
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          ids=$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}/artifacts" --paginate -q '.artifacts[].id')
+          if [ -z "$ids" ]; then
+            echo "No artifacts to delete."
+            exit 0
+          fi
+          for id in $ids; do
+            echo "Deleting artifact ${id}"
+            gh api --method DELETE "repos/${GITHUB_REPOSITORY}/actions/artifacts/${id}"
+          done
