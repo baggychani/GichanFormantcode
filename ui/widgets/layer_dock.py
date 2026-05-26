@@ -10,7 +10,6 @@ from PySide6.QtWidgets import (
     QWidget,
     QVBoxLayout,
     QHBoxLayout,
-    QLabel,
     QPushButton,
     QScrollArea,
     QFrame,
@@ -29,7 +28,7 @@ from PySide6.QtCore import (
     QEasingCurve,
     QTimer,
 )
-from PySide6.QtGui import QFont, QFontMetrics
+from PySide6.QtGui import QFont
 
 import config
 from utils import app_logger
@@ -62,6 +61,8 @@ from ui.widgets.layer_row_widgets import (
     _RowClickForwarder,
     _LayerRowFrame,
     _DrawLayerRowFrame,
+    _ElidingLabel,
+    _ElidingPushButton,
 )
 from ui.widgets.tab_label_view import create_label_tab
 from ui.widgets.tab_draw_view import create_draw_tab
@@ -1046,6 +1047,10 @@ class LayerDockWidget(QWidget):
 
         col_name = QFrame()
         col_name.setStyleSheet("border: none; background: transparent;")
+        col_name.setSizePolicy(
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed
+        )
+        col_name.setMinimumWidth(0)
         name_layout = QHBoxLayout(col_name)
         name_layout.setContentsMargins(8, 0, 4, 0)
         name_layout.setSpacing(4)
@@ -1059,18 +1064,7 @@ class LayerDockWidget(QWidget):
                 "normalization"
             ),
         )
-        name_btn = QPushButton()
-        name_btn.setFont(font_name)
-        _elide_width = 200
-        name_btn.setText(
-            QFontMetrics(font_name).elidedText(
-                full_name, Qt.TextElideMode.ElideRight, _elide_width
-            )
-        )
-        name_btn.setToolTip("")
-        name_btn.setSizePolicy(
-            QSizePolicy.Policy.MinimumExpanding, QSizePolicy.Policy.Fixed
-        )
+        name_btn = _ElidingPushButton(full_name, font=font_name)
         name_btn.setMinimumWidth(30)
         name_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         name_btn.setStyleSheet(
@@ -1762,16 +1756,16 @@ class LayerDockWidget(QWidget):
         # 3. 레이어 이름 & 확장 (Name) 열
         col_name = QFrame()
         col_name.setStyleSheet("border: none; background: transparent;")
+        col_name.setSizePolicy(
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed
+        )
+        col_name.setMinimumWidth(0)
         name_layout = QHBoxLayout(col_name)
         name_layout.setContentsMargins(8, 0, 4, 0)
         name_layout.setSpacing(4)
 
         font_name = QFont(self.ui_font_name, 10, QFont.Weight.Bold)
-        name_btn = QPushButton(vowel)
-        name_btn.setFont(font_name)
-        name_btn.setSizePolicy(
-            QSizePolicy.Policy.MinimumExpanding, QSizePolicy.Policy.Fixed
-        )
+        name_btn = _ElidingPushButton(vowel, font=font_name)
         name_btn.setMinimumWidth(30)
         name_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         name_btn.setStyleSheet(
@@ -2106,11 +2100,7 @@ class LayerDockWidget(QWidget):
                                 getattr(self.popup, "fixed_plot_params", None) or {}
                             ).get("normalization"),
                         )
-                        row.name_btn.setText(
-                            QFontMetrics(row.name_btn.font()).elidedText(
-                                full_name, Qt.TextElideMode.ElideRight, 200
-                            )
-                        )
+                        row.name_btn.setFullText(full_name)
                         row.name_btn.setChecked(is_selected)
                     if hasattr(row, "eye_btn"):
                         row.eye_btn.blockSignals(True)
@@ -2792,6 +2782,30 @@ class LayerDockWidget(QWidget):
         }
         return labels.get(key, key)
 
+    def _make_effect_property_row(
+        self, text: str, font: QFont, on_remove
+    ) -> QWidget:
+        eff_row = QHBoxLayout()
+        eff_row.setContentsMargins(0, 0, 0, 0)
+        eff_row.setSpacing(4)
+        lbl = _ElidingLabel(text, font=font)
+        lbl.setStyleSheet("color: #606266;")
+        x_btn = QPushButton("✕")
+        x_btn.setFixedSize(18, 18)
+        x_btn.setStyleSheet(
+            "QPushButton { border: none; color: #909399; font-size: 11px; }"
+            "QPushButton:hover { color: #E64A19; }"
+        )
+        x_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        x_btn.clicked.connect(on_remove)
+        eff_row.addWidget(lbl, 1)
+        eff_row.addWidget(x_btn, 0)
+        w = QWidget()
+        w.setFixedHeight(24)
+        w.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Fixed)
+        w.setLayout(eff_row)
+        return w
+
     def _rebuild_effects(self):
         overrides = self._get_layer_overrides()
         font_effect = QFont(self.ui_font_name, 8)
@@ -2835,25 +2849,12 @@ class LayerDockWidget(QWidget):
                     )
                     row.effects_layout.addWidget(sep)
                 first = False
-                eff_row = QHBoxLayout()
-                eff_row.setContentsMargins(0, 0, 0, 0)
-                eff_row.setSpacing(4)
-                lbl = QLabel(
-                    f"  {self._effect_label(key)}: {self._effect_display_text(key, o[key])}",
-                    font=font_effect,
+                effect_text = (
+                    f"  {self._effect_label(key)}: "
+                    f"{self._effect_display_text(key, o[key])}"
                 )
-                lbl.setStyleSheet("color: #606266;")
-                eff_row.addWidget(lbl, alignment=Qt.AlignmentFlag.AlignVCenter)
-                eff_row.addStretch()
-                x_btn = QPushButton("✕")
-                x_btn.setFixedSize(18, 18)
-                x_btn.setStyleSheet(
-                    "QPushButton { border: none; color: #909399; font-size: 11px; } QPushButton:hover { color: #E64A19; }"
-                )
-                x_btn.setCursor(Qt.CursorShape.PointingHandCursor)
                 k, v = key, vowel
 
-                # 버그 수정 반영: (checked=False 추가)
                 def remove_key(checked=False, kk=k, vv=v):
                     if self.tab_widget.currentIndex() != 0:
                         return
@@ -2880,12 +2881,11 @@ class LayerDockWidget(QWidget):
                     self._rebuild_effects()
                     self.label_manager.notify_apply()
 
-                x_btn.clicked.connect(remove_key)
-                eff_row.addWidget(x_btn)
-                w = QWidget()
-                w.setFixedHeight(24)
-                w.setLayout(eff_row)
-                row.effects_layout.addWidget(w)
+                row.effects_layout.addWidget(
+                    self._make_effect_property_row(
+                        effect_text, font_effect, remove_key
+                    )
+                )
 
     def _rebuild_draw_effects(self):
         """그리기 레이어용 효과 요약 줄 (선/영역/참조선 디자인 설정)."""
@@ -3008,34 +3008,17 @@ class LayerDockWidget(QWidget):
                     row.effects_layout.addWidget(sep)
                 first = False
 
-                eff_row = QHBoxLayout()
-                eff_row.setContentsMargins(0, 0, 0, 0)
-                eff_row.setSpacing(4)
-                lbl = QLabel(
-                    f"  {effect_label(key)}: {effect_text(key, val)}",
-                    font=font_effect,
-                )
-                lbl.setStyleSheet("color: #606266;")
-                eff_row.addWidget(lbl, alignment=Qt.AlignmentFlag.AlignVCenter)
-                eff_row.addStretch()
-                x_btn = QPushButton("✕")
-                x_btn.setFixedSize(18, 18)
-                x_btn.setStyleSheet(
-                    "QPushButton { border: none; color: #909399; font-size: 11px; }"
-                    "QPushButton:hover { color: #E64A19; }"
-                )
-                x_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+                line_text = f"  {effect_label(key)}: {effect_text(key, val)}"
                 lid, kk = layer_id, key
 
                 def remove_key(checked=False, layer_id=lid, effect_key=kk):
                     self._remove_draw_effect_override(layer_id, effect_key)
 
-                x_btn.clicked.connect(remove_key)
-                eff_row.addWidget(x_btn)
-                w = QWidget()
-                w.setFixedHeight(24)
-                w.setLayout(eff_row)
-                row.effects_layout.addWidget(w)
+                row.effects_layout.addWidget(
+                    self._make_effect_property_row(
+                        line_text, font_effect, remove_key
+                    )
+                )
 
     def _reset_layers_for_current_file(self):
         locked_set = self.label_manager.prune_to_locked_only_for_current_file()

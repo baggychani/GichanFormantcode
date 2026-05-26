@@ -3,10 +3,72 @@ from __future__ import annotations
 import json
 
 from PySide6.QtCore import QByteArray, QEvent, QMimeData, QObject, QPointF, Qt
-from PySide6.QtGui import QColor, QDrag, QPainter, QPen
-from PySide6.QtWidgets import QFrame, QWidget
+from PySide6.QtGui import QColor, QDrag, QFont, QFontMetrics, QPainter, QPen
+from PySide6.QtWidgets import QFrame, QLabel, QPushButton, QSizePolicy, QWidget
 
 from ui.widgets.layer_logic import DRAW_ROW_MIME_TYPE, LAYER_ROW_MIME_TYPE
+
+
+class _ElidingLabel(QLabel):
+    """도크 폭을 넘지 않도록 … 로 잘라 표시하는 라벨."""
+
+    def __init__(self, text: str = "", font: QFont | None = None, parent=None):
+        super().__init__(parent)
+        if font is not None:
+            self.setFont(font)
+        self._full_text = text
+        self.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Fixed)
+        self.setMinimumWidth(0)
+        self.setToolTip(text.strip() if text else "")
+        self._update_elide()
+
+    def setFullText(self, text: str) -> None:
+        self._full_text = text
+        self.setToolTip(text.strip() if text else "")
+        self._update_elide()
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self._update_elide()
+
+    def _update_elide(self) -> None:
+        width = max(1, self.width())
+        self.setText(
+            QFontMetrics(self.font()).elidedText(
+                self._full_text, Qt.TextElideMode.ElideRight, width
+            )
+        )
+
+
+class _ElidingPushButton(QPushButton):
+    """레이어 이름 등 긴 텍스트 버튼 — 폭에 맞게 … 처리."""
+
+    def __init__(self, text: str = "", font: QFont | None = None, parent=None):
+        super().__init__(parent)
+        if font is not None:
+            self.setFont(font)
+        self._full_text = text
+        self.setSizePolicy(QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Fixed)
+        self.setMinimumWidth(0)
+        self.setToolTip(text)
+        self._update_elide()
+
+    def setFullText(self, text: str) -> None:
+        self._full_text = text
+        self.setToolTip(text)
+        self._update_elide()
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self._update_elide()
+
+    def _update_elide(self) -> None:
+        width = max(1, self.width())
+        self.setText(
+            QFontMetrics(self.font()).elidedText(
+                self._full_text, Qt.TextElideMode.ElideRight, width
+            )
+        )
 
 
 class _RowClickForwarder(QObject):
