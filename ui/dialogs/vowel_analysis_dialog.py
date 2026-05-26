@@ -862,6 +862,3 @@ def _export_to_csv(result, path, x_axis_label, normalized=False):
 
     df = _result_to_dataframe(result, x_axis_label, normalized=normalized)
     df.to_csv(path, index=False, encoding="utf-8-sig")
-
-
-from ui.widgets.scroll_styles import MODERN_SCROLLBAR_STYLE

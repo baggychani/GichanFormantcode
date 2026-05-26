@@ -22,7 +22,9 @@ def _make_tool(*, hit_text_at=None, on_complete=None):
     return tool, ax
 
 
-def _click_event(ax, *, dblclick=True, button=1, inaxes=True, xdata=1000.0, ydata=500.0):
+def _click_event(
+    ax, *, dblclick=True, button=1, inaxes=True, xdata=1000.0, ydata=500.0
+):
     ev = MagicMock()
     ev.dblclick = dblclick
     ev.button = button

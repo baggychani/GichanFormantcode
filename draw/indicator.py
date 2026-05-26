@@ -51,9 +51,7 @@ class DrawModeIndicator(QFrame):
         self._mode_block = QWidget(self)
         self._mode_block.setStyleSheet("background: transparent;")
         mode_grid = QGridLayout(self._mode_block)
-        mode_grid.setContentsMargins(
-            self._BAR_SIDE_PAD, 0, self._BAR_SIDE_PAD, 0
-        )
+        mode_grid.setContentsMargins(self._BAR_SIDE_PAD, 0, self._BAR_SIDE_PAD, 0)
         mode_grid.setHorizontalSpacing(self._COL_SPACING)
         mode_grid.setVerticalSpacing(2)
         for col in range(5):
@@ -94,7 +92,7 @@ class DrawModeIndicator(QFrame):
         btn_style = (
             "QPushButton {"
             "background-color: transparent; border: none; border-radius: 3px;"
-            "color: #303133; font-size: 11px; font-family: \"Malgun Gothic\";"
+            'color: #303133; font-size: 11px; font-family: "Malgun Gothic";'
             f"padding: {self._BAR_VPAD}px 8px;"
             "}"
             "QPushButton:checked { background-color: rgba(255,255,255,0.5); }"
@@ -110,9 +108,7 @@ class DrawModeIndicator(QFrame):
                 "color: #909399; background: transparent; border: none;"
             )
             num_lbl.setFixedHeight(11)
-            mode_grid.addWidget(
-                num_lbl, 0, col, Qt.AlignmentFlag.AlignHCenter
-            )
+            mode_grid.addWidget(num_lbl, 0, col, Qt.AlignmentFlag.AlignHCenter)
 
             btn = QPushButton(text, self._mode_block)
             btn.setCheckable(True)
@@ -121,9 +117,7 @@ class DrawModeIndicator(QFrame):
             btn.setFont(QFont("Malgun Gothic", 10))
             btn.setStyleSheet(btn_style)
             btn.setFixedHeight(self._BTN_HEIGHT)
-            btn.setSizePolicy(
-                QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed
-            )
+            btn.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
             btn.clicked.connect(
                 lambda checked, m=mode: self._on_mode_clicked(m, checked)
             )

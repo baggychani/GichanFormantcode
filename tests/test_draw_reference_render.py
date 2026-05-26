@@ -34,5 +34,7 @@ def test_render_reference_missing_value_does_not_crash():
         normalization=None,
         fixed_plot_params={},
     )
-    artists = render_draw_objects(ax, [RefWithoutValue()], ctx, show_editor_chrome=False)
+    artists = render_draw_objects(
+        ax, [RefWithoutValue()], ctx, show_editor_chrome=False
+    )
     assert len(artists) >= 2

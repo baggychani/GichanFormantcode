@@ -87,9 +87,7 @@ def test_render_text_object_selected_adds_outline():
     ctx = SimpleNamespace(design_settings={"font_style": "sans"})
     obj = TextObject(text="label", x=1500.0, y=500.0, id="t1")
     plain = render_text_object(ax, obj, ctx, selected=False, show_editor_chrome=True)
-    selected = render_text_object(
-        ax, obj, ctx, selected=True, show_editor_chrome=True
-    )
+    selected = render_text_object(ax, obj, ctx, selected=True, show_editor_chrome=True)
     assert len(selected) > len(plain)
 
 

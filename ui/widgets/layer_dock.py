@@ -1993,7 +1993,10 @@ class LayerDockWidget(QWidget):
         if self.tab_widget.currentIndex() == 1:
             scroll.setWidgetResizable(False)
             wrapper.adjustSize()
-            if hasattr(self, "_draw_design_panel") and self._draw_design_panel.isVisible():
+            if (
+                hasattr(self, "_draw_design_panel")
+                and self._draw_design_panel.isVisible()
+            ):
                 self._draw_design_panel.adjustSize()
             vp_w = self._design_scroll_viewport_width()
             h = max(wrapper.sizeHint().height(), 1)

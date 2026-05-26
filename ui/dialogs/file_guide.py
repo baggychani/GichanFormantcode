@@ -134,21 +134,16 @@ def _example_table_html(example: dict) -> str:
     label_idx = len(headers) - 1
     header_row = ""
     if example["show_header"]:
-        cells = "".join(
-            f'<td align="center">{h}</td>' for h in headers
-        )
+        cells = "".join(f'<td align="center">{h}</td>' for h in headers)
         header_row = (
-            f'<tr style="color: #909399; font-size: {_NOTE_SIZE + 1}pt;">'
-            f"{cells}</tr>"
+            f'<tr style="color: #909399; font-size: {_NOTE_SIZE + 1}pt;">{cells}</tr>'
         )
     body_rows = []
     for row in example["rows"]:
         cells = []
         for idx, value in enumerate(row):
             if idx == label_idx:
-                cells.append(
-                    f'<td align="center">{_format_label_cell(value)}</td>'
-                )
+                cells.append(f'<td align="center">{_format_label_cell(value)}</td>')
             else:
                 cells.append(f'<td align="center">{value}</td>')
         body_rows.append(f"<tr>{''.join(cells)}</tr>")
@@ -157,7 +152,7 @@ def _example_table_html(example: dict) -> str:
            style="background-color: #F5F7FA; border: 1px solid #EBEEF5;
                   border-radius: 6px; font-size: {_BODY_SIZE + 1}pt;">
         {header_row}
-        {''.join(body_rows)}
+        {"".join(body_rows)}
     </table>
     """
 
@@ -205,9 +200,7 @@ class _FormatExampleCarousel(QWidget):
         layout.setSpacing(8)
 
         self._caption = QLabel()
-        self._caption.setFont(
-            QFont(self._ui_font_name, _BODY_SIZE, QFont.Weight.Bold)
-        )
+        self._caption.setFont(QFont(self._ui_font_name, _BODY_SIZE, QFont.Weight.Bold))
         self._caption.setStyleSheet("color: #303133; border: none;")
         self._caption.setWordWrap(True)
         layout.addWidget(self._caption)
@@ -330,9 +323,7 @@ class DataGuidePopup(QDialog):
         scroll.setWidgetResizable(True)
         scroll.setFrameShape(QFrame.Shape.NoFrame)
         scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        scroll.setStyleSheet(
-            "QScrollArea { background: transparent; border: none; }"
-        )
+        scroll.setStyleSheet("QScrollArea { background: transparent; border: none; }")
 
         content_widget = QWidget()
         content_layout = QVBoxLayout(content_widget)
@@ -355,9 +346,7 @@ class DataGuidePopup(QDialog):
             card_layout.setSpacing(10)
 
             t_lbl = QLabel(title)
-            t_lbl.setFont(
-                QFont(self.ui_font_name, _CARD_TITLE_SIZE, QFont.Weight.Bold)
-            )
+            t_lbl.setFont(QFont(self.ui_font_name, _CARD_TITLE_SIZE, QFont.Weight.Bold))
             t_lbl.setStyleSheet("color: #409EFF; border: none; padding-bottom: 2px;")
             card_layout.addWidget(t_lbl)
 
@@ -449,7 +438,7 @@ class DataGuidePopup(QDialog):
 
         ex_bad = make_lbl(
             "<span style='color: #F56C6C; font-weight: bold;'>✕ 잘못된 예</span>"
-            "&nbsp;&nbsp;<b>a, i, u, ㅏ, ʌ, \"e\", [ㅜ]</b>",
+            '&nbsp;&nbsp;<b>a, i, u, ㅏ, ʌ, "e", [ㅜ]</b>',
             size=_BODY_SIZE,
         )
         ex_good = make_lbl(
