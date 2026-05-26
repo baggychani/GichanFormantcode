@@ -158,6 +158,33 @@ def label_text_artists_for_series(popup_window: Any, series_ref: int | str) -> l
     return getattr(popup_window, f"label_text_artists_{legacy}", [])
 
 
+def merged_label_move_context(popup_window: Any) -> tuple[list[dict], list]:
+    """다중 플롯 라벨 이동: 모든 시리즈 라벨·아티스트를 하나의 목록으로 합친다."""
+    label_data: list[dict] = []
+    label_text_artists: list = []
+    by_series = getattr(popup_window, "label_data_by_series", None)
+    artists_by_series = getattr(popup_window, "label_text_artists_by_series", None)
+    if isinstance(by_series, dict) and by_series:
+        for series_id in sorted(by_series.keys()):
+            legacy = legacy_key_from_series_id(series_id)
+            for lb in by_series.get(series_id, []) or []:
+                entry = dict(lb)
+                entry["series"] = legacy
+                label_data.append(entry)
+            if isinstance(artists_by_series, dict):
+                label_text_artists.extend(artists_by_series.get(series_id, []) or [])
+        return label_data, label_text_artists
+    for legacy in ("blue", "red"):
+        for lb in getattr(popup_window, f"label_data_{legacy}", []) or []:
+            entry = dict(lb)
+            entry["series"] = legacy
+            label_data.append(entry)
+        label_text_artists.extend(
+            getattr(popup_window, f"label_text_artists_{legacy}", []) or []
+        )
+    return label_data, label_text_artists
+
+
 def make_compare_plot_key(
     session: CompareSession,
     plot_type: str,

@@ -1770,8 +1770,7 @@ class PlotPopup(BasePlotWindow):
         self.controller.refresh_plot(
             self.figure, self.canvas, self.range_widgets, self.lbl_info, self
         )
-        # 플롯 갱신으로 axes 인스턴스가 바뀔 수 있으므로, Draw 모드가 켜져 있으면
-        # 현재 선택 모드 도구를 새 axes에 즉시 재바인딩한다.
+        # refresh_plot 내부에서 그리기 레이어 복원 후, Draw 모드가 켜져 있으면 도구 재바인딩
         self._rebind_draw_tool_if_active()
         data_list = (
             getattr(self, "plot_data_snapshot", None)

@@ -1606,11 +1606,7 @@ class ComparePlotPopup(BasePlotWindow):
         # Base의 T 매핑은 단일 플롯용(_safe_toggle_label_move)이라 compare에서는 별도 매핑을 강제한다.
         QShortcut(
             QKeySequence(Qt.Key.Key_T), self, context=Qt.ShortcutContext.WindowShortcut
-        ).activated.connect(
-            lambda: self._safe_toggle_compare_label_move(
-                "blue" if self.design_tab.sub_tabs.currentIndex() == 0 else "red"
-            )
-        )
+        ).activated.connect(lambda: self._safe_toggle_compare_label_move())
 
     # ── 디자인 설정 (Ctrl+B / Ctrl+I) ────────────────────────────────────────
     def _safe_toggle_bold(self):
@@ -1729,7 +1725,6 @@ class ComparePlotPopup(BasePlotWindow):
         data_blue = data_blue_item["name"] if data_blue_item else ""
         data_red = data_red_item["name"] if data_red_item else ""
         self._update_compare_window_title(data_blue, data_red)
-        self._redraw_draw_layer()
         self._rebind_draw_tool_if_active()
         if hasattr(self, "_layer_dock_blue") and self._layer_dock_blue is not None:
             self._layer_dock_blue.update_draw_layer_list(
@@ -1844,31 +1839,28 @@ class ComparePlotPopup(BasePlotWindow):
             return
         super().keyPressEvent(event)
 
-    def _on_compare_label_move_clicked(self, series):
-        self._safe_toggle_compare_label_move(series)
+    def _on_compare_label_move_clicked(self, _series):
+        self._safe_toggle_compare_label_move()
 
-    def _safe_toggle_compare_label_move(self, series):
+    def _safe_toggle_compare_label_move(self):
         if self._is_input_focused():
             return
-        active = self._is_label_move_active()
-        current_series = getattr(self, "_label_move_series", None)
-        wants_on = (not active) or (current_series != series)
-        # 배타 모드: label_move를 켜려면 draw/ruler가 모두 꺼져 있어야 함
-        if wants_on and (self._is_draw_active() or self._is_ruler_active()):
-            # 클릭으로 체크 상태가 흔들렸을 수 있으니 실제 툴 상태로 UI 재동기화
-            sync_series = (
-                current_series if current_series in ("blue", "red") else series
-            )
-            self.update_compare_label_move_style(sync_series, active)
+        if self._is_draw_active() or self._is_ruler_active():
+            self.update_compare_label_move_style(self._is_label_move_active())
             return
         self.setFocus()
-        self.controller.toggle_compare_label_move(self, series)
+        self.controller.toggle_compare_label_move(self)
+        if self.controller.label_move_tool:
+            self.update_compare_label_move_style(
+                self.controller.label_move_tool.active
+            )
 
-    def update_compare_label_move_style(self, series, is_on):
-        self.design_tab.ctrl_blue["btn_label_move"].setChecked(
-            is_on and series == "blue"
-        )
-        self.design_tab.ctrl_red["btn_label_move"].setChecked(is_on and series == "red")
+    def update_compare_label_move_style(self, is_on):
+        for ctrl in (self.design_tab.ctrl_blue, self.design_tab.ctrl_red):
+            btn = ctrl["btn_label_move"]
+            btn.blockSignals(True)
+            btn.setChecked(is_on)
+            btn.blockSignals(False)
         if hasattr(self, "tool_indicator") and self.tool_indicator is not None:
             self.tool_indicator.set_label_move_on(is_on)
 

@@ -7,6 +7,7 @@ from core.compare_runtime import (
     apply_compare_render_to_popup,
     build_compare_series_inputs,
     make_compare_plot_key,
+    merged_label_move_context,
 )
 from core.compare_series import (
     CompareLabelBuckets,
@@ -287,3 +288,30 @@ def test_apply_compare_render_to_popup_sets_by_series():
     apply_compare_render_to_popup(popup, result, session, (0, 1, 2, "f1_f2"))
     assert popup.label_data_by_series[2][0]["vowel"] == "u"
     assert popup.label_text_artists_by_series[2] == ["U"]
+
+
+def test_merged_label_move_context_combines_all_series():
+    popup = _PopupStub()
+    popup.label_data_by_series = {
+        0: [{"vowel": "a", "lx": 1.0, "ly": 2.0}],
+        1: [{"vowel": "i", "lx": 3.0, "ly": 4.0}],
+    }
+    popup.label_text_artists_by_series = {0: ["A-art"], 1: ["I-art"]}
+    label_data, artists = merged_label_move_context(popup)
+    assert len(label_data) == 2
+    assert {entry["series"] for entry in label_data} == {"blue", "red"}
+    assert artists == ["A-art", "I-art"]
+
+
+def test_merged_label_move_context_legacy_blue_red():
+    class _LegacyPopup:
+        label_data_blue = [{"vowel": "a", "lx": 1.0, "ly": 2.0}]
+        label_data_red = [{"vowel": "u", "lx": 5.0, "ly": 6.0}]
+        label_text_artists_blue = ["A"]
+        label_text_artists_red = ["U"]
+
+    label_data, artists = merged_label_move_context(_LegacyPopup())
+    assert len(label_data) == 2
+    assert label_data[0]["series"] == "blue"
+    assert label_data[1]["series"] == "red"
+    assert artists == ["A", "U"]

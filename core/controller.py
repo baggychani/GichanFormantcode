@@ -22,6 +22,7 @@ from core.compare_runtime import (
     label_data_for_series,
     label_text_artists_for_series,
     make_compare_plot_key,
+    merged_label_move_context,
     resolve_compare_session,
 )
 from utils import app_logger
@@ -1158,6 +1159,46 @@ class MainController:
             )
             app_logger.error(config.LOG_MSG["PLOT_OPEN_FAIL"].format(e=e))
 
+    def _present_popup_canvas(self, popup_window, canvas):
+        """플롯 재렌더 후 그리기 레이어를 함께 올려 한 번에 표시한다."""
+        if hasattr(popup_window, "_redraw_draw_layer"):
+            popup_window._redraw_draw_layer()
+        elif canvas is not None:
+            canvas.draw()
+
+    def _sync_popup_tool_contexts(self, popup_window, figure, canvas):
+        """플롯·그리기 레이어 갱신 뒤 눈금자/라벨 이동 툴 컨텍스트를 재연결한다."""
+        if not figure.axes:
+            return
+        ax = figure.axes[0]
+        if self.ruler_tool.active:
+            r_design = getattr(popup_window, "design_settings", None) or {}
+            if not r_design and getattr(popup_window, "design_tab", None):
+                r_design = getattr(
+                    popup_window.design_tab, "get_current_settings", lambda: {}
+                )()
+            self.ruler_tool.set_context(
+                canvas,
+                ax,
+                popup_window.fixed_plot_params,
+                popup_window.snapping_data,
+                r_design or None,
+            )
+        if self.label_move_tool and self.label_move_tool.active:
+            if hasattr(popup_window, "label_data_by_series") or hasattr(
+                popup_window, "label_data_blue"
+            ):
+                ld, lta = merged_label_move_context(popup_window)
+            else:
+                ld = getattr(popup_window, "label_data", []) or []
+                lta = getattr(popup_window, "label_text_artists", None)
+            self.label_move_tool.set_context(
+                canvas,
+                ax,
+                ld,
+                label_text_artists=lta,
+            )
+
     def refresh_compare_plot(
         self, figure, canvas, range_widgets, lbl_info, popup_window, idx_blue, idx_red
     ):
@@ -1264,42 +1305,8 @@ class MainController:
                 return
 
             apply_compare_render_to_popup(popup_window, result, session, plot_key)
-            canvas.draw()
-
-            if self.ruler_tool.active and figure.axes:
-                r_design = getattr(popup_window, "design_settings", None) or {}
-                if not r_design and getattr(popup_window, "design_tab", None):
-                    r_design = getattr(
-                        popup_window.design_tab, "get_current_settings", lambda: {}
-                    )()
-                self.ruler_tool.set_context(
-                    canvas,
-                    figure.axes[0],
-                    popup_window.fixed_plot_params,
-                    popup_window.snapping_data,
-                    r_design or None,
-                )
-            if self.label_move_tool and self.label_move_tool.active and figure.axes:
-                series = getattr(popup_window, "_label_move_series", None)
-                if series:
-                    ld = label_data_for_series(popup_window, series)
-                    lta = label_text_artists_for_series(popup_window, series)
-                    design = getattr(popup_window, "design_settings", None) or (
-                        getattr(popup_window, "design_tab", None)
-                        and getattr(
-                            popup_window.design_tab, "get_current_settings", lambda: {}
-                        )()
-                    )
-                    ell_color = (design.get(series) or {}).get(
-                        "ell_color", "#1976D2" if series == "blue" else "#E64A19"
-                    )
-                    self.label_move_tool.set_context(
-                        canvas,
-                        figure.axes[0],
-                        ld,
-                        highlight_color=ell_color,
-                        label_text_artists=lta,
-                    )
+            self._present_popup_canvas(popup_window, canvas)
+            self._sync_popup_tool_contexts(popup_window, figure, canvas)
         except Exception as e:
             traceback.print_exc()
             app_logger.error(config.LOG_MSG["PLOT_REFRESH_FAIL"].format(e=e))
@@ -1392,29 +1399,8 @@ class MainController:
             popup_window.set_draw_result(
                 snapping_data, label_data, label_text_artists, (idx, *plot_key_suffix)
             )
-            canvas.draw()
-
-            if self.ruler_tool.active:
-                r_design = popup_window.get_design_settings() or {}
-                if not r_design and getattr(popup_window, "design_tab", None):
-                    r_design = getattr(
-                        popup_window.design_tab, "get_current_settings", lambda: {}
-                    )()
-
-                self.ruler_tool.set_context(
-                    canvas,
-                    figure.axes[0],
-                    popup_window.fixed_plot_params,
-                    snapping_data,
-                    r_design or None,
-                )
-            if self.label_move_tool and self.label_move_tool.active:
-                self.label_move_tool.set_context(
-                    canvas,
-                    figure.axes[0],
-                    label_data,
-                    label_text_artists=label_text_artists,
-                )
+            self._present_popup_canvas(popup_window, canvas)
+            self._sync_popup_tool_contexts(popup_window, figure, canvas)
         except Exception as e:
             traceback.print_exc()
             app_logger.error(config.LOG_MSG["PLOT_APPLY_FAIL"].format(e=e))
@@ -1489,8 +1475,7 @@ class MainController:
                 if hasattr(popup_window, "update_label_move_style"):
                     popup_window.update_label_move_style(False)
                 elif hasattr(popup_window, "update_compare_label_move_style"):
-                    series = getattr(popup_window, "_label_move_series", None) or "blue"
-                    popup_window.update_compare_label_move_style(series, False)
+                    popup_window.update_compare_label_move_style(False)
                     popup_window._label_move_series = None
                 app_logger.info(config.LOG_MSG["LABEL_MOVE_OFF"])
             self.ruler_tool.active = True
@@ -1530,6 +1515,8 @@ class MainController:
             popup_window.lbl_info,
             popup_window,
         )
+        if hasattr(popup_window, "_rebind_draw_tool_if_active"):
+            popup_window._rebind_draw_tool_if_active()
 
     def _refresh_compare_popup_after_label_move(self, popup_window):
         """비교 플롯 라벨 위치 변경 후 현재 팝업을 다시 그린다."""
@@ -1542,6 +1529,8 @@ class MainController:
             popup_window.idx_blue,
             popup_window.idx_red,
         )
+        if hasattr(popup_window, "_rebind_draw_tool_if_active"):
+            popup_window._rebind_draw_tool_if_active()
 
     def _get_compare_label_offset_key(self, popup_window, series):
         """비교 플롯(blue/red 또는 series_id) 라벨 오프셋 저장 키를 반환한다."""
@@ -1558,8 +1547,11 @@ class MainController:
         self.custom_label_offsets.setdefault(key, {})[dragging["vowel"]] = (dx, dy)
         self._refresh_single_popup_after_label_move(popup_window)
 
-    def _clear_label_offset(self, popup_window, vowel):
+    def _clear_label_offset(self, popup_window, arg):
         """우클릭 원상복귀: 해당 모음의 사용자 지정 오프셋을 제거하면 refresh 시 자동 배치로 복귀."""
+        vowel = arg.get("vowel") if isinstance(arg, dict) else arg
+        if vowel is None:
+            return
         key = getattr(popup_window, "_plot_key", None)
         if not key:
             return
@@ -1590,11 +1582,13 @@ class MainController:
         if hasattr(popup_window, "update_label_move_style"):
             popup_window.update_label_move_style(on_now)
         if on_now:
+            self._present_popup_canvas(popup_window, popup_window.canvas)
             app_logger.info(config.LOG_MSG["LABEL_MOVE_ON"])
         else:
             app_logger.info(config.LOG_MSG["LABEL_MOVE_OFF"])
 
-    def _save_compare_label_offset(self, dragging, popup_window, series):
+    def _save_compare_label_offset(self, dragging, popup_window):
+        series = dragging.get("series", "blue")
         key = self._get_compare_label_offset_key(popup_window, series)
         if not key:
             return
@@ -1610,95 +1604,44 @@ class MainController:
         self.custom_label_offsets.get(key, {}).pop(vowel, None)
         self._refresh_compare_popup_after_label_move(popup_window)
 
-    def toggle_compare_label_move(self, popup_window, series):
-        """다중 플롯에서 해당 파일(blue/red) 라벨 위치 이동 토글 및 스위칭."""
+    def _clear_compare_label_offset_from_arg(self, popup_window, arg):
+        if isinstance(arg, dict):
+            series = arg.get("series", "blue")
+            vowel = arg.get("vowel")
+        else:
+            series = "blue"
+            vowel = arg
+        if vowel is None:
+            return
+        self._clear_compare_label_offset(popup_window, series, vowel)
+
+    def toggle_compare_label_move(self, popup_window):
+        """다중 플롯 라벨 위치 이동 — 단일 플롯처럼 모든 시리즈 라벨을 동시에 이동."""
         if self.ruler_tool.active:
             return
         if self.label_move_tool is None:
             self.label_move_tool = LabelMoveTool()
-
-        old_series = getattr(popup_window, "_label_move_series", None)
-
-        # [추가된 로직] 1. 다른 탭의 라벨 이동으로 '스위칭' 하는 경우
-        if self.label_move_tool.active and old_series and old_series != series:
-            # 타겟 저장/원상복귀 함수 교체
-            self.label_move_tool.on_offset_saved = (
-                lambda pw, s: lambda d: self._save_compare_label_offset(d, pw, s)
-            )(popup_window, series)
-            self.label_move_tool.on_offset_cleared = (
-                lambda pw, s: lambda v: self._clear_compare_label_offset(pw, s, v)
-            )(popup_window, series)
-
-            # 넘어갈 탭(새로운 series)의 데이터와 텍스트 아티스트를 가져옴
-            label_data = label_data_for_series(popup_window, series)
-            label_text_artists = label_text_artists_for_series(popup_window, series)
-            design = getattr(popup_window, "design_settings", None) or (
-                getattr(popup_window.design_tab, "get_current_settings", lambda: {})()
-            )
-            ell_color = (design.get(series) or {}).get(
-                "ell_color", "#1976D2" if series == "blue" else "#E64A19"
-            )
-
-            # 툴을 끄지 않고(detach 안 함), 포인터가 바라보는 타겟만 즉시 교체!
-            self.label_move_tool.set_context(
-                popup_window.canvas,
-                popup_window.figure.axes[0],
-                label_data,
-                highlight_color=ell_color,
-                label_text_artists=label_text_artists,
-            )
-
-            popup_window._label_move_series = series
-
-            # UI 버튼 상태 업데이트 (A는 꺼지고 B는 켜진 상태로 만듦)
-            if hasattr(popup_window, "update_compare_label_move_style"):
-                popup_window.update_compare_label_move_style(series, True)
-
-            app_logger.info(
-                config.LOG_MSG["LABEL_MOVE_SERIES"].format(
-                    series="기준" if series == "blue" else "비교"
-                )
-            )
-            return
-
-        # 2. 일반적인 토글 (처음 켜거나, 켜져있던 걸 끄는 경우)
         self.label_move_tool.on_offset_saved = (
-            lambda pw, s: lambda d: self._save_compare_label_offset(d, pw, s)
-        )(popup_window, series)
+            lambda pw: lambda d: self._save_compare_label_offset(d, pw)
+        )(popup_window)
         self.label_move_tool.on_offset_cleared = (
-            lambda pw, s: lambda v: self._clear_compare_label_offset(pw, s, v)
-        )(popup_window, series)
-
+            lambda pw: lambda arg: self._clear_compare_label_offset_from_arg(pw, arg)
+        )(popup_window)
         if not self.label_move_tool.active and popup_window.figure.axes:
-            label_data = label_data_for_series(popup_window, series)
-            label_text_artists = label_text_artists_for_series(popup_window, series)
-            design = getattr(popup_window, "design_settings", None) or (
-                getattr(popup_window.design_tab, "get_current_settings", lambda: {})()
-            )
-            ell_color = (design.get(series) or {}).get(
-                "ell_color", "#1976D2" if series == "blue" else "#E64A19"
-            )
-
+            label_data, label_text_artists = merged_label_move_context(popup_window)
             self.label_move_tool.set_context(
                 popup_window.canvas,
                 popup_window.figure.axes[0],
                 label_data,
-                highlight_color=ell_color,
                 label_text_artists=label_text_artists,
             )
-
         on_now = self.label_move_tool.toggle()
-        popup_window._label_move_series = series if on_now else None
-
+        popup_window._label_move_series = "all" if on_now else None
         if hasattr(popup_window, "update_compare_label_move_style"):
-            popup_window.update_compare_label_move_style(series, on_now)
-
+            popup_window.update_compare_label_move_style(on_now)
         if on_now:
-            app_logger.info(
-                config.LOG_MSG["LABEL_MOVE_ON_SERIES"].format(
-                    series="기준" if series == "blue" else "비교"
-                )
-            )
+            self._present_popup_canvas(popup_window, popup_window.canvas)
+            app_logger.info(config.LOG_MSG["LABEL_MOVE_ON"])
         else:
             app_logger.info(config.LOG_MSG["LABEL_MOVE_OFF"])
 
