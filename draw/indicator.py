@@ -1,11 +1,14 @@
 from PySide6.QtWidgets import (
     QFrame,
+    QGridLayout,
     QHBoxLayout,
     QPushButton,
     QButtonGroup,
     QLabel,
     QGraphicsOpacityEffect,
     QLayout,
+    QSizePolicy,
+    QWidget,
 )
 from PySide6.QtCore import Qt, Signal, QPropertyAnimation, QEasingCurve, QTimer
 from PySide6.QtGui import QCursor, QFont
@@ -26,6 +29,11 @@ class DrawModeIndicator(QFrame):
     MODE_REF_H = "ref_h"
     MODE_REF_V = "ref_v"
 
+    _BAR_SIDE_PAD = 6
+    _BAR_VPAD = 4
+    _BTN_HEIGHT = 26
+    _COL_SPACING = 3
+
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setObjectName("DrawModeIndicator")
@@ -39,10 +47,25 @@ class DrawModeIndicator(QFrame):
         # 위젯 크기가 레이아웃 내용물에 맞춰 강제 고정/변동되도록 설정
         self.layout.setSizeConstraint(QLayout.SizeConstraint.SetFixedSize)
 
-        # 실제 버튼들이 담길 배경 박스 컨테이너
-        self.button_container = QFrame(self)
-        self.button_container.setObjectName("ButtonContainer")
-        self.button_container.setStyleSheet(
+        # 5열 × (숫자 + 버튼) + 회색 바(그리드 row1, 레이아웃)
+        self._mode_block = QWidget(self)
+        self._mode_block.setStyleSheet("background: transparent;")
+        mode_grid = QGridLayout(self._mode_block)
+        mode_grid.setContentsMargins(
+            self._BAR_SIDE_PAD, 0, self._BAR_SIDE_PAD, 0
+        )
+        mode_grid.setHorizontalSpacing(self._COL_SPACING)
+        mode_grid.setVerticalSpacing(2)
+        for col in range(5):
+            mode_grid.setColumnStretch(col, 1)
+        bar_row_h = self._BTN_HEIGHT + 2 * self._BAR_VPAD
+        mode_grid.setRowMinimumHeight(1, bar_row_h)
+        mode_grid.setRowStretch(0, 0)
+        mode_grid.setRowStretch(1, 0)
+
+        self._bar_bg = QFrame(self._mode_block)
+        self._bar_bg.setObjectName("ButtonContainer")
+        self._bar_bg.setStyleSheet(
             """
             QFrame#ButtonContainer {
                 background-color: rgba(0, 0, 0, 25);
@@ -50,9 +73,11 @@ class DrawModeIndicator(QFrame):
             }
             """
         )
-        self.btn_layout = QHBoxLayout(self.button_container)
-        self.btn_layout.setContentsMargins(6, 4, 6, 4)
-        self.btn_layout.setSpacing(3)
+        self._bar_bg.setMinimumHeight(bar_row_h)
+        self._bar_bg.setSizePolicy(
+            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed
+        )
+        mode_grid.addWidget(self._bar_bg, 1, 0, 1, 5)
 
         self._group = QButtonGroup(self)
         self._group.setExclusive(True)
@@ -65,40 +90,53 @@ class DrawModeIndicator(QFrame):
             ("수직 참조선", self.MODE_REF_V, "수직 참조선"),
         ]
         self._buttons = {}
-        for text, mode, tooltip in labels:
-            btn = QPushButton(text, self.button_container)
+        num_font = QFont("Malgun Gothic", 7)
+        btn_style = (
+            "QPushButton {"
+            "background-color: transparent; border: none; border-radius: 3px;"
+            "color: #303133; font-size: 11px; font-family: \"Malgun Gothic\";"
+            f"padding: {self._BAR_VPAD}px 8px;"
+            "}"
+            "QPushButton:checked { background-color: rgba(255,255,255,0.5); }"
+            "QPushButton:hover:!checked { background-color: rgba(255,255,255,0.25); }"
+        )
+        for col, (text, mode, tooltip) in enumerate(labels):
+            num_lbl = QLabel(str(col + 1), self._mode_block)
+            num_lbl.setFont(num_font)
+            num_lbl.setAlignment(
+                Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignBottom
+            )
+            num_lbl.setStyleSheet(
+                "color: #909399; background: transparent; border: none;"
+            )
+            num_lbl.setFixedHeight(11)
+            mode_grid.addWidget(
+                num_lbl, 0, col, Qt.AlignmentFlag.AlignHCenter
+            )
+
+            btn = QPushButton(text, self._mode_block)
             btn.setCheckable(True)
             btn.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
             btn.setToolTip(tooltip)
             btn.setFont(QFont("Malgun Gothic", 10))
-            btn.setStyleSheet(
-                """
-                QPushButton {
-                    background-color: transparent;
-                    border: none;
-                    border-radius: 3px;
-                    color: #303133;
-                    font-size: 11px;
-                    font-family: "Malgun Gothic";
-                    padding: 4px 8px;
-                }
-                QPushButton:checked {
-                    background-color: rgba(255,255,255,0.5);
-                }
-                QPushButton:hover:!checked {
-                    background-color: rgba(255,255,255,0.25);
-                }
-                """
+            btn.setStyleSheet(btn_style)
+            btn.setFixedHeight(self._BTN_HEIGHT)
+            btn.setSizePolicy(
+                QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed
             )
-            btn.setFixedHeight(26)
             btn.clicked.connect(
                 lambda checked, m=mode: self._on_mode_clicked(m, checked)
             )
             self._group.addButton(btn)
             self._buttons[mode] = btn
-            self.btn_layout.addWidget(btn)
+            mode_grid.addWidget(
+                btn,
+                1,
+                col,
+                Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignVCenter,
+            )
 
-        self.layout.addWidget(self.button_container)
+        self.layout.addWidget(self._mode_block)
 
         # [사용자 요청] 시각적 힌트 라벨 (Enter 키 안내)
         self.hint_label = QLabel(self)
@@ -133,7 +171,6 @@ class DrawModeIndicator(QFrame):
         self.fade_anim.finished.connect(self.hint_label.hide)
 
         self.layout.addWidget(self.hint_label)
-        self.layout.addStretch()
 
         # "그리기 끄기"용: 모든 버튼이 unchecked일 수 있도록.
         self._group.setExclusive(True)  # 하나만 선택 가능

@@ -116,7 +116,7 @@ class LegendEntry:
 
 @dataclass
 class TextObject:
-    """캔버스 자유 텍스트 — 데이터 좌표 앵커 + font_size(핸들 리사이즈 시 갱신)."""
+    """캔버스 자유 텍스트 — 데이터 좌표 앵커 + font_size(디자인 패널에서 조절)."""
 
     type: str = "text"
     name: str = ""
@@ -125,7 +125,7 @@ class TextObject:
     text: str = ""
     x: float = 0.0
     y: float = 0.0
-    font_size: float = 14.0
+    font_size: float = 13.0
     font_bold: bool = False
     font_italic: bool = False
     text_color: str = "#303133"

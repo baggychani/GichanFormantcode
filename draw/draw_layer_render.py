@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+import logging
 from typing import Any
 
 import matplotlib.colors as mcolors
+
+_log = logging.getLogger(__name__)
 
 from draw.draw_reference import REF_LINE_ALPHA, REF_LINE_COLOR, format_ref_label
 from draw.legend_render import render_legend
@@ -18,6 +21,17 @@ def _line_style_to_mpl(style: str):
     if style in ("-", "--", ":"):
         return style
     return "--"
+
+
+def _log_render_skip(obj, phase: str, exc: BaseException) -> None:
+    _log.debug(
+        "draw render skip (%s): type=%s id=%s: %s",
+        phase,
+        getattr(obj, "type", "?"),
+        getattr(obj, "id", ""),
+        exc,
+        exc_info=True,
+    )
 
 
 def _is_serif_font(ctx: Any) -> bool:
@@ -73,7 +87,8 @@ def render_draw_objects(
                 if txt_artist is not None:
                     artists.append(txt_artist)
                     label_refs.append((txt_artist, obj))
-        except Exception:
+        except Exception as exc:
+            _log_render_skip(obj, "primary", exc)
             continue
 
     for obj in objects or []:
@@ -85,7 +100,8 @@ def render_draw_objects(
             continue
         try:
             artists.extend(_render_reference(ax, obj, ctx, is_semi=is_semi))
-        except Exception:
+        except Exception as exc:
+            _log_render_skip(obj, "reference", exc)
             continue
 
     if "legend" not in skip_types:
@@ -102,7 +118,8 @@ def render_draw_objects(
                     show_editor_chrome=show_editor_chrome,
                 )
                 artists.extend(legend_artists)
-            except Exception:
+            except Exception as exc:
+                _log_render_skip(obj, "legend", exc)
                 continue
 
     if "text" not in skip_types:
@@ -120,7 +137,8 @@ def render_draw_objects(
                     text_refs=text_refs,
                 )
                 artists.extend(text_artists)
-            except Exception:
+            except Exception as exc:
+                _log_render_skip(obj, "text", exc)
                 continue
 
     return artists
@@ -295,7 +313,8 @@ def _render_area_label(ax, obj, ctx: Any, *, is_semi: bool):
 def _render_reference(ax, obj, ctx: Any, *, is_semi: bool) -> list:
     artists: list = []
     xlim, ylim = ax.get_xlim(), ax.get_ylim()
-    v = obj.value
+    v = getattr(obj, "value", 0.0)
+    mode = getattr(obj, "mode", "horizontal") or "horizontal"
     axis_units = getattr(obj, "axis_units", "") or "Hz"
     axis_scale = getattr(obj, "axis_scale", "linear")
     if axis_scale == "bark" and (axis_units or "").strip().lower() == "hz":
@@ -316,7 +335,7 @@ def _render_reference(ax, obj, ctx: Any, *, is_semi: bool) -> list:
     rgba_line = mcolors.to_rgba(base_color, float(ref_alpha))
     text_alpha = 0.3 if is_semi else 1.0
 
-    if obj.mode == "horizontal":
+    if mode == "horizontal":
         (ref_line,) = ax.plot(
             xlim,
             [plot_v, plot_v],

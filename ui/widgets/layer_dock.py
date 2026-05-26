@@ -27,6 +27,7 @@ from PySide6.QtCore import (
     QObject,
     QPropertyAnimation,
     QEasingCurve,
+    QTimer,
 )
 from PySide6.QtGui import QFont, QFontMetrics
 
@@ -64,6 +65,7 @@ from ui.widgets.layer_row_widgets import (
 )
 from ui.widgets.tab_label_view import create_label_tab
 from ui.widgets.tab_draw_view import create_draw_tab
+from ui.widgets.scroll_styles import MODERN_SCROLLBAR_STYLE
 from ui.widgets.icon_widgets import (
     MarkerShapeButton,
     LayerEyeButton,
@@ -339,7 +341,10 @@ class LayerDockWidget(QWidget):
         top_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         top_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
         top_scroll.setFrameShape(QFrame.Shape.NoFrame)
-        top_scroll.setStyleSheet("QScrollArea { background-color: #FFFFFF; }")
+        top_scroll.setStyleSheet(
+            "QScrollArea { background-color: #FFFFFF; border: none; }"
+            + MODERN_SCROLLBAR_STYLE
+        )
         self.vowel_design_container = QWidget()
         self.vowel_design_container.setStyleSheet(
             "QWidget { background-color: #FFFFFF; }"
@@ -467,9 +472,13 @@ class LayerDockWidget(QWidget):
         # 상단 디자인 래퍼: 라벨/그리기 두 패널을 모두 포함
         self.top_design_wrapper = QWidget()
         self.top_design_wrapper.setStyleSheet("background-color: #FFFFFF;")
+        self.top_design_wrapper.setSizePolicy(
+            QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Minimum
+        )
         top_wrapper_layout = QVBoxLayout(self.top_design_wrapper)
         top_wrapper_layout.setContentsMargins(0, 0, 0, 0)
         top_wrapper_layout.setSpacing(0)
+        top_wrapper_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
 
         # 래퍼에 라벨 디자인 패널 추가
         top_wrapper_layout.addWidget(self.vowel_design_container)
@@ -489,10 +498,18 @@ class LayerDockWidget(QWidget):
         )
         self._draw_design_panel.clear_selection()
         self._draw_design_panel.hide()
-        top_wrapper_layout.addWidget(self._draw_design_panel)
+        self._draw_design_panel.setSizePolicy(
+            QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Minimum
+        )
+        top_wrapper_layout.addWidget(
+            self._draw_design_panel, 0, Qt.AlignmentFlag.AlignTop
+        )
 
         top_scroll.setWidget(self.top_design_wrapper)
         top_scroll.setMinimumHeight(80)
+        top_scroll.verticalScrollBar().rangeChanged.connect(
+            self._on_design_scroll_range_changed
+        )
 
         self.tab_widget = QTabWidget()
         self.tab_widget.setFocusPolicy(Qt.FocusPolicy.NoFocus)
@@ -1935,6 +1952,7 @@ class LayerDockWidget(QWidget):
             self.vowel_design_container.hide()
             self._draw_design_panel.show()
             self._sync_draw_design_panel_to_selection()
+            self._fit_top_design_scroll_to_content()
         else:
             self.btn_reset_order.show()
             self.btn_reset_layers.show()
@@ -1946,6 +1964,49 @@ class LayerDockWidget(QWidget):
             if hasattr(self.popup, "select_legend_object"):
                 self.popup.select_legend_object(None)
             self._sync_design_controls_to_selection()
+            self._fit_top_design_scroll_to_content()
+
+    def _on_design_scroll_range_changed(self, _minv, _maxv):
+        """스크롤바 표시/숨김으로 viewport 너비가 바뀔 때 wrapper 폭 재맞춤."""
+        if getattr(self, "tab_widget", None) and self.tab_widget.currentIndex() == 1:
+            QTimer.singleShot(0, self._fit_top_design_scroll_to_content)
+
+    def _design_scroll_viewport_width(self) -> int:
+        scroll = getattr(self, "_design_scroll", None)
+        if scroll is None:
+            return lc.DOCK_WIDTH_PX
+        vp_w = scroll.viewport().width()
+        if vp_w > 0:
+            return vp_w
+        w = scroll.width()
+        vbar = scroll.verticalScrollBar()
+        if vbar.isVisible():
+            w -= vbar.width()
+        return max(w, 1)
+
+    def _fit_top_design_scroll_to_content(self):
+        """그리기 탭: 스크롤 영역이 내용 높이만큼만 차지(위쪽 정렬). 라벨 탭: 기존 확장."""
+        scroll = getattr(self, "_design_scroll", None)
+        wrapper = getattr(self, "top_design_wrapper", None)
+        if scroll is None or wrapper is None:
+            return
+        if self.tab_widget.currentIndex() == 1:
+            scroll.setWidgetResizable(False)
+            wrapper.adjustSize()
+            if hasattr(self, "_draw_design_panel") and self._draw_design_panel.isVisible():
+                self._draw_design_panel.adjustSize()
+            vp_w = self._design_scroll_viewport_width()
+            h = max(wrapper.sizeHint().height(), 1)
+            wrapper.setFixedSize(vp_w, h)
+        else:
+            scroll.setWidgetResizable(True)
+            wrapper.setMinimumSize(0, 0)
+            wrapper.setMaximumSize(16777215, 16777215)
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        if getattr(self, "tab_widget", None) and self.tab_widget.currentIndex() == 1:
+            self._fit_top_design_scroll_to_content()
 
     def update_draw_layer_list(self, draw_objects):
         """그리기 탭 목록 갱신: area_label은 제외하고 메인 객체만 행으로 표시."""
@@ -2176,7 +2237,8 @@ class LayerDockWidget(QWidget):
             layer_type = "text"
         else:
             self._draw_design_panel.clear_selection()
-            self.popup.select_legend_object(None)
+            if hasattr(self.popup, "select_legend_object"):
+                self.popup.select_legend_object(None)
             if hasattr(self.popup, "select_text_object"):
                 self.popup.select_text_object(None)
             return
@@ -2216,21 +2278,24 @@ class LayerDockWidget(QWidget):
             )
             settings["fill_opacity"] = float(getattr(obj, "fill_opacity", 0.92))
         elif layer_type == "text":
-            settings["font_size"] = float(getattr(obj, "font_size", 14.0))
+            settings["font_size"] = float(getattr(obj, "font_size", 13.0))
             settings["font_bold"] = bool(getattr(obj, "font_bold", False))
             settings["font_italic"] = bool(getattr(obj, "font_italic", False))
             settings["text_color"] = getattr(obj, "text_color", "#303133") or "#303133"
 
         if layer_type == "legend":
-            self.popup.select_legend_object(layer_id)
+            if hasattr(self.popup, "select_legend_object"):
+                self.popup.select_legend_object(layer_id)
             if hasattr(self.popup, "select_text_object"):
                 self.popup.select_text_object(None)
         elif layer_type == "text":
             if hasattr(self.popup, "select_text_object"):
                 self.popup.select_text_object(layer_id)
-            self.popup.select_legend_object(None)
+            if hasattr(self.popup, "select_legend_object"):
+                self.popup.select_legend_object(None)
         else:
-            self.popup.select_legend_object(None)
+            if hasattr(self.popup, "select_legend_object"):
+                self.popup.select_legend_object(None)
             if hasattr(self.popup, "select_text_object"):
                 self.popup.select_text_object(None)
 
@@ -2240,6 +2305,7 @@ class LayerDockWidget(QWidget):
             self._draw_design_panel.set_current_layer(layer_id, layer_type, settings)
         finally:
             self._draw_design_panel.blockSignals(False)
+        self._fit_top_design_scroll_to_content()
 
     def _apply_draw_settings_to_objects(
         self, layer_id: str, settings_for_apply: dict
@@ -2426,7 +2492,7 @@ class LayerDockWidget(QWidget):
                 clean_cfg[k] = v
         elif base_type == "text":
             for k, v in settings_for_summary.items():
-                if k == "font_size" and float(v or 14) == 14.0:
+                if k == "font_size" and float(v or 13) == 13.0:
                     continue
                 if k == "font_bold" and not v:
                     continue
@@ -2487,7 +2553,7 @@ class LayerDockWidget(QWidget):
             }
         elif obj_type == "text":
             mapping = {
-                "font_size": 14.0,
+                "font_size": 13.0,
                 "font_bold": False,
                 "font_italic": False,
                 "text_color": "#303133",
@@ -2519,7 +2585,7 @@ class LayerDockWidget(QWidget):
             }
         if t == "text":
             return {
-                "font_size": float(getattr(obj, "font_size", 14.0)),
+                "font_size": float(getattr(obj, "font_size", 13.0)),
                 "font_bold": bool(getattr(obj, "font_bold", False)),
                 "font_italic": bool(getattr(obj, "font_italic", False)),
                 "text_color": getattr(obj, "text_color", "#303133") or "#303133",

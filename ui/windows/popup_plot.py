@@ -357,7 +357,8 @@ class PlotPopup(BasePlotWindow):
         self.canvas.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self.draw_indicator = DrawModeIndicator(canvas_wrapper)
         self.draw_indicator.setParent(canvas_wrapper)
-        self._draw_indicator_height = 34
+        self.draw_indicator.adjustSize()
+        self._draw_indicator_height = self.draw_indicator.sizeHint().height()
         self.draw_indicator.move(
             8, config.PLOT_CANVAS_SIZE_PX - 8 - self._draw_indicator_height
         )

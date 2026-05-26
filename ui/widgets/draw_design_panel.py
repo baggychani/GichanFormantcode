@@ -27,6 +27,24 @@ from ui.widgets.segmented_control import create_line_preview_button_group
 class CompactStackedWidget(QStackedWidget):
     """현재 페이지 높이만큼만 차지 — 구버전 PySide6에서 setSizeAdjustPolicy 미지원 대체."""
 
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        if hasattr(QStackedWidget, "SizeAdjustPolicy"):
+            self.setSizeAdjustPolicy(
+                QStackedWidget.SizeAdjustPolicy.AdjustToCurrentPage
+            )
+
+    def setCurrentIndex(self, index: int):
+        if index != self.currentIndex():
+            super().setCurrentIndex(index)
+            self._refresh_page_geometry()
+
+    def _refresh_page_geometry(self):
+        w = self.currentWidget()
+        if w is not None:
+            w.updateGeometry()
+        self.updateGeometry()
+
     def sizeHint(self):
         w = self.currentWidget()
         if w is not None:
@@ -149,7 +167,6 @@ class DrawDesignPanel(QWidget):
         )
         self._legend_edit_btn.clicked.connect(self._on_legend_edit_clicked)
         layout.addWidget(self._legend_edit_btn)
-        layout.addStretch()
         return page
 
     def _on_legend_edit_clicked(self):
@@ -176,7 +193,7 @@ class DrawDesignPanel(QWidget):
         size_row.addStretch()
         self._text_font_size = QSpinBox()
         self._text_font_size.setRange(4, 200)
-        self._text_font_size.setValue(14)
+        self._text_font_size.setValue(13)
         self._text_font_size.setFont(font_normal)
         self._text_font_size.setFixedWidth(96)
         self._text_font_size.setFixedHeight(30)
@@ -335,8 +352,6 @@ class DrawDesignPanel(QWidget):
         color_layout.addWidget(color_picker)
         layout.addLayout(color_layout)
 
-        layout.addStretch()
-
         self._line_controls = {
             "group_style": group,
             "color_picker": color_picker,
@@ -428,8 +443,6 @@ class DrawDesignPanel(QWidget):
         fill_color_layout.addWidget(fill_color_picker)
         layout.addLayout(fill_color_layout)
 
-        layout.addStretch()
-
         self._area_controls = {
             "switch_area_label": switch,
             "group_border_style": group_style,
@@ -467,8 +480,6 @@ class DrawDesignPanel(QWidget):
         color_layout.addWidget(color_picker)
         layout.addLayout(color_layout)
 
-        layout.addStretch()
-
         self._reference_controls = {
             "group_style": group_style,
             "color_picker": color_picker,
@@ -495,7 +506,7 @@ class DrawDesignPanel(QWidget):
 
         stacked = CompactStackedWidget()
         stacked.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Minimum)
-        stacked.currentChanged.connect(lambda _i: stacked.updateGeometry())
+        stacked.blockSignals(True)
         page_line = self._build_line_page()
         page_area = self._build_area_page()
         page_reference = self._build_reference_page()
@@ -517,12 +528,26 @@ class DrawDesignPanel(QWidget):
             "legend": 3,
             "text": 4,
         }
+        stacked.blockSignals(False)
+        stacked.currentChanged.connect(lambda _i: self._notify_layout_changed())
 
         main_layout.addWidget(placeholder)
         main_layout.addWidget(stacked)
 
+        self.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Minimum)
+
         # 기본 상태: 포커스 없음
         self._set_focus_none_ui()
+
+    def _notify_layout_changed(self):
+        stacked = getattr(self, "_stacked", None)
+        if stacked is None:
+            return
+        stacked._refresh_page_geometry()
+        self.adjustSize()
+        parent = self.parentWidget()
+        if parent is not None and hasattr(parent, "_fit_top_design_scroll_to_content"):
+            parent._fit_top_design_scroll_to_content()
 
     def _connect_signals(self):
         # 선/영역/참조선 선 타입: buttonClicked 사용 (buttonToggled는 해제+선택 두 번 발화해 _loading과 꼬임)
@@ -732,7 +757,7 @@ class DrawDesignPanel(QWidget):
 
     def _apply_text_settings(self, settings: dict):
         self._text_font_size.setValue(
-            int(round(float(settings.get("font_size", 14) or 14)))
+            int(round(float(settings.get("font_size", 13) or 13)))
         )
         self._text_btn_bold.setChecked(bool(settings.get("font_bold", False)))
         self._text_btn_italic.setChecked(bool(settings.get("font_italic", False)))
@@ -832,9 +857,12 @@ class DrawDesignPanel(QWidget):
     def _set_focus_active_ui(self, layer_type: str):
         self._placeholder.setVisible(False)
         self._stacked.setVisible(True)
-        idx = self._page_indices.get(layer_type, 0)
+        idx = self._page_indices.get(layer_type)
+        if idx is None:
+            self._set_focus_none_ui()
+            return
         self._stacked.setCurrentIndex(idx)
-        self._stacked.updateGeometry()
+        self._notify_layout_changed()
 
     # ------------------------------------------------------------------
     # 시그널 처리

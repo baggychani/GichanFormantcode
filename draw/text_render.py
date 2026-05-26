@@ -116,7 +116,7 @@ def render_text_object(
         return []
 
     alpha = 0.35 if getattr(text_obj, "semi", False) else 1.0
-    font_size = clamp_text_font_size(getattr(text_obj, "font_size", 14.0))
+    font_size = clamp_text_font_size(getattr(text_obj, "font_size", 13.0))
     text_obj.font_size = font_size
     color = getattr(text_obj, "text_color", "#303133") or "#303133"
     font_bold = bool(getattr(text_obj, "font_bold", False))
