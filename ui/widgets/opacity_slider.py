@@ -58,9 +58,7 @@ class OpacitySlider(QWidget):
     def _handle_center_x(self) -> int:
         left, right, _cy = self._track_rect()
         span = max(1, right - left)
-        t = (self._value - self._minimum) / max(
-            1, (self._maximum - self._minimum)
-        )
+        t = (self._value - self._minimum) / max(1, (self._maximum - self._minimum))
         return int(left + span * t)
 
     def paintEvent(self, _event) -> None:
@@ -76,10 +74,10 @@ class OpacitySlider(QWidget):
         painter.setBrush(color)
         fill_w = max(0, hx - left)
         if fill_w > 0:
-            painter.drawRoundedRect(
-                left, cy - _TRACK_H // 2, fill_w, _TRACK_H, 2, 2
-            )
-        painter.drawEllipse(hx - _HANDLE_R, cy - _HANDLE_R, _HANDLE_R * 2, _HANDLE_R * 2)
+            painter.drawRoundedRect(left, cy - _TRACK_H // 2, fill_w, _TRACK_H, 2, 2)
+        painter.drawEllipse(
+            hx - _HANDLE_R, cy - _HANDLE_R, _HANDLE_R * 2, _HANDLE_R * 2
+        )
         painter.end()
 
     def _set_from_mouse(self, event: QMouseEvent) -> None:

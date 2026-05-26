@@ -16,7 +16,7 @@ import config
 from utils import app_logger
 from utils import icon_utils
 from draw import DrawMode
-from draw.draw_common import polygon_area, AreaLabelObject, LegendObject
+from draw.draw_common import polygon_area, AreaLabelObject, LegendObject, TextObject
 from draw.legend_helpers import (
     create_legend_object,
     find_legend_object,
@@ -25,7 +25,8 @@ from draw.legend_helpers import (
 from draw.draw_layer_render import render_draw_objects
 from tools.transform_box import TransformBoxTool
 from ui.dialogs.legend_text_dialog import LegendTextDialog
-from draw import draw_line, draw_polygon, draw_reference
+from ui.dialogs.draw_text_dialog import DrawTextDialog
+from draw import draw_line, draw_polygon, draw_reference, draw_text
 from engine.plot_engine import PlotEngine
 
 
@@ -37,7 +38,12 @@ class BasePlotWindow(QMainWindow):
     def __init__(self, parent=None):
         super().__init__(parent)
         self._selected_legend_id = None
+        self._selected_text_id = None
         self._legend_transform_tool = None
+        self._draw_layer_text_refs = []
+        self._text_drag_cids = None
+        self._dragging_text_obj = None
+        self._text_cursor_changed = False
         self._export_render_depth = 0
         self._is_label_move_active_flag = False
 
@@ -166,7 +172,7 @@ class BasePlotWindow(QMainWindow):
         QShortcut(
             QKeySequence(Qt.Key.Key_P), self, context=Qt.ShortcutContext.WindowShortcut
         ).activated.connect(self._safe_toggle_draw)
-        # 그리기 모드에서 도구 선택: 1=선, 2=영역, 3=수평 참조선, 4=수직 참조선
+        # 그리기 모드에서 도구 선택: 1=선, 2=영역, 3=텍스트, 4=수평 참조선, 5=수직 참조선
         QShortcut(
             QKeySequence(Qt.Key.Key_1), self, context=Qt.ShortcutContext.WindowShortcut
         ).activated.connect(lambda: self._safe_set_draw_mode(DrawMode.LINE))
@@ -175,9 +181,12 @@ class BasePlotWindow(QMainWindow):
         ).activated.connect(lambda: self._safe_set_draw_mode(DrawMode.POLYGON))
         QShortcut(
             QKeySequence(Qt.Key.Key_3), self, context=Qt.ShortcutContext.WindowShortcut
-        ).activated.connect(lambda: self._safe_set_draw_mode(DrawMode.REF_H))
+        ).activated.connect(lambda: self._safe_set_draw_mode(DrawMode.TEXT))
         QShortcut(
             QKeySequence(Qt.Key.Key_4), self, context=Qt.ShortcutContext.WindowShortcut
+        ).activated.connect(lambda: self._safe_set_draw_mode(DrawMode.REF_H))
+        QShortcut(
+            QKeySequence(Qt.Key.Key_5), self, context=Qt.ShortcutContext.WindowShortcut
         ).activated.connect(lambda: self._safe_set_draw_mode(DrawMode.REF_V))
         # L: 설정 유지 토글
         QShortcut(
@@ -214,7 +223,7 @@ class BasePlotWindow(QMainWindow):
             self._draw_tool.rollback()
 
     def _safe_set_draw_mode(self, mode):
-        """숫자 키(1~4)로 그리기 도구를 선택. 그리기 모드가 꺼져 있으면 무시."""
+        """숫자 키(1~5)로 그리기 도구를 선택. 그리기 모드가 꺼져 있으면 무시."""
         if self._is_input_focused():
             return
         if not (getattr(self, "btn_draw", None) and self.btn_draw.isChecked()):
@@ -428,6 +437,9 @@ class BasePlotWindow(QMainWindow):
 
     def _on_draw_object_complete(self, obj):
         objs = self._get_current_draw_objects()
+        if getattr(obj, "type", "") == "text" and not getattr(obj, "name", ""):
+            n = sum(1 for o in objs if getattr(o, "type", "") == "text") + 1
+            obj.name = f"텍스트 {n}"
         objs.append(obj)
         if (
             getattr(obj, "type", "") == "polygon"
@@ -452,6 +464,7 @@ class BasePlotWindow(QMainWindow):
                 semi=obj.semi,
             )
             objs.append(area_label)
+        self._set_current_draw_objects(objs)
         self._redraw_draw_layer()
         if (
             hasattr(self, "_layer_dock_content")
@@ -507,8 +520,47 @@ class BasePlotWindow(QMainWindow):
 
     def select_legend_object(self, legend_id: str | None) -> None:
         self._selected_legend_id = legend_id
+        if legend_id is not None:
+            self._selected_text_id = None
         self._sync_legend_transform_tool()
         self._redraw_draw_layer()
+
+    def select_text_object(self, text_id: str | None) -> None:
+        self._selected_text_id = text_id
+        if text_id is not None:
+            self._selected_legend_id = None
+        self._sync_legend_transform_tool()
+        self._redraw_draw_layer()
+
+    def _active_draw_layer_dock(self):
+        return getattr(self, "_layer_dock_content", None)
+
+    def _find_draw_object_index(self, obj) -> int | None:
+        objs = self._get_current_draw_objects()
+        obj_id = getattr(obj, "id", None)
+        for i, o in enumerate(objs):
+            if o is obj:
+                return i
+            if obj_id and getattr(o, "id", None) == obj_id:
+                return i
+        return None
+
+    def _focus_draw_text_layer(self, text_obj, *, switch_tab: bool = True) -> None:
+        if getattr(text_obj, "type", "") != "text":
+            return
+        idx = self._find_draw_object_index(text_obj)
+        if idx is None:
+            return
+        dock = self._active_draw_layer_dock()
+        if dock is not None and hasattr(dock, "focus_draw_index"):
+            dock.focus_draw_index(idx, switch_to_draw_tab=switch_tab)
+        self.select_text_object(getattr(text_obj, "id", None))
+
+    def _clear_draw_text_focus(self) -> None:
+        dock = self._active_draw_layer_dock()
+        if dock is not None and hasattr(dock, "focus_draw_index"):
+            dock.focus_draw_index(None)
+        self.select_text_object(None)
 
     def open_legend_text_dialog(self, legend: LegendObject | None = None) -> None:
         target = legend or self.get_legend_object()
@@ -522,6 +574,28 @@ class BasePlotWindow(QMainWindow):
         if dlg.exec():
             dlg.apply_to_legend()
             self._redraw_draw_layer()
+
+    def open_draw_text_dialog(self, text_obj: TextObject | None = None) -> None:
+        target = text_obj
+        if target is None and self._selected_text_id:
+            for obj in self._get_current_draw_objects():
+                if (
+                    getattr(obj, "type", "") == "text"
+                    and getattr(obj, "id", None) == self._selected_text_id
+                ):
+                    target = obj
+                    break
+        if target is None:
+            return
+        dlg = DrawTextDialog(
+            initial_text=str(getattr(target, "text", "") or ""),
+            ui_font_name=getattr(self, "ui_font_name", "Malgun Gothic"),
+            parent=self,
+        )
+        if dlg.exec():
+            dlg.apply_to_text_object(target)
+            self._redraw_draw_layer()
+            self._refresh_draw_layer_list()
 
     def _sync_legend_transform_tool(self) -> None:
         if not self.figure.axes:
@@ -552,6 +626,144 @@ class BasePlotWindow(QMainWindow):
 
     def _on_legend_transform_changed(self) -> None:
         self._redraw_draw_layer()
+
+    def _text_hit_at_px(self, x_px, y_px, pad_px=14):
+        refs = getattr(self, "_draw_layer_text_refs", []) or []
+        if not self.canvas or not refs:
+            return None
+        try:
+            renderer = self.canvas.get_renderer()
+        except Exception:
+            renderer = None
+        if renderer is None:
+            return None
+        for arts, obj, _bounds in refs:
+            if getattr(obj, "type", "") != "text":
+                continue
+            art_list = arts if isinstance(arts, list) else [arts]
+            for art in art_list:
+                try:
+                    bbox = art.get_window_extent(renderer)
+                    x0, x1 = (
+                        min(bbox.x0, bbox.x1) - pad_px,
+                        max(bbox.x0, bbox.x1) + pad_px,
+                    )
+                    y0, y1 = (
+                        min(bbox.y0, bbox.y1) - pad_px,
+                        max(bbox.y0, bbox.y1) + pad_px,
+                    )
+                    if x0 <= x_px <= x1 and y0 <= y_px <= y1:
+                        return obj
+                except Exception:
+                    continue
+        return None
+
+    def _is_text_focused(self, obj) -> bool:
+        text_id = getattr(obj, "id", None)
+        if not text_id or text_id != getattr(self, "_selected_text_id", None):
+            return False
+        dock = self._active_draw_layer_dock()
+        if dock is None:
+            return False
+        sel = getattr(dock, "_selected_draw_indices", set())
+        if len(sel) != 1:
+            return False
+        objs = self._get_current_draw_objects()
+        sel_idx = next(iter(sel))
+        if not (0 <= sel_idx < len(objs)):
+            return False
+        sel_obj = objs[sel_idx]
+        return (
+            getattr(sel_obj, "type", "") == "text"
+            and getattr(sel_obj, "id", None) == text_id
+        )
+
+    def _ensure_text_drag_connected(self):
+        if getattr(self, "_text_drag_cids", None) is not None:
+            return
+        if not getattr(self, "canvas", None):
+            return
+        c = self.canvas
+        try:
+            cid_bp = c.mpl_connect("button_press_event", self._on_canvas_text_press)
+            cid_mv = c.mpl_connect("motion_notify_event", self._on_canvas_text_move)
+            cid_br = c.mpl_connect("button_release_event", self._on_canvas_text_release)
+            self._text_drag_cids = (cid_bp, cid_mv, cid_br)
+            self._dragging_text_obj = None
+            self._text_cursor_changed = False
+        except Exception:
+            self._text_drag_cids = ()
+
+    def _on_canvas_text_press(self, event):
+        if getattr(event, "dblclick", False):
+            return
+        if event.button != 1:
+            return
+        hit = self._text_hit_at_px(event.x, event.y)
+        if hit is not None:
+            self._focus_draw_text_layer(hit)
+            if (
+                not getattr(hit, "locked", False)
+                and event.inaxes is not None
+                and event.xdata is not None
+                and event.ydata is not None
+            ):
+                self._dragging_text_obj = hit
+                self._text_drag_offset = (
+                    float(hit.x) - float(event.xdata),
+                    float(hit.y) - float(event.ydata),
+                )
+            return
+        if event.inaxes is not None:
+            self._clear_draw_text_focus()
+
+    def _on_canvas_text_move(self, event):
+        obj = getattr(self, "_dragging_text_obj", None)
+        if obj is not None:
+            if (
+                event.inaxes is not None
+                and event.xdata is not None
+                and event.ydata is not None
+            ):
+                ox, oy = getattr(self, "_text_drag_offset", (0.0, 0.0))
+                obj.x = float(event.xdata) + ox
+                obj.y = float(event.ydata) + oy
+                self._redraw_draw_layer()
+            return
+        hit = (
+            self._text_hit_at_px(event.x, event.y) if event.inaxes is not None else None
+        )
+        try:
+            if hit is not None and not getattr(hit, "locked", False):
+                cursor = (
+                    Qt.CursorShape.SizeAllCursor
+                    if self._is_text_focused(hit)
+                    else Qt.CursorShape.PointingHandCursor
+                )
+                if not getattr(self, "_text_cursor_changed", False):
+                    self.canvas.setCursor(cursor)
+                    self._text_cursor_changed = True
+                elif getattr(self, "_text_hover_cursor", None) != cursor:
+                    self.canvas.setCursor(cursor)
+                self._text_hover_cursor = cursor
+            elif getattr(self, "_text_cursor_changed", False):
+                self.canvas.unsetCursor()
+                self._text_cursor_changed = False
+                self._text_hover_cursor = None
+        except Exception:
+            pass
+
+    def _on_canvas_text_release(self, event):
+        if getattr(self, "_dragging_text_obj", None) is not None:
+            self._dragging_text_obj = None
+            self._text_drag_offset = (0.0, 0.0)
+        if getattr(self, "_text_cursor_changed", False):
+            try:
+                self.canvas.unsetCursor()
+            except Exception:
+                pass
+            self._text_cursor_changed = False
+            self._text_hover_cursor = None
 
     def begin_export_render(self) -> None:
         """이미지 저장 등 내보내기 직전: 편집 UI(선택 핸들 등)를 숨긴다."""
@@ -584,17 +796,21 @@ class BasePlotWindow(QMainWindow):
                 pass
         self._draw_layer_artists = []
         self._draw_layer_area_label_refs = []
+        self._draw_layer_text_refs = []
         self._draw_layer_artists = render_draw_objects(
             ax,
             self._get_current_draw_objects(),
             self,
             show_editor_chrome=self._show_editor_chrome(),
             selected_legend_id=getattr(self, "_selected_legend_id", None),
+            selected_text_id=getattr(self, "_selected_text_id", None),
             area_label_refs=self._draw_layer_area_label_refs,
+            text_layer_refs=self._draw_layer_text_refs,
         )
         self._sync_legend_transform_tool()
         if self.canvas:
             self._ensure_area_label_drag_connected()
+            self._ensure_text_drag_connected()
             self.canvas.draw_idle()
 
     def _on_draw_mode_changed(self, mode):
@@ -659,6 +875,17 @@ class BasePlotWindow(QMainWindow):
                 on_complete=self._on_draw_object_complete,
                 on_cancel=_on_draw_cancel,
                 font_family=["DejaVu Sans", "Malgun Gothic"],
+            )
+        elif mode == DrawMode.TEXT:
+            self._draw_tool = draw_text.DrawTextTool(
+                self.canvas,
+                ax,
+                axis_units=y_unit,
+                parent_window=self,
+                ui_font_name=getattr(self, "ui_font_name", "Malgun Gothic"),
+                hit_text_at=self._text_hit_at_px,
+                on_complete=self._on_draw_object_complete,
+                on_cancel=_on_draw_cancel,
             )
         elif mode in (DrawMode.REF_H, DrawMode.REF_V):
             self._draw_tool = draw_reference.DrawReferenceTool(

@@ -592,9 +592,7 @@ class SelectCompareDialog(QDialog):
         left_indices = self._checked_indices(self._left_checks)
         right_indices = self._checked_indices(self._right_checks)
         if len(left_indices) < 1 or len(right_indices) < 1:
-            QMessageBox.warning(
-                self, "선택 오류", "양쪽 각각 1개 이상 선택해 주세요."
-            )
+            QMessageBox.warning(self, "선택 오류", "양쪽 각각 1개 이상 선택해 주세요.")
             return
 
         norm = (
@@ -1796,6 +1794,9 @@ class ComparePlotPopup(BasePlotWindow):
                 getattr(obj, "point_labels", None) or []
             )
         objs = self._get_current_draw_objects()
+        if getattr(obj, "type", "") == "text" and not getattr(obj, "name", ""):
+            n = sum(1 for o in objs if getattr(o, "type", "") == "text") + 1
+            obj.name = f"텍스트 {n}"
         objs.append(obj)
         if (
             getattr(obj, "type", "") == "polygon"

@@ -111,9 +111,7 @@ def render_legend(
     if show_fill or show_border or chrome:
         fill_opacity = float(getattr(legend, "fill_opacity", 0.92))
         fill_opacity = max(0.0, min(1.0, fill_opacity))
-        face = (
-            (1, 1, 1, fill_opacity * alpha) if show_fill else (1, 1, 1, 0)
-        )
+        face = (1, 1, 1, fill_opacity * alpha) if show_fill else (1, 1, 1, 0)
         if show_border:
             edge = "#409EFF" if chrome else "#D0D3D9"
             lw = 0.8 if chrome else 0.5

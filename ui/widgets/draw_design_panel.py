@@ -7,6 +7,8 @@ from PySide6.QtWidgets import (
     QButtonGroup,
     QStackedWidget,
     QPushButton,
+    QSpinBox,
+    QSizePolicy,
 )
 from PySide6.QtCore import Qt, QSize, Signal
 from PySide6.QtGui import QFont, QCursor
@@ -20,6 +22,22 @@ from ui.widgets.opacity_slider import (
 )
 from ui.widgets.icon_widgets import create_trajectory_icon
 from ui.widgets.segmented_control import create_line_preview_button_group
+
+
+class CompactStackedWidget(QStackedWidget):
+    """현재 페이지 높이만큼만 차지 — 구버전 PySide6에서 setSizeAdjustPolicy 미지원 대체."""
+
+    def sizeHint(self):
+        w = self.currentWidget()
+        if w is not None:
+            return w.sizeHint()
+        return super().sizeHint()
+
+    def minimumSizeHint(self):
+        w = self.currentWidget()
+        if w is not None:
+            return w.minimumSizeHint()
+        return super().minimumSizeHint()
 
 
 # design_panel / layer_dock 과 동일한 선 스타일 매핑을 사용한다.
@@ -38,6 +56,7 @@ class DrawDesignPanel(QWidget):
 
     settings_changed = Signal(str, dict)
     legend_edit_requested = Signal(str)
+    text_edit_requested = Signal(str)
 
     def __init__(self, parent=None, ui_font_name="Malgun Gothic"):
         super().__init__(parent)
@@ -45,7 +64,7 @@ class DrawDesignPanel(QWidget):
         self._loading = False
         self._current_layer_id = ""
         self._current_layer_type = (
-            None  # "line" | "area" | "reference" | "legend" | None
+            None  # "line" | "area" | "reference" | "legend" | "text" | None
         )
 
         self._setup_ui()
@@ -136,6 +155,93 @@ class DrawDesignPanel(QWidget):
     def _on_legend_edit_clicked(self):
         if self._current_layer_id:
             self.legend_edit_requested.emit(self._current_layer_id)
+
+    def _build_text_page(self):
+        page = QWidget()
+        layout = QVBoxLayout(page)
+        layout.setContentsMargins(12, 12, 12, 12)
+        layout.setSpacing(10)
+
+        font_bold = QFont(self.ui_font_name, 10, QFont.Weight.Bold)
+        font_normal = QFont(self.ui_font_name, 9)
+
+        layout.addWidget(QLabel("텍스트 레이어", font=font_bold))
+
+        size_row = QHBoxLayout()
+        size_row.setSpacing(8)
+        lbl_size = QLabel("글자 크기")
+        lbl_size.setFont(font_normal)
+        lbl_size.setStyleSheet("color: #606266;")
+        size_row.addWidget(lbl_size)
+        size_row.addStretch()
+        self._text_font_size = QSpinBox()
+        self._text_font_size.setRange(4, 200)
+        self._text_font_size.setValue(14)
+        self._text_font_size.setFont(font_normal)
+        self._text_font_size.setFixedWidth(96)
+        self._text_font_size.setFixedHeight(30)
+        size_row.addWidget(self._text_font_size)
+        layout.addLayout(size_row)
+
+        style_row = QHBoxLayout()
+        style_row.setSpacing(8)
+        lbl_style = QLabel("스타일")
+        lbl_style.setFont(font_normal)
+        lbl_style.setStyleSheet("color: #606266;")
+        style_row.addWidget(lbl_style)
+        style_row.addStretch()
+        style_btn_style = (
+            "QPushButton { background-color: #F0F2F5; border: 1px solid #DCDFE6; "
+            "border-radius: 4px; min-width: 28px; min-height: 28px; }"
+            "QPushButton:checked { background-color: #409EFF; color: white; border: none; }"
+        )
+        self._text_btn_bold = QPushButton("B")
+        self._text_btn_bold.setCheckable(True)
+        self._text_btn_bold.setFixedSize(30, 30)
+        self._text_btn_bold.setFont(QFont("Arial", 10, QFont.Weight.Bold))
+        self._text_btn_bold.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
+        self._text_btn_bold.setToolTip("굵게")
+        self._text_btn_bold.setStyleSheet(style_btn_style)
+        self._text_btn_italic = QPushButton("I")
+        self._text_btn_italic.setCheckable(True)
+        self._text_btn_italic.setFixedSize(30, 30)
+        self._text_btn_italic.setFont(QFont("Arial", 10, QFont.Weight.Normal))
+        self._text_btn_italic.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
+        self._text_btn_italic.setToolTip("기울임")
+        self._text_btn_italic.setStyleSheet(
+            style_btn_style
+            + " QPushButton { font-style: italic; }"
+            + " QPushButton:checked { font-style: italic; }"
+        )
+        style_row.addWidget(self._text_btn_bold)
+        style_row.addWidget(self._text_btn_italic)
+        layout.addLayout(style_row)
+
+        color_layout = QVBoxLayout()
+        color_layout.setSpacing(6)
+        color_layout.addWidget(_field_caption("글자 색상", font_normal))
+        self._text_color_picker = ColorPalette(
+            default_color="#303133", allow_transparent=False, parent=page
+        )
+        color_layout.addWidget(self._text_color_picker)
+        layout.addLayout(color_layout)
+
+        self._text_edit_btn = QPushButton("텍스트 편집…")
+        self._text_edit_btn.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
+        self._text_edit_btn.setFixedHeight(32)
+        self._text_edit_btn.setFont(font_normal)
+        self._text_edit_btn.setStyleSheet(
+            "QPushButton { background-color: #F0F2F5; border: 1px solid #DCDFE6; "
+            "border-radius: 4px; color: #333; }"
+            "QPushButton:hover { background-color: #E4E7ED; color: #409EFF; }"
+        )
+        self._text_edit_btn.clicked.connect(self._on_text_edit_clicked)
+        layout.addWidget(self._text_edit_btn)
+        return page
+
+    def _on_text_edit_clicked(self):
+        if self._current_layer_id:
+            self.text_edit_requested.emit(self._current_layer_id)
 
     # ------------------------------------------------------------------
     # 페이지별 UI
@@ -387,24 +493,33 @@ class DrawDesignPanel(QWidget):
         placeholder.setStyleSheet("color: #909399;")
         placeholder.setWordWrap(True)
 
-        stacked = QStackedWidget()
+        stacked = CompactStackedWidget()
+        stacked.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Minimum)
+        stacked.currentChanged.connect(lambda _i: stacked.updateGeometry())
         page_line = self._build_line_page()
         page_area = self._build_area_page()
         page_reference = self._build_reference_page()
         page_legend = self._build_legend_page()
+        page_text = self._build_text_page()
 
         stacked.addWidget(page_line)  # index 0
         stacked.addWidget(page_area)  # index 1
         stacked.addWidget(page_reference)  # index 2
         stacked.addWidget(page_legend)  # index 3
+        stacked.addWidget(page_text)  # index 4
 
         self._placeholder = placeholder
         self._stacked = stacked
-        self._page_indices = {"line": 0, "area": 1, "reference": 2, "legend": 3}
+        self._page_indices = {
+            "line": 0,
+            "area": 1,
+            "reference": 2,
+            "legend": 3,
+            "text": 4,
+        }
 
         main_layout.addWidget(placeholder)
         main_layout.addWidget(stacked)
-        main_layout.addStretch()
 
         # 기본 상태: 포커스 없음
         self._set_focus_none_ui()
@@ -451,6 +566,11 @@ class DrawDesignPanel(QWidget):
             self._on_any_control_changed
         )
 
+        self._text_font_size.valueChanged.connect(self._on_any_control_changed)
+        self._text_btn_bold.toggled.connect(self._on_any_control_changed)
+        self._text_btn_italic.toggled.connect(self._on_any_control_changed)
+        self._text_color_picker.color_changed.connect(self._on_any_control_changed)
+
     def _on_legend_fill_toggled(self, checked: bool):
         self._legend_fill_opacity_slider.setEnabled(checked)
         self._legend_fill_opacity_caption.setEnabled(checked)
@@ -473,7 +593,7 @@ class DrawDesignPanel(QWidget):
         """
         외부(레이어 도크 등)에서 현재 선택된 그리기 레이어 정보를 전달한다.
 
-        layer_type: "line" | "area" | "reference" | "legend"
+        layer_type: "line" | "area" | "reference" | "legend" | "text"
         settings: 타입별 설정 딕셔너리 (없으면 기본값 사용)
         """
         self._current_layer_id = layer_id or ""
@@ -491,6 +611,8 @@ class DrawDesignPanel(QWidget):
                 self._apply_reference_settings(settings)
             elif layer_type == "legend":
                 self._apply_legend_settings(settings)
+            elif layer_type == "text":
+                self._apply_text_settings(settings)
         finally:
             self._loading = False
 
@@ -506,6 +628,8 @@ class DrawDesignPanel(QWidget):
             return self._collect_reference_settings()
         if self._current_layer_type == "legend":
             return self._collect_legend_settings()
+        if self._current_layer_type == "text":
+            return self._collect_text_settings()
         return {}
 
     # ------------------------------------------------------------------
@@ -606,6 +730,17 @@ class DrawDesignPanel(QWidget):
         self._legend_fill_opacity_value.setText(f"{pct}%")
         self._on_legend_fill_toggled(show_fill)
 
+    def _apply_text_settings(self, settings: dict):
+        self._text_font_size.setValue(
+            int(round(float(settings.get("font_size", 14) or 14)))
+        )
+        self._text_btn_bold.setChecked(bool(settings.get("font_bold", False)))
+        self._text_btn_italic.setChecked(bool(settings.get("font_italic", False)))
+        color = settings.get("text_color", "#303133") or "#303133"
+        if str(color).lower() == "transparent":
+            color = "#303133"
+        self._text_color_picker.set_color(color)
+
     def _collect_line_settings(self) -> dict:
         group = self._line_controls["group_style"]
         style_id = group.checkedId()
@@ -676,9 +811,15 @@ class DrawDesignPanel(QWidget):
         return {
             "show_border": self._legend_switch_border.isChecked(),
             "show_fill": self._legend_switch_fill.isChecked(),
-            "fill_opacity": slider_to_opacity(
-                self._legend_fill_opacity_slider.value()
-            ),
+            "fill_opacity": slider_to_opacity(self._legend_fill_opacity_slider.value()),
+        }
+
+    def _collect_text_settings(self) -> dict:
+        return {
+            "font_size": float(self._text_font_size.value()),
+            "font_bold": self._text_btn_bold.isChecked(),
+            "font_italic": self._text_btn_italic.isChecked(),
+            "text_color": self._text_color_picker.current_color,
         }
 
     # ------------------------------------------------------------------
@@ -693,6 +834,7 @@ class DrawDesignPanel(QWidget):
         self._stacked.setVisible(True)
         idx = self._page_indices.get(layer_type, 0)
         self._stacked.setCurrentIndex(idx)
+        self._stacked.updateGeometry()
 
     # ------------------------------------------------------------------
     # 시그널 처리

@@ -38,6 +38,7 @@ from ui.widgets.layer_logic import (
     apply_line_settings,
     apply_polygon_settings,
     apply_reference_settings,
+    apply_text_settings,
     rebuild_area_labels_for_polygons,
     toggle_item_visibility,
     compute_order_after_drop,
@@ -131,6 +132,15 @@ def _draw_object_display_name(draw_objects, index, normalization=None):
     t = getattr(obj, "type", "")
     if t == "legend":
         return getattr(obj, "name", None) or "범례"
+    if t == "text":
+        n = 1 + sum(
+            1 for i in range(index) if getattr(draw_objects[i], "type", "") == "text"
+        )
+        preview = str(getattr(obj, "text", "") or "").strip().split("\n", 1)[0]
+        if len(preview) > 18:
+            preview = preview[:17] + "…"
+        suffix = f" : {preview}" if preview else ""
+        return f"텍스트 {n}{suffix}"
     if t == "line":
         n = 1 + sum(
             1 for i in range(index) if getattr(draw_objects[i], "type", "") == "line"
@@ -327,7 +337,7 @@ class LayerDockWidget(QWidget):
         top_scroll = self._design_scroll
         top_scroll.setWidgetResizable(True)
         top_scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        top_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOn)
+        top_scroll.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
         top_scroll.setFrameShape(QFrame.Shape.NoFrame)
         top_scroll.setStyleSheet("QScrollArea { background-color: #FFFFFF; }")
         self.vowel_design_container = QWidget()
@@ -473,6 +483,9 @@ class LayerDockWidget(QWidget):
         )
         self._draw_design_panel.legend_edit_requested.connect(
             self._on_legend_edit_requested
+        )
+        self._draw_design_panel.text_edit_requested.connect(
+            self._on_text_edit_requested
         )
         self._draw_design_panel.clear_selection()
         self._draw_design_panel.hide()
@@ -1417,6 +1430,36 @@ class LayerDockWidget(QWidget):
         self.update_draw_layer_list(reordered)
         return
 
+    def focus_draw_index(
+        self, draw_index: int | None, *, switch_to_draw_tab: bool = False
+    ):
+        """캔버스 등 외부에서 그리기 레이어 선택 상태를 직접 설정."""
+        if switch_to_draw_tab and self.tab_widget.currentIndex() != 1:
+            self.tab_widget.setCurrentIndex(1)
+        if draw_index is None:
+            self._selected_draw_indices = set()
+            self._anchor_draw_index = None
+        else:
+            objs = self.draw_manager.get_draw_objects()
+            if not (0 <= draw_index < len(objs)):
+                return
+            self._selected_draw_indices = {draw_index}
+            self._anchor_draw_index = draw_index
+        rows = getattr(self, "_draw_layer_rows", None) or []
+        for r in rows:
+            idx = getattr(r, "draw_index", None)
+            sel = idx in self._selected_draw_indices if idx is not None else False
+            r.setProperty("selected", sel)
+            if hasattr(r, "name_btn"):
+                r.name_btn.setChecked(sel)
+            r.style().unpolish(r)
+            r.style().polish(r)
+        if hasattr(self, "_design_scroll") and getattr(self, "_design_scroll", None):
+            vbar = self._design_scroll.verticalScrollBar()
+            if vbar is not None:
+                vbar.setValue(0)
+        self._sync_draw_design_panel_to_selection()
+
     def _toggle_select_draw_index(self, draw_index, name_btn):
         if draw_index is None or draw_index < 0:
             return
@@ -2103,6 +2146,8 @@ class LayerDockWidget(QWidget):
             self._draw_design_panel.clear_selection()
             if hasattr(self.popup, "select_legend_object"):
                 self.popup.select_legend_object(None)
+            if hasattr(self.popup, "select_text_object"):
+                self.popup.select_text_object(None)
             return
 
         # 기준이 되는 인덱스: 앵커(Shift 기준) 또는 가장 마지막 클릭, 없으면 첫 번째
@@ -2127,9 +2172,13 @@ class LayerDockWidget(QWidget):
             layer_type = "reference"
         elif t == "legend":
             layer_type = "legend"
+        elif t == "text":
+            layer_type = "text"
         else:
             self._draw_design_panel.clear_selection()
             self.popup.select_legend_object(None)
+            if hasattr(self.popup, "select_text_object"):
+                self.popup.select_text_object(None)
             return
 
         layer_id = getattr(obj, "id", None)
@@ -2166,11 +2215,24 @@ class LayerDockWidget(QWidget):
                 obj, "show_fill", getattr(obj, "show_border", False)
             )
             settings["fill_opacity"] = float(getattr(obj, "fill_opacity", 0.92))
+        elif layer_type == "text":
+            settings["font_size"] = float(getattr(obj, "font_size", 14.0))
+            settings["font_bold"] = bool(getattr(obj, "font_bold", False))
+            settings["font_italic"] = bool(getattr(obj, "font_italic", False))
+            settings["text_color"] = getattr(obj, "text_color", "#303133") or "#303133"
 
         if layer_type == "legend":
             self.popup.select_legend_object(layer_id)
+            if hasattr(self.popup, "select_text_object"):
+                self.popup.select_text_object(None)
+        elif layer_type == "text":
+            if hasattr(self.popup, "select_text_object"):
+                self.popup.select_text_object(layer_id)
+            self.popup.select_legend_object(None)
         else:
             self.popup.select_legend_object(None)
+            if hasattr(self.popup, "select_text_object"):
+                self.popup.select_text_object(None)
 
         # UI 갱신 중 역참조 방지
         self._draw_design_panel.blockSignals(True)
@@ -2196,7 +2258,7 @@ class LayerDockWidget(QWidget):
             if base_layer_id != layer_id:
                 continue
             obj_type = getattr(o, "type", "")
-            if obj_type in ("line", "polygon", "reference", "legend"):
+            if obj_type in ("line", "polygon", "reference", "legend", "text"):
                 base_idx = i
                 base_obj = o
                 break
@@ -2216,6 +2278,30 @@ class LayerDockWidget(QWidget):
             self.draw_manager.set_draw_objects(objs)
             self.draw_manager.redraw()
             return base_type, settings_for_summary, [layer_id]
+
+        if base_type == "text":
+            apply_text_settings(base_obj, settings_for_apply)
+            settings_for_summary = dict(settings_for_apply)
+            selected = getattr(self, "_selected_draw_indices", set()) or {base_idx}
+            target_indices = [
+                i
+                for i in selected
+                if 0 <= i < len(objs) and getattr(objs[i], "type", "") == "text"
+            ]
+            if not target_indices:
+                target_indices = [base_idx]
+            target_layer_ids = [
+                getattr(objs[i], "id", None)
+                for i in target_indices
+                if getattr(objs[i], "id", None)
+            ]
+            for i in target_indices:
+                if i != base_idx:
+                    apply_text_settings(objs[i], settings_for_apply)
+            self.draw_manager.set_draw_objects(objs)
+            self.draw_manager.redraw()
+            self.update_draw_layer_list(objs)
+            return base_type, settings_for_summary, target_layer_ids
 
         # 효과 요약 줄에 사용할 설정은 넓이 텍스트 토글 등을 제외
         settings_for_summary = dict(settings_for_apply)
@@ -2338,6 +2424,17 @@ class LayerDockWidget(QWidget):
                     if str(v or "#AAAAAA").lower() == str(base_color).lower():
                         continue
                 clean_cfg[k] = v
+        elif base_type == "text":
+            for k, v in settings_for_summary.items():
+                if k == "font_size" and float(v or 14) == 14.0:
+                    continue
+                if k == "font_bold" and not v:
+                    continue
+                if k == "font_italic" and not v:
+                    continue
+                if k == "text_color" and str(v or "#303133").lower() == "#303133":
+                    continue
+                clean_cfg[k] = v
         else:
             clean_cfg = settings_for_summary
 
@@ -2388,6 +2485,13 @@ class LayerDockWidget(QWidget):
                 "line_color": defaults.get("draw_ref_line_color", "#AAAAAA")
                 or "#AAAAAA",
             }
+        elif obj_type == "text":
+            mapping = {
+                "font_size": 14.0,
+                "font_bold": False,
+                "font_italic": False,
+                "text_color": "#303133",
+            }
         else:
             return None
         return mapping.get(key)
@@ -2413,15 +2517,20 @@ class LayerDockWidget(QWidget):
                 "line_style": getattr(obj, "line_style", "-") or "-",
                 "line_color": getattr(obj, "line_color", "#AAAAAA") or "#AAAAAA",
             }
+        if t == "text":
+            return {
+                "font_size": float(getattr(obj, "font_size", 14.0)),
+                "font_bold": bool(getattr(obj, "font_bold", False)),
+                "font_italic": bool(getattr(obj, "font_italic", False)),
+                "text_color": getattr(obj, "text_color", "#303133") or "#303133",
+            }
         return {}
 
     def _remove_draw_effect_override(self, layer_id: str, key: str) -> None:
         """그리기 레이어 효과 요약 줄 X — 해당 항목만 기본값으로 되돌림."""
         if self.tab_widget.currentIndex() != 1:
             return
-        cfg = self._draw_design_settings.get(layer_id)
-        if not cfg or key not in cfg:
-            return
+        cfg = self._draw_design_settings.get(layer_id) or {}
 
         objs = self.draw_manager.get_draw_objects()
         target_obj = None
@@ -2435,6 +2544,29 @@ class LayerDockWidget(QWidget):
             return
 
         t = getattr(target_obj, "type", "")
+        if t == "text" and key == "font_style":
+            if not (cfg.get("font_bold") or cfg.get("font_italic")):
+                return
+            apply_text_settings(target_obj, {"font_bold": False, "font_italic": False})
+            cfg.pop("font_bold", None)
+            cfg.pop("font_italic", None)
+            if not cfg:
+                self._draw_design_settings.pop(layer_id, None)
+            else:
+                self._draw_design_settings[layer_id] = cfg
+            settings = self._collect_draw_object_settings(target_obj)
+            self._update_draw_overrides_for_summary(layer_id, t, settings, [layer_id])
+            if target_idx is not None and target_idx in getattr(
+                self, "_selected_draw_indices", set()
+            ):
+                self._sync_draw_design_panel_to_selection()
+            self.draw_manager.set_draw_objects(objs)
+            self.draw_manager.redraw()
+            return
+
+        if not cfg or key not in cfg:
+            return
+
         default_val = self._default_value_for_draw_key(t, key)
         if t == "line":
             apply_line_settings(target_obj, {key: default_val})
@@ -2447,6 +2579,8 @@ class LayerDockWidget(QWidget):
             apply_polygon_settings(target_obj, {key: default_val})
         elif t == "reference":
             apply_reference_settings(target_obj, {key: default_val})
+        elif t == "text":
+            apply_text_settings(target_obj, {key: default_val})
         else:
             return
 
@@ -2703,6 +2837,9 @@ class LayerDockWidget(QWidget):
                 "border_style": "외곽선 타입",
                 "border_color": "외곽선 색",
                 "fill_color": "내부 색",
+                "font_size": "글자 크기",
+                "font_style": "스타일",
+                "text_color": "글자 색",
             }
             return labels.get(key, key)
 
@@ -2721,6 +2858,13 @@ class LayerDockWidget(QWidget):
                 return {"stealth": "stealth", "open": "open", "latex": "latex"}.get(
                     str(value), str(value)
                 )
+            if key == "font_size":
+                try:
+                    return str(int(round(float(value))))
+                except (TypeError, ValueError):
+                    return str(value)
+            if key == "font_style":
+                return str(value)
             return str(value)[:20]
 
         for row in rows:
@@ -2746,13 +2890,32 @@ class LayerDockWidget(QWidget):
                 keys = ["border_style", "border_color", "fill_color"]
             elif t == "reference":
                 keys = ["line_style", "line_color"]
+            elif t == "text":
+                display_items: list[tuple[str, object]] = []
+                if "font_size" in cfg:
+                    display_items.append(("font_size", cfg["font_size"]))
+                style_parts = []
+                if cfg.get("font_bold"):
+                    style_parts.append("굵게")
+                if cfg.get("font_italic"):
+                    style_parts.append("기울임")
+                if style_parts:
+                    display_items.append(("font_style", ", ".join(style_parts)))
+                if "text_color" in cfg:
+                    display_items.append(("text_color", cfg["text_color"]))
+                keys = [k for k, _v in display_items]
             else:
                 keys = []
 
-            keys = [k for k in keys if k in cfg]
+            if t != "text":
+                keys = [k for k in keys if k in cfg]
             if "arrow_mode" in keys and str(cfg.get("arrow_mode", "none")) == "none":
                 keys = [k for k in keys if k != "arrow_head"]
-            if not keys or t == "area_label":
+            if (
+                (t != "text" and not keys)
+                or (t == "text" and not display_items)
+                or t == "area_label"
+            ):
                 if hasattr(row, "expand_btn"):
                     row.expand_btn.setVisible(False)
                     row.expand_btn.setChecked(False)  # 로직상 접힘 상태 유지
@@ -2765,7 +2928,8 @@ class LayerDockWidget(QWidget):
                 row.expand_btn.setVisible(True)
 
             first = True
-            for key in keys:
+            iter_items = display_items if t == "text" else [(k, cfg[k]) for k in keys]
+            for key, val in iter_items:
                 if not first:
                     sep = QFrame()
                     sep.setFrameShape(QFrame.Shape.HLine)
@@ -2779,7 +2943,7 @@ class LayerDockWidget(QWidget):
                 eff_row.setContentsMargins(0, 0, 0, 0)
                 eff_row.setSpacing(4)
                 lbl = QLabel(
-                    f"  {effect_label(key)}: {effect_text(key, cfg[key])}",
+                    f"  {effect_label(key)}: {effect_text(key, val)}",
                     font=font_effect,
                 )
                 lbl.setStyleSheet("color: #606266;")
@@ -2903,6 +3067,17 @@ class LayerDockWidget(QWidget):
             ):
                 if hasattr(self.popup, "open_legend_text_dialog"):
                     self.popup.open_legend_text_dialog(obj)
+                return
+
+    def _on_text_edit_requested(self, layer_id: str) -> None:
+        objs = self.draw_manager.get_draw_objects()
+        for obj in objs:
+            if (
+                getattr(obj, "type", "") == "text"
+                and getattr(obj, "id", None) == layer_id
+            ):
+                if hasattr(self.popup, "open_draw_text_dialog"):
+                    self.popup.open_draw_text_dialog(obj)
                 return
 
     def _reset_draw_layers(self):

@@ -73,9 +73,12 @@ def _bind_shortcuts(self):
     ).activated.connect(lambda: self._safe_set_draw_mode(DrawMode.POLYGON))
     QShortcut(
         QKeySequence(Qt.Key.Key_3), self, context=Qt.ShortcutContext.WindowShortcut
-    ).activated.connect(lambda: self._safe_set_draw_mode(DrawMode.REF_H))
+    ).activated.connect(lambda: self._safe_set_draw_mode(DrawMode.TEXT))
     QShortcut(
         QKeySequence(Qt.Key.Key_4), self, context=Qt.ShortcutContext.WindowShortcut
+    ).activated.connect(lambda: self._safe_set_draw_mode(DrawMode.REF_H))
+    QShortcut(
+        QKeySequence(Qt.Key.Key_5), self, context=Qt.ShortcutContext.WindowShortcut
     ).activated.connect(lambda: self._safe_set_draw_mode(DrawMode.REF_V))
     QShortcut(QKeySequence("Ctrl+S"), self).activated.connect(
         lambda: self._on_download_plot(False, "jpg")

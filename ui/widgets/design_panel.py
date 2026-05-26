@@ -43,7 +43,11 @@ from ui.widgets.display_utils import (
 from ui.dialogs.combined_members_dialog import add_compare_legend_name_widgets
 import ui.widgets.layout_constants as lc
 from ui.widgets.collapsible_section import CollapsibleSection, AdvancedOptionsBlock
-from ui.widgets.opacity_slider import DEFAULT_ELL_FILL_OPACITY, OpacitySliderRow, opacity_to_slider
+from ui.widgets.opacity_slider import (
+    DEFAULT_ELL_FILL_OPACITY,
+    OpacitySliderRow,
+    opacity_to_slider,
+)
 from core.compare_settings import pack_compare_design_settings
 from ui.widgets.segmented_control import (
     wrap_segmented_buttons,
@@ -70,7 +74,9 @@ def _field_group(caption: str, font: QFont) -> QVBoxLayout:
 
 
 def _ell_fill_has_color(color) -> bool:
-    return color not in (None, "transparent", "") and str(color).lower() != "transparent"
+    return (
+        color not in (None, "transparent", "") and str(color).lower() != "transparent"
+    )
 
 
 def _wrap_marker_shape_bar(buttons, parent=None, *, columns: int = 4) -> QFrame:

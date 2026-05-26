@@ -22,6 +22,7 @@ class DrawModeIndicator(QFrame):
 
     MODE_LINE = "line"
     MODE_POLYGON = "polygon"
+    MODE_TEXT = "text"
     MODE_REF_H = "ref_h"
     MODE_REF_V = "ref_v"
 
@@ -59,6 +60,7 @@ class DrawModeIndicator(QFrame):
         labels = [
             ("선", self.MODE_LINE, "선 (Polyline)"),
             ("영역", self.MODE_POLYGON, "영역 (Polygon)"),
+            ("텍스트", self.MODE_TEXT, "텍스트"),
             ("수평 참조선", self.MODE_REF_H, "수평 참조선"),
             ("수직 참조선", self.MODE_REF_V, "수직 참조선"),
         ]
@@ -158,6 +160,8 @@ class DrawModeIndicator(QFrame):
         """특정 모드 진입 시 힌트 표시 여부 결정 및 실행."""
         if mode in (self.MODE_LINE, self.MODE_POLYGON):
             self._show_hint("Enter 키를 눌러 그리기를 완료하세요.")
+        elif mode == self.MODE_TEXT:
+            self._show_hint("캔버스를 더블클릭하여 텍스트를 배치하세요.")
         else:
             self._stop_hint()
 

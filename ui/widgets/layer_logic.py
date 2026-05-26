@@ -133,6 +133,21 @@ def apply_reference_settings(obj: object, cfg: Dict[str, Any]) -> None:
         setattr(obj, "line_color", (color or "#AAAAAA"))
 
 
+def apply_text_settings(obj: object, cfg: Dict[str, Any]) -> None:
+    """텍스트 객체에 cfg의 키만 반영."""
+    if "font_size" in cfg:
+        try:
+            setattr(obj, "font_size", max(4.0, min(float(cfg.get("font_size")), 200.0)))
+        except (TypeError, ValueError):
+            pass
+    if "font_bold" in cfg:
+        setattr(obj, "font_bold", bool(cfg.get("font_bold")))
+    if "font_italic" in cfg:
+        setattr(obj, "font_italic", bool(cfg.get("font_italic")))
+    if "text_color" in cfg:
+        setattr(obj, "text_color", cfg.get("text_color") or "#303133")
+
+
 def rebuild_area_labels_for_polygons(all_objs: List[object]) -> List[object]:
     """polygon.show_area_label 상태를 기준으로 area_label 목록을 재구성한 새 리스트 반환."""
     if not all_objs:

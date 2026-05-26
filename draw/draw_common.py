@@ -18,6 +18,7 @@ __all__ = [
     "AreaLabelObject",
     "LegendEntry",
     "LegendObject",
+    "TextObject",
     "polygon_area",
 ]
 
@@ -26,6 +27,7 @@ __all__ = [
 class DrawMode:
     LINE = "line"
     POLYGON = "polygon"
+    TEXT = "text"
     REF_H = "ref_h"
     REF_V = "ref_v"
 
@@ -113,6 +115,27 @@ class LegendEntry:
 
 
 @dataclass
+class TextObject:
+    """캔버스 자유 텍스트 — 데이터 좌표 앵커 + font_size(핸들 리사이즈 시 갱신)."""
+
+    type: str = "text"
+    name: str = ""
+    visible: bool = True
+    order: int = 0
+    text: str = ""
+    x: float = 0.0
+    y: float = 0.0
+    font_size: float = 14.0
+    font_bold: bool = False
+    font_italic: bool = False
+    text_color: str = "#303133"
+    axis_units: str = "Hz"
+    id: str = field(default_factory=lambda: uuid.uuid4().hex[:8])
+    locked: bool = False
+    semi: bool = False
+
+
+@dataclass
 class LegendObject:
     """캔버스 범례 — axes fraction 좌표, 그리기 레이어 객체."""
 
@@ -136,7 +159,12 @@ class LegendObject:
 
 
 DrawObject = (
-    LineObject | PolygonObject | ReferenceLineObject | AreaLabelObject | LegendObject
+    LineObject
+    | PolygonObject
+    | ReferenceLineObject
+    | AreaLabelObject
+    | LegendObject
+    | TextObject
 )
 
 

@@ -82,7 +82,9 @@ def legend_content_height(entry_count: int) -> float:
 
 def legend_height_frac(entry_count: int) -> float:
     """박스 전체 높이 = 내용 + 상하 패딩."""
-    return max(0.034, min(0.26, legend_content_height(entry_count) + 2 * LEGEND_BOX_PAD_Y))
+    return max(
+        0.034, min(0.26, legend_content_height(entry_count) + 2 * LEGEND_BOX_PAD_Y)
+    )
 
 
 def reconcile_legend_box_height(legend: LegendObject) -> None:
@@ -211,11 +213,11 @@ def _measure_text_width_frac(
     )
     try:
         if renderer is None:
-            return len(text) * float(font_size) * 0.0055
+            return len(text) * float(font_size) * 0.0065
         bbox = temp.get_window_extent(renderer=renderer)
         fig_bbox = fig.bbox
         fig_w = max(float(fig_bbox.width), 1.0)
-        return float(bbox.width) / fig_w
+        return float(bbox.width) / fig_w * 1.04
     finally:
         temp.remove()
 
@@ -254,25 +256,44 @@ def ensure_legend_content_fits(
 ) -> None:
     """텍스트가 박스를 넘치면 width_frac를 키워 오른쪽으로 확장 (fx 고정)."""
     rows = list(entries or getattr(legend, "entries", []) or [])
-    if not rows:
+    if not rows or fig is None:
         return
-    font_size = float(getattr(legend, "font_size", 10.0))
-    scale = legend_content_scale(legend, len(rows))
-    effective_font = font_size * scale
+
     font_family = _legend_font_family(popup)
-    current_width = float(legend.width_frac)
-    content_span = 1.0 - LEGEND_TEXT_START - LEGEND_RIGHT_PAD
-    pad_denom = max(0.5, 1.0 - 2 * LEGEND_BOX_PAD_X_RATIO)
-    needed_width = current_width
-    for entry in rows:
-        text = str(getattr(entry, "text", "") or "")
-        text_w = _measure_text_width_frac(fig, text, effective_font, font_family)
-        if content_span > 1e-6:
-            content_w = text_w / content_span
-        else:
-            content_w = (LEGEND_TEXT_START + text_w + LEGEND_RIGHT_PAD) * 0.7
-        row_width = content_w / pad_denom
-        needed_width = max(needed_width, row_width)
-    if needed_width > current_width + 1e-6:
-        legend.width_frac = needed_width
+    pad_ratio = LEGEND_BOX_PAD_X_RATIO
+    inner_ratio = max(0.5, 1.0 - 2 * pad_ratio)
+    margin = 1.06
+
+    for _ in range(6):
+        reconcile_legend_box_height(legend)
+        scale = legend_content_scale(legend, len(rows))
+        effective_font = float(getattr(legend, "font_size", 10.0)) * scale
+
+        x0, _y0, x1, _y1 = legend_box_axes_bounds(legend)
+        box_w = x1 - x0
+        if box_w <= 1e-6:
+            break
+
+        cx0, _cy0, cx1, _cy1 = legend_box_content_bounds(legend)
+        content_w = cx1 - cx0
+        if content_w <= 1e-6:
+            break
+
+        text_start_x = cx0 + LEGEND_TEXT_START * content_w
+        required_right = text_start_x
+        for entry in rows:
+            text = str(getattr(entry, "text", "") or "")
+            text_w = _measure_text_width_frac(fig, text, effective_font, font_family)
+            text_w *= margin
+            required_right = max(required_right, text_start_x + text_w)
+
+        required_cx1 = required_right + LEGEND_RIGHT_PAD * content_w
+        if required_cx1 <= cx1 + 1e-5:
+            break
+
+        required_box_w = (required_cx1 - x0) / inner_ratio
+        if required_box_w <= box_w + 1e-5:
+            break
+
+        legend.width_frac = float(legend.width_frac) * (required_box_w / box_w)
         clamp_legend_bounds(legend)

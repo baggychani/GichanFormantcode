@@ -12,11 +12,13 @@ from .draw_common import (
     AreaLabelObject,
     LegendEntry,
     LegendObject,
+    TextObject,
     polygon_area,
 )
 from . import draw_line
 from . import draw_polygon
 from . import draw_reference
+from . import draw_text
 
 __all__ = [
     "DrawModeIndicator",
@@ -29,8 +31,10 @@ __all__ = [
     "AreaLabelObject",
     "LegendEntry",
     "LegendObject",
+    "TextObject",
     "polygon_area",
     "draw_line",
     "draw_polygon",
     "draw_reference",
+    "draw_text",
 ]

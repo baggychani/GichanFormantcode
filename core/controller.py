@@ -1107,8 +1107,8 @@ class MainController:
             if virtual_indices:
                 popup._compare_virtual_indices = tuple(virtual_indices)
                 popup.destroyed.connect(
-                    lambda *_args, v=tuple(virtual_indices): self._release_compare_virtual_indices(
-                        v
+                    lambda *_args, v=tuple(virtual_indices): (
+                        self._release_compare_virtual_indices(v)
                     )
                 )
 

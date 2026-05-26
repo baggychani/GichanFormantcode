@@ -8,6 +8,7 @@ import matplotlib.colors as mcolors
 
 from draw.draw_reference import REF_LINE_ALPHA, REF_LINE_COLOR, format_ref_label
 from draw.legend_render import render_legend
+from draw.text_render import render_text_object
 from utils.math_utils import hz_to_bark
 
 
@@ -37,12 +38,15 @@ def render_draw_objects(
     skip_types: frozenset[str] | None = None,
     show_editor_chrome: bool = False,
     selected_legend_id: str | None = None,
+    selected_text_id: str | None = None,
     area_label_refs: list | None = None,
+    text_layer_refs: list | None = None,
 ) -> list:
     """draw_objects를 ax에 그리고 생성된 artist 목록을 반환한다."""
     skip_types = skip_types or frozenset()
     artists: list = []
     label_refs = area_label_refs if area_label_refs is not None else []
+    text_refs = text_layer_refs if text_layer_refs is not None else []
 
     for obj in objects or []:
         if not getattr(obj, "visible", True):
@@ -55,14 +59,14 @@ def render_draw_objects(
         line_alpha = 0.5 if is_semi else 0.9
         try:
             if obj_type == "line" and hasattr(obj, "points"):
-                artists.extend(
-                    _render_line(ax, obj, line_alpha=line_alpha)
-                )
+                artists.extend(_render_line(ax, obj, line_alpha=line_alpha))
             elif obj_type == "polygon" and hasattr(obj, "points"):
                 artists.append(_render_polygon(ax, obj, is_semi=is_semi))
             elif obj_type == "reference" and hasattr(obj, "mode"):
                 pass
             elif obj_type == "legend":
+                pass
+            elif obj_type == "text":
                 pass
             elif obj_type == "area_label":
                 txt_artist = _render_area_label(ax, obj, ctx, is_semi=is_semi)
@@ -98,6 +102,24 @@ def render_draw_objects(
                     show_editor_chrome=show_editor_chrome,
                 )
                 artists.extend(legend_artists)
+            except Exception:
+                continue
+
+    if "text" not in skip_types:
+        for obj in objects or []:
+            if getattr(obj, "type", None) != "text":
+                continue
+            selected = getattr(obj, "id", None) == selected_text_id
+            try:
+                text_artists = render_text_object(
+                    ax,
+                    obj,
+                    ctx,
+                    selected=selected and not getattr(obj, "locked", False),
+                    show_editor_chrome=show_editor_chrome,
+                    text_refs=text_refs,
+                )
+                artists.extend(text_artists)
             except Exception:
                 continue
 

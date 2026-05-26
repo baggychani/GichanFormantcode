@@ -15,7 +15,11 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from ui.widgets.display_utils import strip_gichan_prefix, truncate_display_name, MAX_LAYER_FILE_BTN_LEN
+from ui.widgets.display_utils import (
+    strip_gichan_prefix,
+    truncate_display_name,
+    MAX_LAYER_FILE_BTN_LEN,
+)
 from ui.widgets.layer_row_widgets import _LayerListDropArea
 
 
@@ -37,11 +41,14 @@ def create_label_tab(dock) -> QWidget:
     dock._compare_file_btn_b = None
     dock._compare_file_group = None
     if dock._compare_mode:
+
         def _btn_label(raw: str, display: str | None) -> str:
             if display:
                 return truncate_display_name(display, MAX_LAYER_FILE_BTN_LEN)
             base = os.path.splitext(raw)[0]
-            return truncate_display_name(strip_gichan_prefix(base), MAX_LAYER_FILE_BTN_LEN)
+            return truncate_display_name(
+                strip_gichan_prefix(base), MAX_LAYER_FILE_BTN_LEN
+            )
 
         btn_label_a = _btn_label(
             dock._file_a_name, getattr(dock, "_file_a_label", None)
@@ -49,12 +56,14 @@ def create_label_tab(dock) -> QWidget:
         btn_label_b = _btn_label(
             dock._file_b_name, getattr(dock, "_file_b_label", None)
         )
-        tip_a = getattr(dock, "_file_a_tooltip", "") or os.path.splitext(
-            strip_gichan_prefix(dock._file_a_name)
-        )[0]
-        tip_b = getattr(dock, "_file_b_tooltip", "") or os.path.splitext(
-            strip_gichan_prefix(dock._file_b_name)
-        )[0]
+        tip_a = (
+            getattr(dock, "_file_a_tooltip", "")
+            or os.path.splitext(strip_gichan_prefix(dock._file_a_name))[0]
+        )
+        tip_b = (
+            getattr(dock, "_file_b_tooltip", "")
+            or os.path.splitext(strip_gichan_prefix(dock._file_b_name))[0]
+        )
         dock._compare_file_switch_row = QFrame()
         dock._compare_file_switch_row.setFixedHeight(32)
         dock._compare_file_switch_row.setSizePolicy(

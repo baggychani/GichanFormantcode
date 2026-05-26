@@ -48,11 +48,13 @@ def add_compare_legend_name_widgets(
         )
         btn_detail.setFixedHeight(20)
         btn_detail.clicked.connect(
-            lambda _checked=False, names=member_names, label=display_name: show_combined_members_dialog(
-                dialog_parent,
-                group_label=label,
-                member_names=names,
-                ui_font_name=ui_font_name,
+            lambda _checked=False, names=member_names, label=display_name: (
+                show_combined_members_dialog(
+                    dialog_parent,
+                    group_label=label,
+                    member_names=names,
+                    ui_font_name=ui_font_name,
+                )
             )
         )
         layout.addWidget(btn_detail)
@@ -67,9 +69,7 @@ def show_combined_members_dialog(
     ui_font_name: str = "Malgun Gothic",
 ) -> None:
     """그룹 구성(포함 파일) 전체 목록."""
-    cleaned = [
-        os.path.splitext(strip_gichan_prefix(n))[0] for n in member_names if n
-    ]
+    cleaned = [os.path.splitext(strip_gichan_prefix(n))[0] for n in member_names if n]
     if not cleaned:
         return
 
