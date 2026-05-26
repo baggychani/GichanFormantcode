@@ -4,7 +4,7 @@
 사용 예:
   uv run python scripts/sync_version.py              # config 기준으로 iss/info/… 갱신
   uv run python scripts/sync_version.py --check      # 불일치 시 종료 코드 1
-  uv run python scripts/sync_version.py --set 2.3.4.3  # config + 전 파일 일괄 반영
+  uv run python scripts/sync_version.py --set 2.3.4.3  # config + 전 파일(uv.lock 포함) 일괄 반영
   uv run python scripts/sync_version.py --from-tag v2.3.4.2
 """
 
@@ -21,10 +21,15 @@ ISS_PATH = ROOT / "GichanFormant.iss"
 INFO_PATH = ROOT / "info.txt"
 COMPLETE_PATH = ROOT / "complete.txt"
 PYPROJECT_PATH = ROOT / "pyproject.toml"
+UV_LOCK_PATH = ROOT / "uv.lock"
 
 _VERSION_RE = re.compile(r"^APP_VERSION\s*=\s*[\"']([^\"']+)[\"']", re.MULTILINE)
 _ISS_VERSION_RE = re.compile(r'(#define MyAppVersion ")[^"]+(")')
 _PYPROJECT_VERSION_RE = re.compile(r'^(version\s*=\s*")[^"]+(")', re.MULTILINE)
+_UV_LOCK_GICHAN_VERSION_RE = re.compile(
+    r'(\[\[package\]\]\nname = "gichan-formant"\nversion = ")[^"]+(")',
+    re.MULTILINE,
+)
 
 
 def _fail(msg: str) -> None:
@@ -151,6 +156,23 @@ def sync_pyproject(version: str) -> None:
     )
 
 
+def read_uv_lock_version() -> str:
+    text = UV_LOCK_PATH.read_text(encoding="utf-8")
+    m = _UV_LOCK_GICHAN_VERSION_RE.search(text)
+    if not m:
+        _fail(f"{UV_LOCK_PATH} 에서 gichan-formant 패키지 version 을 찾을 수 없습니다.")
+    return m.group(0).split('"')[3]
+
+
+def sync_uv_lock(version: str) -> None:
+    text = UV_LOCK_PATH.read_text(encoding="utf-8")
+    if not _UV_LOCK_GICHAN_VERSION_RE.search(text):
+        _fail(f"{UV_LOCK_PATH} 에서 gichan-formant 패키지 version 을 찾을 수 없습니다.")
+    UV_LOCK_PATH.write_text(
+        _UV_LOCK_GICHAN_VERSION_RE.sub(rf"\g<1>{version}\2", text), encoding="utf-8"
+    )
+
+
 def collect_versions() -> dict[str, str]:
     return {
         "config.py": read_config_version(),
@@ -158,6 +180,7 @@ def collect_versions() -> dict[str, str]:
         "info.txt": _read_info_version(),
         "complete.txt": _read_complete_version(),
         "pyproject.toml": read_pyproject_version(),
+        "uv.lock": read_uv_lock_version(),
     }
 
 
@@ -183,8 +206,9 @@ def sync_all(version: str) -> None:
     sync_info_txt(version)
     sync_complete_txt(version)
     sync_pyproject(version)
+    sync_uv_lock(version)
     print(
-        f"sync_version: {version} → config, iss, info.txt, complete.txt, pyproject.toml"
+        f"sync_version: {version} → config, iss, info.txt, complete.txt, pyproject.toml, uv.lock"
     )
 
 
@@ -215,7 +239,7 @@ def main() -> None:
     parser.add_argument(
         "--set",
         metavar="VERSION",
-        help="config.APP_VERSION 및 iss/info/complete/pyproject 일괄 설정",
+        help="config.APP_VERSION 및 iss/info/complete/pyproject/uv.lock 일괄 설정",
     )
     parser.add_argument(
         "--from-tag",
@@ -247,8 +271,9 @@ def main() -> None:
     sync_info_txt(version)
     sync_complete_txt(version)
     sync_pyproject(version)
+    sync_uv_lock(version)
     print(
-        f"sync_version: config.APP_VERSION={version} → iss, info.txt, complete.txt, pyproject.toml"
+        f"sync_version: config.APP_VERSION={version} → iss, info.txt, complete.txt, pyproject.toml, uv.lock"
     )
 
 
