@@ -119,7 +119,7 @@ class DrawModeIndicator(QFrame):
             btn.setFixedHeight(self._BTN_HEIGHT)
             btn.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
             btn.clicked.connect(
-                lambda checked, m=mode: self._on_mode_clicked(m, checked)
+                lambda _checked=False, m=mode: self._on_mode_button_clicked(m)
             )
             self._group.addButton(btn)
             self._buttons[mode] = btn
@@ -173,19 +173,17 @@ class DrawModeIndicator(QFrame):
             btn.setCheckable(True)
         self._current_mode = None
 
-    def _on_mode_clicked(self, mode: str, checked: bool):
-        if checked:
-            if self._current_mode != mode:
-                self._current_mode = mode
-                self.mode_changed.emit(mode)
+    def toggle_or_select(self, mode: str) -> str | None:
+        """같은 모드면 해제, 다른 모드면 선택. 적용된 모드(없으면 None) 반환."""
+        if self._current_mode == mode:
+            self.set_mode(None)
+            return None
+        self.set_mode(mode)
+        return mode
 
-                # [참고] set_mode에서도 힌트를 트리거함
-                self._trigger_hint_by_mode(mode)
-        else:
-            # 같은 버튼 다시 클릭 → 그리기 끔
-            self._current_mode = None
-            self.mode_changed.emit(None)
-            self._stop_hint()
+    def _on_mode_button_clicked(self, mode: str):
+        effective = self.toggle_or_select(mode)
+        self.mode_changed.emit(effective)
 
     def _trigger_hint_by_mode(self, mode):
         """특정 모드 진입 시 힌트 표시 여부 결정 및 실행."""

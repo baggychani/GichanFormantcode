@@ -229,9 +229,7 @@ class BasePlotWindow(QMainWindow):
         if not (getattr(self, "btn_draw", None) and self.btn_draw.isChecked()):
             return
         if hasattr(self, "draw_indicator") and self.draw_indicator is not None:
-            # 인디케이터 버튼 체크 상태를 바꾸고, 실제 도구도 즉시 교체
-            self.draw_indicator.set_mode(mode)
-        # DrawModeIndicator.set_mode는 mode_changed를 emit하지 않으므로, 직접 도구를 교체해 준다.
+            mode = self.draw_indicator.toggle_or_select(mode)
         self._on_draw_mode_changed(mode)
 
     def _safe_toggle_draw(self):
