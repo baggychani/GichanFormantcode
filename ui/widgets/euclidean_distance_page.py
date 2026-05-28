@@ -53,7 +53,8 @@ class EuclideanDistancePage(QWidget):
         self.label_col = label_col
         self.fixed_plot_params = dict(fixed_plot_params or {})
         self._norm = bool(self.fixed_plot_params.get("normalization"))
-        self.distance_label = "유클리드 거리" if self._norm else "유클리드 거리(Bark)"
+        self._show_bark = False
+        self.distance_label = "유클리드 거리" if self._norm else "유클리드 거리(Hz)"
         self._vowel_list = []
         self.selection_count = 0
         self._setup_ui()
@@ -74,12 +75,17 @@ class EuclideanDistancePage(QWidget):
             "raw_f2": float(sub[self.x_col].mean()),
         }
 
-    def _pair_distance_str(self, v1, v2) -> str:
+    def _pair_distance_str(self, v1, v2, *, unit=None) -> str:
         p1 = self._centroid_dict(v1)
         p2 = self._centroid_dict(v2)
         if p1 is None or p2 is None:
             return "—"
-        return format_pair_distance(p1, p2, self.fixed_plot_params)
+        params = dict(self.fixed_plot_params)
+        if not self._norm:
+            resolved = unit or ("bark" if self._show_bark else "hz")
+            params["distance_unit"] = resolved
+            return format_pair_distance(p1, p2, params, unit=resolved)
+        return format_pair_distance(p1, p2, params)
 
     # --- UI ---
 
@@ -194,12 +200,12 @@ class EuclideanDistancePage(QWidget):
         self.lbl_vowels_2.setAlignment(Qt.AlignmentFlag.AlignCenter)
         single_layout.addWidget(self.lbl_vowels_2)
         single_layout.addSpacing(10)
-        lbl_dist_title = QLabel(self.distance_label)
-        lbl_dist_title.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        lbl_dist_title.setStyleSheet(
+        self.lbl_dist_title = QLabel(self.distance_label)
+        self.lbl_dist_title.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.lbl_dist_title.setStyleSheet(
             "color: #606266; background: transparent; border: none;"
         )
-        single_layout.addWidget(lbl_dist_title)
+        single_layout.addWidget(self.lbl_dist_title)
         self.lbl_dist_val = QLabel("-")
         self.lbl_dist_val.setStyleSheet(
             "font-size: 28px; font-weight: bold; color: #303133; background: transparent; border: none;"
@@ -281,8 +287,49 @@ class EuclideanDistancePage(QWidget):
             data.append([pair, dist])
         return data
 
+    def get_combination_results_for_export(self):
+        """비정규화 export: Hz·Bark 거리를 모두 포함."""
+        rows = self.multi_table.rowCount()
+        data = []
+        for r in range(rows):
+            pair_item = self.multi_table.item(r, 0)
+            if pair_item is None:
+                continue
+            pair = pair_item.text()
+            parts = [p.strip() for p in pair.split("-", 1)]
+            if len(parts) != 2:
+                continue
+            v1, v2 = parts
+            data.append(
+                [
+                    pair,
+                    self._pair_distance_str(v1, v2, unit="hz"),
+                    self._pair_distance_str(v1, v2, unit="bark"),
+                ]
+            )
+        return data
+
     def get_distance_column_name(self) -> str:
         return self.distance_label
+
+    def set_show_bark_distance(self, show_bark: bool):
+        if self._norm:
+            return
+        self._show_bark = show_bark
+        self._refresh_distance_labels()
+        self._on_selection_changed()
+
+    def _refresh_distance_labels(self):
+        if self._norm:
+            label = "유클리드 거리"
+        elif self._show_bark:
+            label = "유클리드 거리(Bark)"
+        else:
+            label = "유클리드 거리(Hz)"
+        self.distance_label = label
+        self.lbl_dist_title.setText(label)
+        self.lbl_multi_header.setText(f"모음 조합별 {label}")
+        self.multi_table.setHorizontalHeaderLabels(["모음 조합", label])
 
     def _reset_selection(self):
         self.vowel_table.clearSelection()

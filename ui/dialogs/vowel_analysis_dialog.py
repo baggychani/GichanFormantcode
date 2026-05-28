@@ -36,6 +36,7 @@ from utils.vowel_stats import (
     calculate_point_distances_from_centroid_bark,
 )
 from utils.vowel_sorting import get_vowel_sort_key
+from ui.widgets.segmented_control import create_labeled_segmented_switch
 import config
 
 # 열 너비 (px)
@@ -171,6 +172,7 @@ class VowelAnalysisDialog(QDialog):
         self._analysis_results = []  # list of (file_name, result_dict) per tab
         self._stacked_widgets = []  # list of QStackedWidget per tab
         self._normalization = self.fixed_plot_params.get("normalization")
+        self._distance_show_bark = False
         plot_type = self.fixed_plot_params.get("type", "f1_f2")
         if self._normalization:
             self._x_axis_label = config.PLOT_X_AXIS_LABEL_NORMALIZED.get(
@@ -289,6 +291,16 @@ class VowelAnalysisDialog(QDialog):
             elif key == self.PAGE_PILLAI:
                 btn_row.addWidget(self.btn_page_pillai)
 
+        self.distance_unit_switch, self._distance_unit_group = (
+            create_labeled_segmented_switch("Hz", "Bark", default_index=0, parent=self)
+        )
+        self.distance_unit_switch.setVisible(not self._normalization)
+        self.distance_unit_switch.setToolTip("유클리드 거리 표시 단위")
+        self._distance_unit_group.idClicked.connect(
+            self._on_distance_unit_segment_changed
+        )
+        btn_row.addWidget(self.distance_unit_switch)
+
         btn_row.addStretch()
         self.btn_excel = QPushButton("엑셀 저장")
         self.btn_excel.setStyleSheet("""
@@ -356,7 +368,7 @@ class VowelAnalysisDialog(QDialog):
                 self.btn_csv.setEnabled(False)
 
     def _run_analysis(self):
-        """비정규화: Hz df로 F1·X축 통계, Bark 기준 중심-개별 거리. 정규화: 정규화 df로 nF1·nX축 통계, 정규화 단위 기준 중심-개별 거리."""
+        """비정규화: Hz df로 F1·X축 통계·중심-개별 거리(Hz/Bark). 정규화: 정규화 df·정규화 단위 거리."""
         if not self.plot_data_snapshot:
             return
         plot_type = self.fixed_plot_params.get("type", "f1_f2")
@@ -407,11 +419,15 @@ class VowelAnalysisDialog(QDialog):
                     y_col="F1",
                     label_col=label_col,
                 )
-                result["point_distances"] = (
+                result["point_distances_hz"] = calculate_point_distances_from_centroid(
+                    df_hz, x_col="x_hz", y_col="F1", label_col=label_col
+                )
+                result["point_distances_bark"] = (
                     calculate_point_distances_from_centroid_bark(
                         df, label_col=label_col, x_hz=x_vals
                     )
                 )
+                result["point_distances"] = result["point_distances_hz"]
             self._analysis_results.append((name, result))
             stack = self._add_table_tab(name, result, df_hz if not norm else df_work)
             if stack:
@@ -438,7 +454,7 @@ class VowelAnalysisDialog(QDialog):
             self._add_empty_tab(tab_label, "분석 결과 없음")
             return
         stats = result["statistics"]
-        point_dist = result.get("point_distances") or {}
+        point_dist = self._active_point_dist(result)
         vowels = sorted(stats.keys(), key=get_vowel_sort_key)
         widths = [VOWEL_COL_WIDTH] + [DATA_COL_WIDTH] * 8
         n_data_rows = len(vowels)
@@ -479,7 +495,7 @@ class VowelAnalysisDialog(QDialog):
         y_label = (
             config.PLOT_Y_AXIS_LABEL_NORMALIZED if norm else config.PLOT_Y_AXIS_LABEL
         )
-        dist_label = "중심-개별 거리" if norm else "중심-개별 거리(Bark)"
+        dist_label = self._distance_header_label()
         set_header_item(0, 0, "")
         set_header_item(0, 1, y_label)
         set_header_item(0, 4, self._x_axis_label)
@@ -515,7 +531,7 @@ class VowelAnalysisDialog(QDialog):
                 _fmt_mean_sd,
                 _fmt_mean_sd,
                 _fmt_range,
-                _fmt_bark,
+                _fmt_bark if self._distance_show_bark else _fmt_mean_sd,
             )
         for row, v in enumerate(vowels):
             s = stats[v]
@@ -554,6 +570,7 @@ class VowelAnalysisDialog(QDialog):
             label_col="Label" if "Label" in df.columns else "label",
             fixed_plot_params=self.fixed_plot_params,
         )
+        euclid_page.set_show_bark_distance(self._distance_show_bark)
         euclid_page.selectionStateChanged.connect(self._update_save_buttons_state)
 
         # stack에 추가되는 순서를 _page_order로 통일 (매직넘버 제거)
@@ -569,6 +586,67 @@ class VowelAnalysisDialog(QDialog):
         self._stacked_widgets.append(stack)
         self.tabs.addTab(w, truncate_display_name(tab_label, MAX_DISPLAY_NAME_LEN))
         return stack
+
+    def _active_point_dist(self, result):
+        if self._normalization:
+            return result.get("point_distances") or {}
+        if self._distance_show_bark:
+            return result.get("point_distances_bark") or {}
+        return result.get("point_distances_hz") or {}
+
+    def _distance_header_label(self):
+        if self._normalization:
+            return "중심-개별 거리"
+        if self._distance_show_bark:
+            return "중심-개별 거리(Bark)"
+        return "중심-개별 거리(Hz)"
+
+    def _distance_value_formatter(self):
+        norm = self._normalization
+        if norm:
+            if norm == "Gerstman":
+                return _fmt_mean_sd
+            return _fmt_norm_small
+        return _fmt_bark if self._distance_show_bark else _fmt_mean_sd
+
+    def _on_distance_unit_segment_changed(self, btn_id):
+        self._distance_show_bark = btn_id == 1
+        self._apply_distance_unit_to_all_tabs()
+
+    def _apply_distance_unit_to_all_tabs(self):
+        for i, (_, result) in enumerate(self._analysis_results):
+            if result is None or i >= len(self._stacked_widgets):
+                continue
+            stack = self._stacked_widgets[i]
+            table = stack.widget(0)
+            if isinstance(table, QTableWidget):
+                self._update_formant_table_distances(table, result)
+            euclid_idx = self._page_index_by_key.get(self.PAGE_EUCLIDEAN)
+            if euclid_idx is not None:
+                euclid_page = stack.widget(euclid_idx)
+                if isinstance(euclid_page, EuclideanDistancePage):
+                    euclid_page.set_show_bark_distance(self._distance_show_bark)
+
+    def _update_formant_table_distances(self, table, result):
+        stats = result.get("statistics") or {}
+        point_dist = self._active_point_dist(result)
+        fmt_d = self._distance_value_formatter()
+        dist_label = self._distance_header_label()
+        header_item = table.item(0, 7)
+        if header_item:
+            header_item.setText(dist_label)
+        vowels = sorted(stats.keys(), key=get_vowel_sort_key)
+        n_header_rows = 2
+        for row, v in enumerate(vowels):
+            pd_v = point_dist.get(v, {})
+            r = row + n_header_rows
+            for col, key in ((7, "distance_mean"), (8, "distance_std")):
+                text = fmt_d(pd_v.get(key))
+                cell = table.item(r, col)
+                if cell:
+                    cell.setText(text)
+                else:
+                    table.setItem(r, col, QTableWidgetItem(text))
 
     def _current_file_name_and_result(self):
         """현재 선택된 탭의 (file_name, result_dict) 반환."""
@@ -636,9 +714,20 @@ class VowelAnalysisDialog(QDialog):
                 isinstance(euclid_page, EuclideanDistancePage)
                 and euclid_page.selection_count >= 3
             ):
-                data = euclid_page.get_combination_results()
-                distance_col = euclid_page.get_distance_column_name()
-                df = pd.DataFrame(data, columns=["모음 조합", distance_col])
+                if self._normalization:
+                    data = euclid_page.get_combination_results()
+                    distance_col = euclid_page.get_distance_column_name()
+                    df = pd.DataFrame(data, columns=["모음 조합", distance_col])
+                else:
+                    data = euclid_page.get_combination_results_for_export()
+                    df = pd.DataFrame(
+                        data,
+                        columns=[
+                            "모음 조합",
+                            "유클리드 거리(Hz)",
+                            "유클리드 거리(Bark)",
+                        ],
+                    )
                 base_name = _analysis_base_name(
                     name, self.fixed_plot_params, is_euclidean=True
                 )
@@ -733,9 +822,20 @@ class VowelAnalysisDialog(QDialog):
                 isinstance(euclid_page, EuclideanDistancePage)
                 and euclid_page.selection_count >= 3
             ):
-                data = euclid_page.get_combination_results()
-                distance_col = euclid_page.get_distance_column_name()
-                df = pd.DataFrame(data, columns=["모음 조합", distance_col])
+                if self._normalization:
+                    data = euclid_page.get_combination_results()
+                    distance_col = euclid_page.get_distance_column_name()
+                    df = pd.DataFrame(data, columns=["모음 조합", distance_col])
+                else:
+                    data = euclid_page.get_combination_results_for_export()
+                    df = pd.DataFrame(
+                        data,
+                        columns=[
+                            "모음 조합",
+                            "유클리드 거리(Hz)",
+                            "유클리드 거리(Bark)",
+                        ],
+                    )
                 base_name = _analysis_base_name(
                     name, self.fixed_plot_params, is_euclidean=True
                 )
@@ -821,30 +921,34 @@ def _result_to_dataframe(result, x_axis_label, normalized=False):
     import pandas as pd
 
     stats = result.get("statistics") or {}
-    point_dist = result.get("point_distances") or {}
     vowels = sorted(stats.keys(), key=get_vowel_sort_key)
     y_pre = (
         config.PLOT_Y_AXIS_LABEL_NORMALIZED if normalized else config.PLOT_Y_AXIS_LABEL
     )
-    dist_mean_col = "중심-개별 거리 평균" if normalized else "중심-개별 거리(Bark) 평균"
-    dist_sd_col = "중심-개별 거리 SD" if normalized else "중심-개별 거리(Bark) SD"
     rows = []
     for v in vowels:
         s = stats[v]
-        pd_v = point_dist.get(v, {})
-        rows.append(
-            {
-                "모음": v,
-                f"{y_pre} 평균": s["y_mean"],
-                f"{y_pre} SD": s["y_std"],
-                f"{y_pre} range": s["y_range"],
-                f"{x_axis_label} 평균": s["x_mean"],
-                f"{x_axis_label} SD": s["x_std"],
-                f"{x_axis_label} range": s["x_range"],
-                dist_mean_col: pd_v.get("distance_mean"),
-                dist_sd_col: pd_v.get("distance_std"),
-            }
-        )
+        row = {
+            "모음": v,
+            f"{y_pre} 평균": s["y_mean"],
+            f"{y_pre} SD": s["y_std"],
+            f"{y_pre} range": s["y_range"],
+            f"{x_axis_label} 평균": s["x_mean"],
+            f"{x_axis_label} SD": s["x_std"],
+            f"{x_axis_label} range": s["x_range"],
+        }
+        if normalized:
+            pd_v = (result.get("point_distances") or {}).get(v, {})
+            row["중심-개별 거리 평균"] = pd_v.get("distance_mean")
+            row["중심-개별 거리 SD"] = pd_v.get("distance_std")
+        else:
+            pd_hz = (result.get("point_distances_hz") or {}).get(v, {})
+            pd_bark = (result.get("point_distances_bark") or {}).get(v, {})
+            row["중심-개별 거리(Hz) 평균"] = pd_hz.get("distance_mean")
+            row["중심-개별 거리(Hz) SD"] = pd_hz.get("distance_std")
+            row["중심-개별 거리(Bark) 평균"] = pd_bark.get("distance_mean")
+            row["중심-개별 거리(Bark) SD"] = pd_bark.get("distance_std")
+        rows.append(row)
     return pd.DataFrame(rows)
 
 
