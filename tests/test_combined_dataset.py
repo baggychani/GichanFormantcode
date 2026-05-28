@@ -45,6 +45,18 @@ def test_build_combined_entry_stores_source_names():
     ]
 
 
+def test_build_combined_entry_adds_speaker_column():
+    real = [_item("GichanFormant_a.txt"), _item("GichanFormant_b.txt", rows=2)]
+    combined = build_combined_entry(real)
+    assert combined is not None
+    assert "Speaker" in combined["df"].columns
+    assert set(combined["df"]["Speaker"]) == {
+        "GichanFormant_a.txt",
+        "GichanFormant_b.txt",
+    }
+    assert len(combined["df"]) == 3
+
+
 def test_build_compare_group_entry_multi_combines():
     group = build_compare_group_entry([_item("a.txt"), _item("b.txt")])
     assert group is not None

@@ -19,6 +19,8 @@ from utils.math_utils import (
     gerstman_normalization,
     nearey1_normalization,
     bigham_normalization,
+    remove_outliers_tukey_iqr,
+    remove_outliers_mahalanobis_scoped,
 )
 
 
@@ -73,6 +75,23 @@ class TestNormalization(unittest.TestCase):
         self.assertAlmostEqual(out["F1"].mean(), 0, places=10)
         self.assertAlmostEqual(out["F2"].mean(), 0, places=10)
 
+    def test_lobanov_by_speaker_not_pooled(self):
+        """Combined 등: 화자별 μ·σ — 통합 평균으로 섞이면 안 됨."""
+        df = pd.DataFrame(
+            {
+                "F1": [200, 400, 800, 1000],
+                "F2": [1200, 1400, 2200, 2400],
+                "Speaker": ["A", "A", "B", "B"],
+            }
+        )
+        out = lobanov_normalization(df)
+        for spk in ("A", "B"):
+            sub = out.loc[df["Speaker"] == spk, "F1"]
+            self.assertAlmostEqual(sub.mean(), 0, places=10)
+            self.assertAlmostEqual(sub.std(), 1, places=10)
+        pooled = lobanov_normalization(df.drop(columns=["Speaker"]))
+        self.assertFalse(np.allclose(out["F1"].values, pooled["F1"].values))
+
     def test_gerstman(self):
         out = gerstman_normalization(self.sample_df)
         self.assertEqual(out["F1"].min(), 0)
@@ -94,3 +113,67 @@ class TestNormalization(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TestOutlierRemovalScoped(unittest.TestCase):
+    def test_tukey_iqr_bypass_when_n_lt_5(self):
+        df = pd.DataFrame(
+            {
+                "F1": [300, 310, 320, 5000],  # extreme but N=4
+                "F2": [1500, 1510, 1520, 6000],
+                "Label": ["i", "i", "i", "i"],
+            }
+        )
+        out, removed, _, meta = remove_outliers_tukey_iqr(df, "f1_f2", scope="individual")
+        self.assertEqual(len(out), len(df))
+        self.assertEqual(removed, 0)
+
+    def test_tukey_iqr_removes_extreme_when_n_ge_5(self):
+        df = pd.DataFrame(
+            {
+                "F1": [300, 310, 320, 330, 340, 5000],
+                "F2": [1500, 1510, 1520, 1530, 1540, 6000],
+                "Label": ["i"] * 6,
+            }
+        )
+        out, removed, _, _ = remove_outliers_tukey_iqr(df, "f1_f2", scope="individual")
+        self.assertEqual(removed, 1)
+        self.assertEqual(len(out), 5)
+
+    def test_mahalanobis_scoped_bypass_when_n_lt_5(self):
+        df = pd.DataFrame(
+            {
+                "F1": [500, 510, 520, 1000],
+                "F2": [1500, 1510, 1520, 3000],
+                "Label": ["i"] * 4,
+            }
+        )
+        out, removed, _, _ = remove_outliers_mahalanobis_scoped(df, "f1_f2", scope="individual")
+        self.assertEqual(len(out), len(df))
+        self.assertEqual(removed, 0)
+
+    def test_combined_scope_tukey_pools_by_label_across_speakers(self):
+        """combined scope: Speaker 무시, Label 풀(N>=5)에서만 이상치 판정."""
+        df = pd.DataFrame(
+            {
+                "F1": [300, 310, 320, 330, 340, 5000],
+                "F2": [1500, 1510, 1520, 1530, 1540, 6000],
+                "Label": ["i"] * 6,
+                "Speaker": ["A", "A", "A", "B", "B", "B"],
+            }
+        )
+        out_ind, removed_ind, _, _ = remove_outliers_tukey_iqr(
+            df, "f1_f2", scope="individual"
+        )
+        out_combined, removed_combined, _, meta = remove_outliers_tukey_iqr(
+            df, "f1_f2", scope="combined"
+        )
+        # 화자별 N=3 → individual은 전부 bypass
+        self.assertEqual(removed_ind, 0)
+        self.assertEqual(len(out_ind), 6)
+        # Label 'i' 6개 pooled → 극단값 1개 제거
+        self.assertEqual(removed_combined, 1)
+        self.assertEqual(len(out_combined), 5)
+        self.assertIn("('i',)", meta.get("groups_tested", set()))
+
+    # Auto Hybrid(개별+통합 혼합) 방식은 방법론적 일관성 위배로 폐기되었으므로 테스트하지 않는다.

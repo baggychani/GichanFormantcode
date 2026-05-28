@@ -116,26 +116,50 @@ def filter_for_plot_type(df, plot_type):
 # 정규화 알고리즘 (Normalization Methods)
 # ---------------------------------------------------------
 
+_LOBANOV_SPEAKER_COLUMNS = ("Speaker", "speaker", "화자", "File", "file")
+
+
+def _lobanov_speaker_column(df: pd.DataFrame) -> str | None:
+    """Lobanov 화자별 그룹화에 쓸 열 이름. 없으면 None(전체 df 기준)."""
+    for name in _LOBANOV_SPEAKER_COLUMNS:
+        if name in df.columns:
+            return name
+    return None
+
+
+def _lobanov_zscore_series(series: pd.Series) -> pd.Series | float:
+    """단일 화자(또는 그룹) 토큰에 대한 Lobanov Z-score."""
+    mu = series.mean()
+    sigma = series.std()
+    if (
+        pd.isna(sigma)
+        or sigma is None
+        or (hasattr(sigma, "__float__") and sigma == 0)
+    ):
+        return 0.0
+    return (series - mu) / sigma
+
 
 def lobanov_normalization(df):
     """
     [로바노프 정규화 (Lobanov)]
     - 설명: 화자의 모음 공간의 가상 중심을 기준으로 값을 표현하는 방법으로, 통계학에서 널리 쓰이는 Z-score 변환과 유사합니다[cite: 70, 71]. 특정 포먼트 값에서 화자의 해당 포먼트 평균값을 뺀 후, 해당 포먼트의 표준 편차로 나누어 계산합니다[cite: 72, 73].
+    - 화자 식별 열(Speaker 등)이 있으면 화자별로 μ·σ를 계산하고, 없으면 df 전체를 한 화자로 간주합니다.
     - 원본 문헌: Lobanov, B.M. (1971). Classification of Russian vowels spoken by different speakers. JASA 49(2), 606-608. [cite: 177]
     """
     df_norm = df.copy()
+    speaker_col = _lobanov_speaker_column(df_norm)
     for col in ["F1", "F2", "F3"]:
-        if col in df_norm.columns:
-            mu, sigma = df_norm[col].mean(), df_norm[col].std()
-            if (
-                pd.isna(sigma)
-                or sigma is None
-                or (hasattr(sigma, "__float__") and sigma == 0)
-            ):
-                df_norm[col] = 0.0
-            else:
-                df_norm[col] = (df_norm[col] - mu) / sigma
-            df_norm[col] = df_norm[col].replace([np.inf, -np.inf], np.nan).fillna(0)
+        if col not in df_norm.columns:
+            continue
+        if speaker_col is not None:
+            df_norm[col] = df_norm.groupby(speaker_col, sort=False)[col].transform(
+                _lobanov_zscore_series
+            )
+        else:
+            z = _lobanov_zscore_series(df_norm[col])
+            df_norm[col] = 0.0 if isinstance(z, float) else z
+        df_norm[col] = df_norm[col].replace([np.inf, -np.inf], np.nan).fillna(0)
     return df_norm
 
 
@@ -329,14 +353,9 @@ def remove_outliers_mahalanobis(df, plot_type, sigma_option):
         return df.copy(), 0, {}, {"labels_too_small": set(), "labels_tested": set()}
 
     # 자유도 2 카이제곱 임계값 (미리 계산된 상수 사용)
-    # stats.chi2.ppf(0.6827, df=2) ≒ 2.2957
     # stats.chi2.ppf(0.9545, df=2) ≒ 6.1798
-    if sigma_option == "1sigma":
-        # 68.27% 포함 → 상위 31.73% 컷오프
-        threshold = 2.2957
-    else:
-        # 2sigma: 95.45% 포함 → 상위 4.55% 컷오프 (약 5.991)
-        threshold = 6.1798
+    # NOTE: 1σ 옵션은 UI에서 제거되었지만, 하위 호환을 위해 그 외 값도 2σ로 처리한다.
+    threshold = 6.1798
 
     keep_mask = np.ones(len(xy_df), dtype=bool)
     per_label_removed = {}
@@ -373,3 +392,340 @@ def remove_outliers_mahalanobis(df, plot_type, sigma_option):
     total_removed = int(len(drop_indices))
     meta = {"labels_too_small": labels_too_small, "labels_tested": labels_tested}
     return filtered_df, total_removed, per_label_removed, meta
+
+
+def _pick_group_columns_for_outlier_scope(df: pd.DataFrame, scope: str):
+    """이상치 제거 적용 범위(scope)에 따라 groupby 키 컬럼 목록을 반환한다.
+
+    - scope='combined': 화자 구분 무시 → 모음 라벨만 기준
+    - scope='individual': 화자+모음 기준. 단, 화자 컬럼이 없으면(단일 파일 df 등) 모음 라벨만 사용.
+    """
+    label_col = "Label" if "Label" in df.columns else ("label" if "label" in df.columns else None)
+    if label_col is None:
+        return None, None, None
+    speaker_col = "Speaker" if "Speaker" in df.columns else ("speaker" if "speaker" in df.columns else None)
+    if scope == "combined":
+        return [label_col], label_col, speaker_col
+    if speaker_col:
+        return [speaker_col, label_col], label_col, speaker_col
+    return [label_col], label_col, speaker_col
+
+
+def remove_outliers_tukey_iqr(df, plot_type, *, scope: str = "individual"):
+    """Tukey's IQR (±1.5) 기반 이상치 제거.
+
+    - 2차원 데이터(y=F1, x=plot_type에 따른 X축) 각각에 대해 Q1/Q3/IQR로 경계 계산.
+    - 두 축 모두 경계 내에 있어야 정상으로 유지.
+    - groupby 단위(모음/화자+모음)는 scope에 따라 달라진다.
+    - 그룹 N<5이면 해당 그룹은 바이패스(원본 유지).
+    반환: (filtered_df, total_removed_count, per_group_removed_dict, meta_dict)
+      * per_group_removed_dict 키는 label 또는 (speaker,label) 튜플이 될 수 있다.
+      * meta_dict: {"groups_too_small": set([...]), "groups_tested": set([...])}
+    """
+    if df is None or df.empty:
+        return (
+            df.copy() if df is not None else df,
+            0,
+            {},
+            {"groups_too_small": set(), "groups_tested": set()},
+        )
+
+    df_work = filter_for_plot_type(df, plot_type)
+    if df_work is None or df_work.empty:
+        return df.copy(), 0, {}, {"groups_too_small": set(), "groups_tested": set()}
+
+    xy_df, y_col, x_col = _ensure_xy_columns(df_work, plot_type)
+    if xy_df is None or y_col is None or x_col is None:
+        return df.copy(), 0, {}, {"groups_too_small": set(), "groups_tested": set()}
+
+    group_cols, label_col, speaker_col = _pick_group_columns_for_outlier_scope(df_work, scope)
+    if group_cols is None:
+        return df.copy(), 0, {}, {"groups_too_small": set(), "groups_tested": set()}
+
+    # groupby 키를 xy_df에 추가
+    for c in group_cols:
+        xy_df[c] = df_work[c].values
+
+    keep_mask = np.ones(len(xy_df), dtype=bool)
+    per_group_removed = {}
+    groups_too_small = set()
+    groups_tested = set()
+
+    def _iqr_bounds(series: pd.Series):
+        q1 = series.quantile(0.25)
+        q3 = series.quantile(0.75)
+        iqr = q3 - q1
+        return q1 - 1.5 * iqr, q3 + 1.5 * iqr
+
+    for gkey, group in xy_df.groupby(group_cols, sort=False):
+        n = len(group)
+        if n < 5:
+            groups_too_small.add(str(gkey))
+            continue
+        groups_tested.add(str(gkey))
+        lb_y, ub_y = _iqr_bounds(group[y_col])
+        lb_x, ub_x = _iqr_bounds(group[x_col])
+        valid = (group[y_col] >= lb_y) & (group[y_col] <= ub_y) & (group[x_col] >= lb_x) & (group[x_col] <= ub_x)
+        remove_in_group = ~valid
+        n_removed = int(remove_in_group.sum())
+        if n_removed > 0:
+            per_group_removed[gkey] = n_removed
+            keep_mask[group.index] = valid.values
+
+    drop_indices = df_work.index[~keep_mask]
+    filtered_df = df.drop(index=drop_indices, errors="ignore").copy()
+    total_removed = int(len(drop_indices))
+    meta = {"groups_too_small": groups_too_small, "groups_tested": groups_tested}
+    return filtered_df, total_removed, per_group_removed, meta
+
+
+def remove_outliers_mahalanobis_scoped(df, plot_type, *, scope: str = "individual"):
+    """마할라노비스(2σ) 이상치 제거를 scope(groupby 키)에 맞춰 수행한다.
+
+    기존 `remove_outliers_mahalanobis`는 모음 라벨만 기준이었는데,
+    이 함수는 scope에 따라 (Speaker, Label) 또는 (Label)로 그룹을 나눈 뒤,
+    각 그룹 내부에서 중심/공분산을 계산해 2σ 임계치로 제거한다.
+    """
+    if df is None or df.empty:
+        return (
+            df.copy() if df is not None else df,
+            0,
+            {},
+            {"groups_too_small": set(), "groups_tested": set()},
+        )
+
+    df_work = filter_for_plot_type(df, plot_type)
+    if df_work is None or df_work.empty:
+        return df.copy(), 0, {}, {"groups_too_small": set(), "groups_tested": set()}
+
+    xy_df, y_col, x_col = _ensure_xy_columns(df_work, plot_type)
+    if xy_df is None or y_col is None or x_col is None:
+        return df.copy(), 0, {}, {"groups_too_small": set(), "groups_tested": set()}
+
+    group_cols, label_col, speaker_col = _pick_group_columns_for_outlier_scope(df_work, scope)
+    if group_cols is None:
+        return df.copy(), 0, {}, {"groups_too_small": set(), "groups_tested": set()}
+
+    for c in group_cols:
+        xy_df[c] = df_work[c].values
+
+    # 자유도 2, 2σ(95.45%) 임계치
+    threshold = 6.1798
+
+    keep_mask = np.ones(len(xy_df), dtype=bool)
+    per_group_removed = {}
+    groups_too_small = set()
+    groups_tested = set()
+
+    for gkey, group in xy_df.groupby(group_cols, sort=False):
+        g = group[[y_col, x_col]].values
+        n = len(g)
+        if n < 5:
+            groups_too_small.add(str(gkey))
+            continue
+        mean = g.mean(axis=0)
+        cov = np.cov(g.T)
+        if cov.size == 1 or np.linalg.det(cov) <= 0:
+            continue
+        try:
+            cov_inv = np.linalg.inv(cov)
+        except np.linalg.LinAlgError:
+            continue
+        groups_tested.add(str(gkey))
+        centered = g - mean
+        d2 = np.sum(centered @ cov_inv * centered, axis=1)
+        remove_in_group = d2 > threshold
+        n_removed = int(remove_in_group.sum())
+        if n_removed > 0:
+            per_group_removed[gkey] = n_removed
+            keep_mask[group.index] = ~remove_in_group
+
+    drop_indices = df_work.index[~keep_mask]
+    filtered_df = df.drop(index=drop_indices, errors="ignore").copy()
+    total_removed = int(len(drop_indices))
+    meta = {"groups_too_small": groups_too_small, "groups_tested": groups_tested}
+    return filtered_df, total_removed, per_group_removed, meta
+
+
+def remove_outliers_tukey_iqr_auto(df, plot_type, *, speaker_col: str = "Speaker"):
+    """UI 없이 자동 적용되는 하이브리드 스코프(Tukey IQR).
+
+    원칙:
+    - 기본은 Individual: (speaker,label) 그룹에서 통계를 계산해 적용
+    - 단, (speaker,label) 그룹 N<5이면 Individual 통계를 쓰지 않고,
+      해당 label의 pooled(전체 화자) 그룹에서 계산한 통계를 적용한다(가능할 때만).
+    - pooled label 그룹도 N<5이면 bypass.
+
+    df는 최소한 speaker_col과 라벨 컬럼(Label/label)을 포함해야 한다.
+    """
+    if df is None or df.empty:
+        return df.copy() if df is not None else df, 0, {}, {"groups_too_small": set(), "groups_tested": set()}
+
+    label_col = "Label" if "Label" in df.columns else ("label" if "label" in df.columns else None)
+    if label_col is None or speaker_col not in df.columns:
+        # speaker 정보가 없으면 individual과 구분 불가 → 일반 individual로 처리
+        return remove_outliers_tukey_iqr(df, plot_type, scope="individual")
+
+    df_work = filter_for_plot_type(df, plot_type)
+    if df_work is None or df_work.empty:
+        return df.copy(), 0, {}, {"groups_too_small": set(), "groups_tested": set()}
+
+    xy_df, y_col, x_col = _ensure_xy_columns(df_work, plot_type)
+    if xy_df is None:
+        return df.copy(), 0, {}, {"groups_too_small": set(), "groups_tested": set()}
+
+    xy_df[speaker_col] = df_work[speaker_col].values
+    xy_df[label_col] = df_work[label_col].values
+
+    def _iqr_bounds(series: pd.Series):
+        q1 = series.quantile(0.25)
+        q3 = series.quantile(0.75)
+        iqr = q3 - q1
+        return q1 - 1.5 * iqr, q3 + 1.5 * iqr
+
+    # pooled bounds per label (only if N>=5)
+    pooled_bounds = {}
+    pooled_sizes = {}
+    for v, g in xy_df.groupby(label_col, sort=False):
+        pooled_sizes[v] = len(g)
+        if len(g) < 5:
+            continue
+        pooled_bounds[v] = {
+            "y": _iqr_bounds(g[y_col]),
+            "x": _iqr_bounds(g[x_col]),
+        }
+
+    # individual bounds per (speaker,label) if N>=5
+    indiv_bounds = {}
+    indiv_sizes = {}
+    for key, g in xy_df.groupby([speaker_col, label_col], sort=False):
+        indiv_sizes[key] = len(g)
+        if len(g) < 5:
+            continue
+        indiv_bounds[key] = {
+            "y": _iqr_bounds(g[y_col]),
+            "x": _iqr_bounds(g[x_col]),
+        }
+
+    keep_mask = np.ones(len(xy_df), dtype=bool)
+    groups_too_small = set()
+    groups_tested = set()
+    per_group_removed = {}
+
+    for key, g in xy_df.groupby([speaker_col, label_col], sort=False):
+        spk, v = key
+        n = len(g)
+        # 1) 충분하면 individual 통계
+        bounds = indiv_bounds.get(key)
+        # 2) 부족하면 pooled 통계(가능하면)
+        if bounds is None:
+            if pooled_sizes.get(v, 0) < 5:
+                groups_too_small.add(str(key))
+                continue
+            bounds = pooled_bounds.get(v)
+        if bounds is None:
+            groups_too_small.add(str(key))
+            continue
+        groups_tested.add(str(key))
+        (lb_y, ub_y) = bounds["y"]
+        (lb_x, ub_x) = bounds["x"]
+        valid = (g[y_col] >= lb_y) & (g[y_col] <= ub_y) & (g[x_col] >= lb_x) & (g[x_col] <= ub_x)
+        removed = int((~valid).sum())
+        if removed:
+            per_group_removed[key] = removed
+            keep_mask[g.index] = valid.values
+
+    drop_indices = df_work.index[~keep_mask]
+    filtered_df = df.drop(index=drop_indices, errors="ignore").copy()
+    meta = {"groups_too_small": groups_too_small, "groups_tested": groups_tested}
+    return filtered_df, int(len(drop_indices)), per_group_removed, meta
+
+
+def remove_outliers_mahalanobis_auto(df, plot_type, *, speaker_col: str = "Speaker"):
+    """UI 없이 자동 적용되는 하이브리드 스코프(Mahalanobis 2σ).
+
+    규칙은 `remove_outliers_tukey_iqr_auto`와 동일:
+    - (speaker,label) 그룹 N>=5이면 individual 기준
+    - N<5이면 pooled(label) 기준(가능할 때만)
+    - pooled도 N<5이면 bypass
+    """
+    if df is None or df.empty:
+        return df.copy() if df is not None else df, 0, {}, {"groups_too_small": set(), "groups_tested": set()}
+
+    label_col = "Label" if "Label" in df.columns else ("label" if "label" in df.columns else None)
+    if label_col is None or speaker_col not in df.columns:
+        return remove_outliers_mahalanobis_scoped(df, plot_type, scope="individual")
+
+    df_work = filter_for_plot_type(df, plot_type)
+    if df_work is None or df_work.empty:
+        return df.copy(), 0, {}, {"groups_too_small": set(), "groups_tested": set()}
+
+    xy_df, y_col, x_col = _ensure_xy_columns(df_work, plot_type)
+    if xy_df is None:
+        return df.copy(), 0, {}, {"groups_too_small": set(), "groups_tested": set()}
+
+    xy_df[speaker_col] = df_work[speaker_col].values
+    xy_df[label_col] = df_work[label_col].values
+
+    threshold = 6.1798
+
+    def _fit_mahal(gvals: np.ndarray):
+        mean = gvals.mean(axis=0)
+        cov = np.cov(gvals.T)
+        if cov.size == 1 or np.linalg.det(cov) <= 0:
+            return None
+        try:
+            cov_inv = np.linalg.inv(cov)
+        except np.linalg.LinAlgError:
+            return None
+        return mean, cov_inv
+
+    pooled_fit = {}
+    pooled_sizes = {}
+    for v, g in xy_df.groupby(label_col, sort=False):
+        pooled_sizes[v] = len(g)
+        if len(g) < 5:
+            continue
+        fit = _fit_mahal(g[[y_col, x_col]].values)
+        if fit is not None:
+            pooled_fit[v] = fit
+
+    indiv_fit = {}
+    for key, g in xy_df.groupby([speaker_col, label_col], sort=False):
+        if len(g) < 5:
+            continue
+        fit = _fit_mahal(g[[y_col, x_col]].values)
+        if fit is not None:
+            indiv_fit[key] = fit
+
+    keep_mask = np.ones(len(xy_df), dtype=bool)
+    groups_too_small = set()
+    groups_tested = set()
+    per_group_removed = {}
+
+    for key, g in xy_df.groupby([speaker_col, label_col], sort=False):
+        spk, v = key
+        fit = indiv_fit.get(key)
+        if fit is None:
+            if pooled_sizes.get(v, 0) < 5:
+                groups_too_small.add(str(key))
+                continue
+            fit = pooled_fit.get(v)
+        if fit is None:
+            groups_too_small.add(str(key))
+            continue
+        mean, cov_inv = fit
+        groups_tested.add(str(key))
+        gvals = g[[y_col, x_col]].values
+        centered = gvals - mean
+        d2 = np.sum(centered @ cov_inv * centered, axis=1)
+        remove = d2 > threshold
+        removed = int(remove.sum())
+        if removed:
+            per_group_removed[key] = removed
+            keep_mask[g.index] = ~remove
+
+    drop_indices = df_work.index[~keep_mask]
+    filtered_df = df.drop(index=drop_indices, errors="ignore").copy()
+    meta = {"groups_too_small": groups_too_small, "groups_tested": groups_tested}
+    return filtered_df, int(len(drop_indices)), per_group_removed, meta

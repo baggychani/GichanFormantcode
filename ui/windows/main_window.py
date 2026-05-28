@@ -20,13 +20,44 @@ from PySide6.QtWidgets import (
     QTableWidgetItem,
     QAbstractItemView,
     QFileDialog,
+    QSizePolicy,
 )
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import QFont
 
 import config
 from utils import icon_utils, app_logger
 from ui.widgets.design_panel import NoWheelComboBox
+
+# 중앙 설정 열(ANALYSIS STRUCTURE ~ DATA PROCESSING) 공통 레이아웃 상수
+_SETTINGS_LABEL_COL_W = 115
+_SETTINGS_GRID_V_SPACING = 10
+_SETTINGS_GRID_H_SPACING = 8
+_SETTINGS_GROUP_MARGINS = (12, 10, 12, 10)
+_SETTINGS_SECTION_GAP = 10
+_SETTINGS_CTRL_H = 30
+
+
+def _settings_field_label(text: str) -> QLabel:
+    """설정 그리드 좌측 라벨 — 행 높이에 맞춰 수직 중앙 정렬."""
+    lbl = QLabel(text)
+    lbl.setAlignment(
+        Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter
+    )
+    return lbl
+
+
+def _apply_settings_grid(
+    grid: QGridLayout, row_count: int, *, apply_row_min: bool = True
+) -> None:
+    """AXIS SCALES / DATA PROCESSING 그리드 줄 간격·행 높이 통일."""
+    grid.setColumnMinimumWidth(0, _SETTINGS_LABEL_COL_W)
+    grid.setVerticalSpacing(_SETTINGS_GRID_V_SPACING)
+    grid.setHorizontalSpacing(_SETTINGS_GRID_H_SPACING)
+    grid.setContentsMargins(*_SETTINGS_GROUP_MARGINS)
+    if apply_row_min:
+        for row in range(row_count):
+            grid.setRowMinimumHeight(row, _SETTINGS_CTRL_H)
 
 
 class DropLabel(QLabel):
@@ -40,7 +71,7 @@ class DropLabel(QLabel):
         self.setStyleSheet(
             "background-color: #fcfcfc; color: #777; border: 1px solid #dcdfe6; border-radius: 8px; padding: 5px;"
         )
-        self.setMinimumHeight(62)
+        self.setMinimumHeight(56)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
         self.setAcceptDrops(True)
 
@@ -87,8 +118,9 @@ class MainUI(QMainWindow):
         _report("Loading UI Resources...")
         self._apply_window_icon()
 
-        # 창 크기 고정
-        self.setFixedSize(1100, 640)
+        # 창 크기 고정 (config.WINDOW_SIZE_MAIN: "WxH")
+        win_w, win_h = map(int, config.WINDOW_SIZE_MAIN.split("x"))
+        self.setFixedSize(win_w, win_h)
 
         # 제목 표시줄의 최대화(ㅁ) 버튼 비활성화 (최소화, 닫기 버튼만 유지)
         self.setWindowFlags(
@@ -206,6 +238,22 @@ class MainUI(QMainWindow):
         if not getattr(self, "_icon_applied_on_show", True):
             self._icon_applied_on_show = True
             self._apply_window_icon()
+        QTimer.singleShot(0, self._sync_workspace_column_heights)
+
+    def _sync_workspace_column_heights(self):
+        """2열 설정 패널 높이를 기준으로 1·3열 그룹박스 하단을 맞춘다."""
+        panel = getattr(self, "_col2_panel", None)
+        data_group = getattr(self, "data_group", None)
+        preview_group = getattr(self, "preview_group", None)
+        if panel is None or data_group is None or preview_group is None:
+            return
+        ref_h = panel.sizeHint().height()
+        if ref_h <= 0:
+            ref_h = panel.minimumSizeHint().height()
+        if ref_h <= 0:
+            return
+        data_group.setFixedHeight(ref_h)
+        preview_group.setFixedHeight(ref_h)
 
     def _apply_window_icon(self):
         try:
@@ -236,7 +284,10 @@ class MainUI(QMainWindow):
             "여기를 클릭하여 파일을 선택하거나\n파일을 이곳으로 끌어다 놓으세요",
             self.controller,
         )
-        data_vbox.addWidget(self.drop_label, stretch=1)
+        self.drop_label.setSizePolicy(
+            QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Expanding
+        )
+        data_vbox.addWidget(self.drop_label, stretch=4)
 
         self.lbl_file_count = QLabel("Loaded Files (Total: 0)")
         self.lbl_file_count.setFont(self.font_bold)
@@ -256,15 +307,17 @@ class MainUI(QMainWindow):
             1, QHeaderView.ResizeMode.Fixed
         )
         self.table_files.setColumnWidth(1, 35)
-        # 헤더가 사라진 만큼 뷰가 넓어졌으므로 높이 살짝 축소
-        self.table_files.setFixedHeight(158)
+        self.table_files.setMinimumHeight(120)
+        self.table_files.setSizePolicy(
+            QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Expanding
+        )
         self.table_files.verticalHeader().setDefaultSectionSize(36)
         self.table_files.setFont(self.font_small)
         self.table_files.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self.table_files.setSelectionMode(QAbstractItemView.SelectionMode.NoSelection)
         self.table_files.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self.table_files.setShowGrid(False)
-        data_vbox.addWidget(self.table_files)
+        data_vbox.addWidget(self.table_files, stretch=6)
 
         ctrl_h = QHBoxLayout()
         self.btn_reset = QPushButton("초기화")
@@ -276,7 +329,11 @@ class MainUI(QMainWindow):
         ctrl_h.addWidget(self.btn_guide)
         data_vbox.addLayout(ctrl_h)
         data_vbox.addSpacing(4)
-        col1.addWidget(data_group)
+        data_group.setSizePolicy(
+            QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Maximum
+        )
+        self.data_group = data_group
+        col1.addWidget(data_group, 0, Qt.AlignmentFlag.AlignTop)
         workspace_layout.addLayout(col1, stretch=32)
 
         # --- 2열: ANALYSIS SETTINGS ---
@@ -285,10 +342,15 @@ class MainUI(QMainWindow):
         col2_container.setFixedWidth(460)
         col2_inner = QVBoxLayout(col2_container)
         col2_inner.setContentsMargins(0, 0, 0, 0)
+        col2_inner.setSpacing(_SETTINGS_SECTION_GAP)
 
         self.group_structure = QGroupBox("ANALYSIS STRUCTURE")
+        self.group_structure.setSizePolicy(
+            QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Maximum
+        )
         type_vbox = QVBoxLayout(self.group_structure)
-        type_vbox.setSpacing(5)
+        type_vbox.setContentsMargins(*_SETTINGS_GROUP_MARGINS)
+        type_vbox.setSpacing(6)
         self.plot_type_group = QButtonGroup(self)
 
         row1_h = QHBoxLayout()
@@ -326,42 +388,59 @@ class MainUI(QMainWindow):
         type_vbox.addLayout(row2_h)
 
         self.lbl_plot_desc = QLabel("F1 vs F2: 가장 표준적인 모음 사각도입니다.")
-        self.lbl_plot_desc.setStyleSheet(
-            "color: #606266; padding: 4px 5px; line-height: 1.3;"
-        )
+        self.lbl_plot_desc.setStyleSheet("color: #606266; padding: 0 2px;")
         self.lbl_plot_desc.setFont(self.font_small)
         self.lbl_plot_desc.setWordWrap(True)
-        self.lbl_plot_desc.setMinimumHeight(28)
+        self.lbl_plot_desc.setFixedHeight(20)
+        self.lbl_plot_desc.setSizePolicy(
+            QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed
+        )
         type_vbox.addWidget(self.lbl_plot_desc)
-        col2_inner.addWidget(self.group_structure)
+        col2_inner.addWidget(
+            self.group_structure, 0, Qt.AlignmentFlag.AlignTop
+        )
 
         self.group_scales = QGroupBox("AXIS SCALES")
+        self.group_scales.setSizePolicy(
+            QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Maximum
+        )
         scale_grid = QGridLayout(self.group_scales)
-        scale_grid.setColumnMinimumWidth(0, 115)
-        scale_grid.setVerticalSpacing(6)
+        _apply_settings_grid(scale_grid, 3)
+        scale_grid.setContentsMargins(12, 10, 12, 6)
 
-        scale_grid.addWidget(QLabel("F1 Axis Scale"), 0, 0)
+        self.lbl_x_axis = _settings_field_label("F2 Axis Scale")
+        scale_grid.addWidget(_settings_field_label("F1 Axis Scale"), 0, 0)
+        f1_h = QHBoxLayout()
+        f1_h.setContentsMargins(0, 0, 0, 0)
+        f1_h.setSpacing(_SETTINGS_GRID_H_SPACING)
         self.f1_scale_group = QButtonGroup(self)
         for col, s_val in enumerate(["linear", "log", "bark"]):
             btn = QPushButton(s_val.capitalize())
             btn.setCheckable(True)
             btn.setProperty("val", s_val)
+            btn.setFixedHeight(_SETTINGS_CTRL_H)
             self.f1_scale_group.addButton(btn, col)
-            scale_grid.addWidget(btn, 0, col + 1)
+            f1_h.addWidget(btn, stretch=1)
+        scale_grid.addLayout(f1_h, 0, 1, 1, 3)
 
-        self.lbl_x_axis = QLabel("F2 Axis Scale")
         scale_grid.addWidget(self.lbl_x_axis, 1, 0)
+        f2_h = QHBoxLayout()
+        f2_h.setContentsMargins(0, 0, 0, 0)
+        f2_h.setSpacing(_SETTINGS_GRID_H_SPACING)
         self.f2_scale_group = QButtonGroup(self)
         for col, s_val in enumerate(["linear", "log", "bark"]):
             btn = QPushButton(s_val.capitalize())
             btn.setCheckable(True)
             btn.setProperty("val", s_val)
+            btn.setFixedHeight(_SETTINGS_CTRL_H)
             self.f2_scale_group.addButton(btn, col)
-            scale_grid.addWidget(btn, 1, col + 1)
+            f2_h.addWidget(btn, stretch=1)
+        scale_grid.addLayout(f2_h, 1, 1, 1, 3)
 
-        scale_grid.addWidget(QLabel("Origin (0,0)"), 2, 0)
+        scale_grid.addWidget(_settings_field_label("Origin (0,0)"), 2, 0)
         origin_h = QHBoxLayout()
-        origin_h.setSpacing(10)
+        origin_h.setContentsMargins(0, 0, 0, 0)
+        origin_h.setSpacing(_SETTINGS_GRID_H_SPACING)
         self.origin_group = QButtonGroup(self)
         for col, (o_text, o_val) in enumerate(
             [("Praat(우측 상단)", "top_right"), ("Math(좌측 하단)", "bottom_left")]
@@ -369,15 +448,15 @@ class MainUI(QMainWindow):
             btn = QPushButton(o_text)
             btn.setCheckable(True)
             btn.setProperty("val", o_val)
+            btn.setFixedHeight(_SETTINGS_CTRL_H)
             self.origin_group.addButton(btn, col)
             origin_h.addWidget(btn, stretch=1)
         scale_grid.addLayout(origin_h, 2, 1, 1, 3)
 
-        # 체크박스: 네이티브 렌더링 유지 및 왼쪽 잘림 방지를 위해 레이아웃 레벨에서 마진 부여
-        chk_container = QWidget()
-        chk_layout = QHBoxLayout(chk_container)
-        chk_layout.setContentsMargins(6, 0, 0, 0)  # 6px 왼쪽 여백
-        chk_layout.setSpacing(0)
+        scale_grid.setColumnStretch(1, 1)
+        scale_grid.setColumnStretch(2, 1)
+        scale_grid.setColumnStretch(3, 1)
+
         self.chk_bark_units = QCheckBox("Bark를 표시 단위로 사용")
         self.chk_bark_units.setFont(QFont(self.ui_font_name, 8))
         self.chk_bark_units.setStyleSheet(
@@ -386,38 +465,79 @@ class MainUI(QMainWindow):
             QCheckBox:disabled { color: #bbbbbb; }
             """
         )
-        chk_layout.addWidget(self.chk_bark_units)
-        scale_grid.addWidget(chk_container, 3, 1, 1, 3)
-
-        scale_grid.setColumnStretch(1, 1)
-        scale_grid.setColumnStretch(2, 1)
-        scale_grid.setColumnStretch(3, 1)
-        col2_inner.addWidget(self.group_scales)
+        scale_grid.addWidget(
+            self.chk_bark_units,
+            3,
+            1,
+            1,
+            3,
+            Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter,
+        )
+        scale_grid.setRowMinimumHeight(3, 20)
+        col2_inner.addWidget(self.group_scales, 0, Qt.AlignmentFlag.AlignTop)
 
         self.group_data_processing = QGroupBox("DATA PROCESSING")
+        self.group_data_processing.setSizePolicy(
+            QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Maximum
+        )
         dp_layout = QGridLayout(self.group_data_processing)
-        dp_layout.setVerticalSpacing(6)
-        dp_layout.setColumnMinimumWidth(0, 115)
-        dp_layout.addWidget(QLabel("이상치 제거"), 0, 0)
+        _apply_settings_grid(dp_layout, 3)
+        dp_layout.addWidget(_settings_field_label("이상치 제거"), 0, 0)
         self.outlier_group = QButtonGroup(self)
         self.outlier_group.setExclusive(False)
         outlier_h = QHBoxLayout()
-        outlier_h.setSpacing(10)
+        outlier_h.setContentsMargins(0, 0, 0, 0)
+        outlier_h.setSpacing(_SETTINGS_GRID_H_SPACING)
         for col, (text, val) in enumerate(config.OUTLIER_SIGMA_OPTIONS):
             btn = QPushButton(text)
             btn.setCheckable(True)
             btn.setProperty("val", val)
             btn.setFont(self.font_small)
+            btn.setFixedHeight(_SETTINGS_CTRL_H)
             self.outlier_group.addButton(btn, col)
             btn.toggled.connect(
                 lambda checked, b=btn: self._outlier_at_most_one(b, checked)
             )
             outlier_h.addWidget(btn, stretch=1)
         dp_layout.addLayout(outlier_h, 0, 1, 1, 3)
-        dp_layout.addWidget(QLabel("정규화"), 1, 0)
+
+        self.outlier_scope_panel = QWidget()
+        scope_panel_layout = QHBoxLayout(self.outlier_scope_panel)
+        scope_panel_layout.setContentsMargins(
+            _SETTINGS_LABEL_COL_W + _SETTINGS_GRID_H_SPACING, 0, 0, 0
+        )
+        scope_panel_layout.setSpacing(_SETTINGS_GRID_H_SPACING)
+
+        self.lbl_outlier_scope = QLabel("└ 적용 범위")
+        self.lbl_outlier_scope.setFont(self.font_small)
+        self.lbl_outlier_scope.setStyleSheet("color: #909399;")
+        self.lbl_outlier_scope.setAlignment(
+            Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter
+        )
+        scope_panel_layout.addWidget(self.lbl_outlier_scope)
+
+        self.outlier_scope_group = QButtonGroup(self)
+        self.outlier_scope_group.setExclusive(True)
+        scope_h = QHBoxLayout()
+        scope_h.setContentsMargins(0, 0, 0, 0)
+        scope_h.setSpacing(_SETTINGS_GRID_H_SPACING)
+        for col, (text, val) in enumerate(config.OUTLIER_SCOPE_OPTIONS):
+            btn = QPushButton(text)
+            btn.setCheckable(True)
+            btn.setProperty("val", val)
+            btn.setFont(self.font_small)
+            btn.setFixedHeight(_SETTINGS_CTRL_H)
+            self.outlier_scope_group.addButton(btn, col)
+            scope_h.addWidget(btn, stretch=1)
+        scope_panel_layout.addLayout(scope_h, stretch=1)
+        self.outlier_scope_group.buttonClicked.connect(self._on_outlier_scope_changed)
+        dp_layout.addWidget(self.outlier_scope_panel, 1, 0, 1, 4)
+        self._update_outlier_scope_ui()
+
+        dp_layout.addWidget(_settings_field_label("정규화"), 2, 0)
         self.cb_normalization = NoWheelComboBox()
         self.cb_normalization.setFont(self.font_small)
-        self.cb_normalization.setMinimumHeight(30)
+        self.cb_normalization.setFixedHeight(_SETTINGS_CTRL_H)
         self.cb_normalization.setFocusPolicy(Qt.FocusPolicy.ClickFocus)
         self.cb_normalization.addItem("없음", "")
         self.cb_normalization.addItem("Lobanov", "Lobanov")
@@ -426,21 +546,29 @@ class MainUI(QMainWindow):
             "Lobanov: 화자 내 F1·F2 평균·표준편차 기준 Z-score.\n"
             "모음이 1개뿐이면 해당 축 값은 0으로 처리됩니다."
         )
-        dp_layout.addWidget(self.cb_normalization, 1, 1, 1, 3)
+        dp_layout.addWidget(self.cb_normalization, 2, 1, 1, 3)
         dp_layout.setColumnStretch(1, 1)
         dp_layout.setColumnStretch(2, 1)
         dp_layout.setColumnStretch(3, 1)
-        col2_inner.addWidget(self.group_data_processing)
+        col2_inner.addWidget(
+            self.group_data_processing, 0, Qt.AlignmentFlag.AlignTop
+        )
 
-        col2.addWidget(col2_container)
+        self._col2_panel = col2_container
+        col2.addWidget(col2_container, 0, Qt.AlignmentFlag.AlignTop)
         workspace_layout.addLayout(col2, stretch=36)
 
-        # --- 3열: LIVE MONITOR ---
+        # --- 3열: LIVE MONITOR (플롯 + 생성 버튼을 그룹박스 내부에 통합) ---
         col3 = QVBoxLayout()
+        col3.setSpacing(0)
         preview_group = QGroupBox("LIVE MONITOR")
+        self.preview_group = preview_group
+        preview_group.setSizePolicy(
+            QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Maximum
+        )
         preview_vbox = QVBoxLayout(preview_group)
-
-        preview_vbox.addStretch(1)
+        preview_vbox.setContentsMargins(10, 10, 10, 10)
+        preview_vbox.setSpacing(8)
 
         self.preview_label = QLabel("LIVE")
         self.preview_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -456,22 +584,21 @@ class MainUI(QMainWindow):
         """)
 
         preview_vbox.addWidget(
-            self.preview_label, alignment=Qt.AlignmentFlag.AlignCenter
+            self.preview_label,
+            0,
+            Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignTop,
         )
-        preview_vbox.addSpacing(8)
 
         self.preview_info_label = QLabel("")
         self.preview_info_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.preview_info_label.setStyleSheet(
-            "color: #909399; font-size: 11px; padding: 4px 8px;"
+            "color: #909399; font-size: 11px; padding: 0 4px;"
         )
         self.preview_info_label.setWordWrap(True)
         self.preview_info_label.setMaximumWidth(280)
+        self.preview_info_label.setFixedHeight(52)
         preview_vbox.addWidget(self.preview_info_label)
-
         preview_vbox.addStretch(1)
-
-        col3.addWidget(preview_group, stretch=1)
 
         self.btn_generate = QPushButton("포먼트 플롯 생성")
         self.btn_generate.setMinimumHeight(48)
@@ -483,10 +610,13 @@ class MainUI(QMainWindow):
         """)
         self.btn_generate.setCursor(Qt.CursorShape.PointingHandCursor)
         self.btn_generate.clicked.connect(self.controller.open_single_plot)
-        col3.addWidget(self.btn_generate)
+        preview_vbox.addWidget(self.btn_generate)
+
+        col3.addWidget(preview_group, 0, Qt.AlignmentFlag.AlignTop)
         workspace_layout.addLayout(col3, stretch=32)
 
-        self.main_v_layout.addLayout(workspace_layout, stretch=85)
+        self.main_v_layout.addLayout(workspace_layout)
+        QTimer.singleShot(0, self._sync_workspace_column_heights)
 
     def _build_bottom_log(self):
         log_group = QGroupBox("SYSTEM LOG")
@@ -554,6 +684,7 @@ class MainUI(QMainWindow):
         if locked and hasattr(self, "outlier_group"):
             for b in self.outlier_group.buttons():
                 b.setChecked(False)
+            self._update_outlier_scope_ui()
 
     def _request_reset_all(self):
         """모든 데이터/설정 초기화 여부를 사용자에게 확인한 뒤, Yes인 경우에만 컨트롤러에 요청."""
@@ -719,11 +850,47 @@ class MainUI(QMainWindow):
         )
 
     def get_outlier_mode(self):
-        """이상치 제거 모드: None(해제), '1sigma', '2sigma'"""
+        """이상치 제거 모드: None(해제) | 'mahalanobis_2sigma' | 'tukey_iqr'."""
         if not hasattr(self, "outlier_group"):
             return None
         btn = self.outlier_group.checkedButton()
-        return btn.property("val") if btn else None
+        val = btn.property("val") if btn else None
+        return val
+
+    def get_outlier_scope(self):
+        """이상치 제거 적용 범위. OFF이면 None, ON이면 'individual' | 'combined'."""
+        if not hasattr(self, "outlier_scope_group"):
+            return None
+        if self.get_outlier_mode() is None:
+            return None
+        btn = self.outlier_scope_group.checkedButton()
+        val = btn.property("val") if btn else None
+        return val if val in ("individual", "combined") else None
+
+    def _scope_button(self, scope_val: str):
+        if not hasattr(self, "outlier_scope_group"):
+            return None
+        for b in self.outlier_scope_group.buttons():
+            if b.property("val") == scope_val:
+                return b
+        return None
+
+    def _update_outlier_scope_ui(self):
+        """이상치 제거 ON일 때만 적용 범위 활성화. 기본값은 통합 그룹."""
+        if not hasattr(self, "outlier_scope_panel"):
+            return
+        active = self.get_outlier_mode() is not None
+        self.outlier_scope_panel.setEnabled(active)
+        self.outlier_scope_group.blockSignals(True)
+        if active:
+            if not self.outlier_scope_group.checkedButton():
+                combined = self._scope_button("combined")
+                if combined is not None:
+                    combined.setChecked(True)
+        else:
+            for b in self.outlier_scope_group.buttons():
+                b.setChecked(False)
+        self.outlier_scope_group.blockSignals(False)
 
     def get_normalization(self):
         """정규화 방법: None | 'Lobanov' (1단계)"""
@@ -781,6 +948,15 @@ class MainUI(QMainWindow):
 
     def _on_outlier_changed(self, btn):
         """이상치 제거 옵션 변경 시 LIVE 미리보기 및 데이터 반영 (컨트롤러에서 처리)"""
+        self._update_outlier_scope_ui()
+        if hasattr(self.controller, "on_outlier_mode_changed"):
+            self.controller.on_outlier_mode_changed()
+        self._draw_preview()
+
+    def _on_outlier_scope_changed(self, _btn):
+        """적용 범위 변경 — 이상치 제거가 켜진 상태에서만 재적용."""
+        if self.get_outlier_mode() is None:
+            return
         if hasattr(self.controller, "on_outlier_mode_changed"):
             self.controller.on_outlier_mode_changed()
         self._draw_preview()
@@ -804,6 +980,10 @@ class MainUI(QMainWindow):
         if hasattr(self, "outlier_group"):
             for b in self.outlier_group.buttons():
                 b.setChecked(False)
+        if hasattr(self, "outlier_scope_group"):
+            for b in self.outlier_scope_group.buttons():
+                b.setChecked(False)
+        self._update_outlier_scope_ui()
         if hasattr(self, "cb_normalization"):
             self.cb_normalization.blockSignals(True)
             self.cb_normalization.setCurrentIndex(0)

@@ -30,11 +30,14 @@ def build_combined_entry(real_items: list[dict]) -> Optional[dict]:
     if not real_items or len(real_items) < 2:
         return None
 
-    dfs = [
-        it["df"]
-        for it in real_items
-        if isinstance(it.get("df"), pd.DataFrame) and not it["df"].empty
-    ]
+    dfs = []
+    for it in real_items:
+        df = it.get("df")
+        if not isinstance(df, pd.DataFrame) or df.empty:
+            continue
+        piece = df.copy()
+        piece["Speaker"] = it.get("name", "")
+        dfs.append(piece)
     if not dfs:
         return None
 
@@ -47,7 +50,9 @@ def build_combined_entry(real_items: list[dict]) -> Optional[dict]:
         if not isinstance(df_o, pd.DataFrame) or df_o.empty:
             df_o = it.get("df")
         if isinstance(df_o, pd.DataFrame) and not df_o.empty:
-            df_origs.append(df_o)
+            piece = df_o.copy()
+            piece["Speaker"] = it.get("name", "")
+            df_origs.append(piece)
     df_orig_combined = (
         pd.concat(df_origs, ignore_index=True) if df_origs else df_combined.copy()
     )

@@ -42,6 +42,8 @@ from tools.ruler import RulerTool
 from tools.label_move import LabelMoveTool
 from utils.math_utils import (
     remove_outliers_mahalanobis,
+    remove_outliers_tukey_iqr,
+    remove_outliers_mahalanobis_scoped,
     lobanov_normalization,
     gerstman_normalization,
     watt_fabricius_normalization,
@@ -187,6 +189,11 @@ class MainController:
         prev_outlier_mode = self.last_outlier_mode
         self.last_outlier_mode = outlier_mode
         plot_type = self.ui.get_plot_type()
+        outlier_scope = (
+            self.ui.get_outlier_scope()
+            if hasattr(self.ui, "get_outlier_scope")
+            else None
+        ) or "combined"
 
         if not self.plot_data_list:
             return
@@ -211,27 +218,128 @@ class MainController:
             self.update_live_preview()
             return
 
-        # 1sigma / 2sigma 적용
+        def _apply_filtered_to_items_by_src(combined_filtered: "pd.DataFrame", orig_by_name: dict):
+            """combined_filtered에 남은 (_src_name, _src_row)만 각 real item df에 반영."""
+            if combined_filtered is None or combined_filtered.empty:
+                # 전부 제거된 경우: 각 파일은 빈 df
+                for it in real_items:
+                    df_o = it.get("df_original")
+                    it["df"] = df_o.iloc[0:0].copy() if hasattr(df_o, "iloc") else df_o
+                return
+            kept = set(
+                zip(
+                    combined_filtered["_src_name"].astype(str).values,
+                    combined_filtered["_src_row"].astype(int).values,
+                )
+            )
+            for it in real_items:
+                name = str(it.get("name", ""))
+                df_o = orig_by_name.get(name)
+                if df_o is None:
+                    it["df"] = it.get("df_original", it.get("df")).copy()
+                    continue
+                # df_o는 reset_index(drop=True) 상태이므로 _src_row는 iloc 인덱스와 일치
+                keep_rows = [i for i in range(len(df_o)) if (name, i) in kept]
+                it["df"] = df_o.iloc[keep_rows].copy()
+
+        # 이상치 제거 적용 (mode + scope)
         file_removed = []
         total_removed = 0
         files_with_small_labels = []
         any_label_tested = False
-        for item in real_items:
-            df_orig = item["df_original"]
-            filtered_df, n_removed, _, meta = remove_outliers_mahalanobis(
-                df_orig, plot_type, outlier_mode
-            )
-            item["df"] = filtered_df
-            total_removed += n_removed
-            if n_removed > 0:
-                file_removed.append((item["name"], n_removed))
-            # 라벨 개수 부족(5개 미만) 메타 정보 수집
-            labels_too_small = (meta or {}).get("labels_too_small") or set()
-            labels_tested = (meta or {}).get("labels_tested") or set()
-            if labels_too_small:
-                files_with_small_labels.append((item["name"], sorted(labels_too_small)))
-            if labels_tested:
+
+        if outlier_scope == "combined" and len(real_items) >= 2:
+            # Combined(통합) 스코프:
+            # - 화자 구분을 무시하고 Label 단위로 거대한 단일 기준을 만든다.
+            # - 전체 화자 데이터에 일괄 적용 후, (_src_name,_src_row)로 각 파일에 역산 반영한다.
+            import pandas as pd
+            import numpy as np
+
+            combined_pieces = []
+            orig_by_name = {}
+            for it in real_items:
+                name = str(it.get("name", ""))
+                df_o = it.get("df_original")
+                if df_o is None or df_o.empty:
+                    continue
+                df_o = df_o.reset_index(drop=True).copy()
+                orig_by_name[name] = df_o
+                piece = df_o.copy()
+                piece["_src_name"] = name
+                piece["_src_row"] = np.arange(len(df_o), dtype=int)
+                combined_pieces.append(piece)
+
+            df_combined = pd.concat(combined_pieces, ignore_index=True) if combined_pieces else pd.DataFrame()
+
+            if outlier_mode == "tukey_iqr":
+                filtered_all, n_removed, _, meta = remove_outliers_tukey_iqr(
+                    df_combined, plot_type, scope="combined"
+                )
+            else:
+                # 기본: 마할라노비스 2σ
+                filtered_all, n_removed, _, meta = remove_outliers_mahalanobis_scoped(
+                    df_combined, plot_type, scope="combined"
+                )
+
+            total_removed += int(n_removed or 0)
+            _apply_filtered_to_items_by_src(filtered_all, orig_by_name)
+
+            # 파일별 제거 수 집계(로그용)
+            if df_combined is not None and not df_combined.empty and filtered_all is not None:
+                before_counts = df_combined["_src_name"].value_counts().to_dict()
+                after_counts = (
+                    filtered_all["_src_name"].value_counts().to_dict() if not filtered_all.empty else {}
+                )
+                for it in real_items:
+                    name = it.get("name", "")
+                    b = int(before_counts.get(str(name), 0))
+                    a = int(after_counts.get(str(name), 0))
+                    if b - a > 0:
+                        file_removed.append((name, b - a))
+
+            groups_too_small = (meta or {}).get("groups_too_small") or set()
+            groups_tested = (meta or {}).get("groups_tested") or set()
+            if groups_too_small:
+                # Combined 스코프에서는 Label 단위 그룹이 N<5인 케이스
+                files_with_small_labels.append(("Combined(통합)", sorted(groups_too_small)))
+            if groups_tested:
                 any_label_tested = True
+        else:
+            # 개별 화자(파일) 단위로 독립 처리
+            for item in real_items:
+                df_orig = item["df_original"]
+                if outlier_mode == "tukey_iqr":
+                    # Individual 스코프는 (Speaker,Label) 기준이 원칙이므로,
+                    # 개별 파일 df에 Speaker 컬럼이 없더라도 파일명으로 Speaker를 주입해 그룹키를 확정한다.
+                    df_tmp = df_orig.copy()
+                    df_tmp["Speaker"] = item.get("name", "")
+                    filtered_df, n_removed, _, meta = remove_outliers_tukey_iqr(
+                        df_tmp, plot_type, scope="individual"
+                    )
+                    labels_too_small = (meta or {}).get("groups_too_small") or set()
+                    labels_tested = (meta or {}).get("groups_tested") or set()
+                else:
+                    # 기본: 마할라노비스 2σ
+                    df_tmp = df_orig.copy()
+                    df_tmp["Speaker"] = item.get("name", "")
+                    filtered_df, n_removed, _, meta = remove_outliers_mahalanobis_scoped(
+                        df_tmp, plot_type, scope="individual"
+                    )
+                    labels_too_small = (meta or {}).get("groups_too_small") or set()
+                    labels_tested = (meta or {}).get("groups_tested") or set()
+
+                # Speaker 주입 컬럼은 개별 파일 df에는 필요 없으므로 제거
+                import pandas as pd
+                if isinstance(filtered_df, pd.DataFrame) and "Speaker" in filtered_df.columns:
+                    filtered_df = filtered_df.drop(columns=["Speaker"], errors="ignore")
+                item["df"] = filtered_df
+                total_removed += n_removed
+                if n_removed > 0:
+                    file_removed.append((item["name"], n_removed))
+                if labels_too_small:
+                    files_with_small_labels.append((item["name"], sorted(labels_too_small)))
+                if labels_tested:
+                    any_label_tested = True
 
         msg = self._build_outlier_log_message(
             total_removed, file_removed, files_with_small_labels, any_label_tested
@@ -762,10 +870,10 @@ class MainController:
                     f"{x_name}({disp_f2.capitalize()}, {u2})"
                 )
             outlier_mode = self.ui.get_outlier_mode()
-            if outlier_mode == "1sigma":
-                line2 += " / 이상치 제거 : 1σ"
-            elif outlier_mode == "2sigma":
-                line2 += " / 이상치 제거 : 2σ"
+            if outlier_mode == "mahalanobis_2sigma":
+                line2 += " / 이상치 제거 : 2σ(Mahalanobis)"
+            elif outlier_mode == "tukey_iqr":
+                line2 += " / 이상치 제거 : Tukey IQR"
             self.ui.preview_info_label.setText(f"{fname_base}\n{line2}")
 
     def update_live_preview(self):
@@ -1648,10 +1756,10 @@ class MainController:
     def _get_outlier_save_suffix(self):
         """현재 이상치 제거 모드에 맞는 저장 파일명 suffix를 반환."""
         outlier_mode = getattr(self.ui, "get_outlier_mode", lambda: None)()
-        if outlier_mode == "1sigma":
-            return "_이상치 제거 1σ"
-        if outlier_mode == "2sigma":
+        if outlier_mode == "mahalanobis_2sigma":
             return "_이상치 제거 2σ"
+        if outlier_mode == "tukey_iqr":
+            return "_이상치 제거 TukeyIQR"
         return ""
 
     def _get_initial_save_dir(self):

@@ -55,7 +55,7 @@ SENTRY_FLAG_PATH = os.path.join(ROOT_DIR, "sentry_opt_in.config")
 # 2. UI 공통 (창 크기, 폰트, 미리보기 캔버스)
 # =============================================================================
 # 메인 창·팝업 창 기본 크기 (ui/main_window.py, ui/popup_plot.py, ui/compare_plot.py)
-WINDOW_SIZE_MAIN = "860x710"
+WINDOW_SIZE_MAIN = "1100x700"
 WINDOW_MINSIZE_POPUP = (680, 500)
 
 # 플롯 창(단일/다중) 공통: 세로 높이(px), 중앙 캔버스 한 변(px). 두 값 모두 compare_plot / popup_plot 동일.
@@ -359,9 +359,16 @@ NORMALIZATION_OPTIONS = [
 SIGMA_VALS = ["1.0", "2.0"]
 
 # 메인 UI의 이상치 제거 옵션
+# NOTE: UI는 토글 버튼이며, "아무것도 선택 안 함"이 곧 OFF(None) 상태다.
 OUTLIER_SIGMA_OPTIONS = [
-    ("1σ (68.27%)", "1sigma"),
-    ("2σ (95.45%)", "2sigma"),
+    ("2-Sigma (Mahalanobis)", "mahalanobis_2sigma"),
+    ("Tukey IQR", "tukey_iqr"),
+]
+
+# 이상치 제거 적용 범위(Scope) — 이상치 제거 ON일 때만 활성, 기본: 통합 그룹
+OUTLIER_SCOPE_OPTIONS = [
+    ("개별 화자", "individual"),
+    ("통합 그룹", "combined"),
 ]
 # =============================================================================
 # 10. Sentry 설정 (Error Tracking)
