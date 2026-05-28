@@ -41,9 +41,7 @@ _SETTINGS_CTRL_H = 30
 def _settings_field_label(text: str) -> QLabel:
     """설정 그리드 좌측 라벨 — 행 높이에 맞춰 수직 중앙 정렬."""
     lbl = QLabel(text)
-    lbl.setAlignment(
-        Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter
-    )
+    lbl.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
     return lbl
 
 
@@ -400,9 +398,7 @@ class MainUI(QMainWindow):
             QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Fixed
         )
         type_vbox.addWidget(self.lbl_plot_desc)
-        col2_inner.addWidget(
-            self.group_structure, 0, Qt.AlignmentFlag.AlignTop
-        )
+        col2_inner.addWidget(self.group_structure, 0, Qt.AlignmentFlag.AlignTop)
 
         self.group_scales = QGroupBox("AXIS SCALES")
         self.group_scales.setSizePolicy(
@@ -554,9 +550,7 @@ class MainUI(QMainWindow):
         dp_layout.setColumnStretch(1, 1)
         dp_layout.setColumnStretch(2, 1)
         dp_layout.setColumnStretch(3, 1)
-        col2_inner.addWidget(
-            self.group_data_processing, 0, Qt.AlignmentFlag.AlignTop
-        )
+        col2_inner.addWidget(self.group_data_processing, 0, Qt.AlignmentFlag.AlignTop)
 
         self._col2_panel = col2_container
         col2.addWidget(col2_container, 0, Qt.AlignmentFlag.AlignTop)

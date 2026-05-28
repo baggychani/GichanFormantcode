@@ -19,8 +19,6 @@ from core.compare_runtime import (
     apply_compare_render_to_popup,
     build_compare_series_inputs,
     get_compare_names,
-    label_data_for_series,
-    label_text_artists_for_series,
     make_compare_plot_key,
     merged_label_move_context,
     resolve_compare_session,
@@ -31,6 +29,7 @@ from ui.dialogs.file_guide import DataGuidePopup
 from ui.windows.popup_plot import PlotPopup
 from ui.widgets.display_utils import (
     apply_file_indicator_style,
+    default_combined_export_txt_basename,
     format_file_label,
     strip_gichan_prefix,
 )
@@ -41,7 +40,6 @@ from engine.plot_engine import PlotEngine, kor_font
 from tools.ruler import RulerTool
 from tools.label_move import LabelMoveTool
 from utils.math_utils import (
-    remove_outliers_mahalanobis,
     remove_outliers_tukey_iqr,
     remove_outliers_mahalanobis_scoped,
     lobanov_normalization,
@@ -218,7 +216,9 @@ class MainController:
             self.update_live_preview()
             return
 
-        def _apply_filtered_to_items_by_src(combined_filtered: "pd.DataFrame", orig_by_name: dict):
+        def _apply_filtered_to_items_by_src(
+            combined_filtered: "pd.DataFrame", orig_by_name: dict
+        ):
             """combined_filtered에 남은 (_src_name, _src_row)만 각 real item df에 반영."""
             if combined_filtered is None or combined_filtered.empty:
                 # 전부 제거된 경우: 각 파일은 빈 df
@@ -269,7 +269,11 @@ class MainController:
                 piece["_src_row"] = np.arange(len(df_o), dtype=int)
                 combined_pieces.append(piece)
 
-            df_combined = pd.concat(combined_pieces, ignore_index=True) if combined_pieces else pd.DataFrame()
+            df_combined = (
+                pd.concat(combined_pieces, ignore_index=True)
+                if combined_pieces
+                else pd.DataFrame()
+            )
 
             if outlier_mode == "tukey_iqr":
                 filtered_all, n_removed, _, meta = remove_outliers_tukey_iqr(
@@ -285,10 +289,16 @@ class MainController:
             _apply_filtered_to_items_by_src(filtered_all, orig_by_name)
 
             # 파일별 제거 수 집계(로그용)
-            if df_combined is not None and not df_combined.empty and filtered_all is not None:
+            if (
+                df_combined is not None
+                and not df_combined.empty
+                and filtered_all is not None
+            ):
                 before_counts = df_combined["_src_name"].value_counts().to_dict()
                 after_counts = (
-                    filtered_all["_src_name"].value_counts().to_dict() if not filtered_all.empty else {}
+                    filtered_all["_src_name"].value_counts().to_dict()
+                    if not filtered_all.empty
+                    else {}
                 )
                 for it in real_items:
                     name = it.get("name", "")
@@ -301,7 +311,9 @@ class MainController:
             groups_tested = (meta or {}).get("groups_tested") or set()
             if groups_too_small:
                 # Combined 스코프에서는 Label 단위 그룹이 N<5인 케이스
-                files_with_small_labels.append(("Combined(통합)", sorted(groups_too_small)))
+                files_with_small_labels.append(
+                    ("Combined(통합)", sorted(groups_too_small))
+                )
             if groups_tested:
                 any_label_tested = True
         else:
@@ -322,22 +334,30 @@ class MainController:
                     # 기본: 마할라노비스 2σ
                     df_tmp = df_orig.copy()
                     df_tmp["Speaker"] = item.get("name", "")
-                    filtered_df, n_removed, _, meta = remove_outliers_mahalanobis_scoped(
-                        df_tmp, plot_type, scope="individual"
+                    filtered_df, n_removed, _, meta = (
+                        remove_outliers_mahalanobis_scoped(
+                            df_tmp, plot_type, scope="individual"
+                        )
                     )
                     labels_too_small = (meta or {}).get("groups_too_small") or set()
                     labels_tested = (meta or {}).get("groups_tested") or set()
 
                 # Speaker 주입 컬럼은 개별 파일 df에는 필요 없으므로 제거
                 import pandas as pd
-                if isinstance(filtered_df, pd.DataFrame) and "Speaker" in filtered_df.columns:
+
+                if (
+                    isinstance(filtered_df, pd.DataFrame)
+                    and "Speaker" in filtered_df.columns
+                ):
                     filtered_df = filtered_df.drop(columns=["Speaker"], errors="ignore")
                 item["df"] = filtered_df
                 total_removed += n_removed
                 if n_removed > 0:
                     file_removed.append((item["name"], n_removed))
                 if labels_too_small:
-                    files_with_small_labels.append((item["name"], sorted(labels_too_small)))
+                    files_with_small_labels.append(
+                        (item["name"], sorted(labels_too_small))
+                    )
                 if labels_tested:
                     any_label_tested = True
 
@@ -1853,11 +1873,12 @@ class MainController:
         item, _ = self._get_plot_item_at(parent_window)
         if not item or not item.get("is_combined"):
             return "", ""
-        base = os.path.splitext(item["name"])[0]
-        if not base.lower().endswith(".txt"):
-            default_name = f"{base}.txt"
-        else:
-            default_name = base
+        sources = item.get("combined_source_names") or []
+        fallback = os.path.splitext(strip_gichan_prefix(item.get("name", "")))[0]
+        base = default_combined_export_txt_basename(
+            sources, fallback=fallback or "Combined"
+        )
+        default_name = f"{base}.txt"
         initial_dir = self._get_initial_save_dir()
         initial_path = (
             os.path.join(initial_dir, default_name) if initial_dir else default_name

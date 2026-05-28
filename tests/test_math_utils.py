@@ -124,7 +124,9 @@ class TestOutlierRemovalScoped(unittest.TestCase):
                 "Label": ["i", "i", "i", "i"],
             }
         )
-        out, removed, _, meta = remove_outliers_tukey_iqr(df, "f1_f2", scope="individual")
+        out, removed, _, meta = remove_outliers_tukey_iqr(
+            df, "f1_f2", scope="individual"
+        )
         self.assertEqual(len(out), len(df))
         self.assertEqual(removed, 0)
 
@@ -148,7 +150,9 @@ class TestOutlierRemovalScoped(unittest.TestCase):
                 "Label": ["i"] * 4,
             }
         )
-        out, removed, _, _ = remove_outliers_mahalanobis_scoped(df, "f1_f2", scope="individual")
+        out, removed, _, _ = remove_outliers_mahalanobis_scoped(
+            df, "f1_f2", scope="individual"
+        )
         self.assertEqual(len(out), len(df))
         self.assertEqual(removed, 0)
 

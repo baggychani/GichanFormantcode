@@ -1047,9 +1047,7 @@ class LayerDockWidget(QWidget):
 
         col_name = QFrame()
         col_name.setStyleSheet("border: none; background: transparent;")
-        col_name.setSizePolicy(
-            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed
-        )
+        col_name.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         col_name.setMinimumWidth(0)
         name_layout = QHBoxLayout(col_name)
         name_layout.setContentsMargins(8, 0, 4, 0)
@@ -1756,9 +1754,7 @@ class LayerDockWidget(QWidget):
         # 3. 레이어 이름 & 확장 (Name) 열
         col_name = QFrame()
         col_name.setStyleSheet("border: none; background: transparent;")
-        col_name.setSizePolicy(
-            QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed
-        )
+        col_name.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Fixed)
         col_name.setMinimumWidth(0)
         name_layout = QHBoxLayout(col_name)
         name_layout.setContentsMargins(8, 0, 4, 0)
@@ -2782,9 +2778,7 @@ class LayerDockWidget(QWidget):
         }
         return labels.get(key, key)
 
-    def _make_effect_property_row(
-        self, text: str, font: QFont, on_remove
-    ) -> QWidget:
+    def _make_effect_property_row(self, text: str, font: QFont, on_remove) -> QWidget:
         eff_row = QHBoxLayout()
         eff_row.setContentsMargins(0, 0, 0, 0)
         eff_row.setSpacing(4)
@@ -2882,9 +2876,7 @@ class LayerDockWidget(QWidget):
                     self.label_manager.notify_apply()
 
                 row.effects_layout.addWidget(
-                    self._make_effect_property_row(
-                        effect_text, font_effect, remove_key
-                    )
+                    self._make_effect_property_row(effect_text, font_effect, remove_key)
                 )
 
     def _rebuild_draw_effects(self):
@@ -3015,9 +3007,7 @@ class LayerDockWidget(QWidget):
                     self._remove_draw_effect_override(layer_id, effect_key)
 
                 row.effects_layout.addWidget(
-                    self._make_effect_property_row(
-                        line_text, font_effect, remove_key
-                    )
+                    self._make_effect_property_row(line_text, font_effect, remove_key)
                 )
 
     def _reset_layers_for_current_file(self):

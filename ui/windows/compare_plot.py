@@ -1851,9 +1851,7 @@ class ComparePlotPopup(BasePlotWindow):
         self.setFocus()
         self.controller.toggle_compare_label_move(self)
         if self.controller.label_move_tool:
-            self.update_compare_label_move_style(
-                self.controller.label_move_tool.active
-            )
+            self.update_compare_label_move_style(self.controller.label_move_tool.active)
 
     def update_compare_label_move_style(self, is_on):
         for ctrl in (self.design_tab.ctrl_blue, self.design_tab.ctrl_red):

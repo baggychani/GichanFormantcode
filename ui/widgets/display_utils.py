@@ -59,6 +59,23 @@ def format_combined_members_tooltip(names: list[str]) -> str:
     return f"포함 {len(lines)}명\n" + "\n".join(f"· {x}" for x in lines)
 
 
+def default_combined_export_txt_basename(
+    source_names: list[str], *, fallback: str = "Combined"
+) -> str:
+    """Combined txt 저장 기본 파일명(확장자 제외) — 첫 소스 파일명 + 외 N명."""
+    import re
+
+    cleaned = [_basename_no_ext(n) for n in source_names if n]
+    if not cleaned:
+        base = fallback
+    elif len(cleaned) == 1:
+        base = cleaned[0]
+    else:
+        base = f"{cleaned[0]}_외{len(cleaned) - 1}명"
+    safe = re.sub(r'[<>:"/\\|?*]', "_", base).strip()
+    return safe or fallback
+
+
 def compare_item_legend_display(
     item: dict | None,
 ) -> tuple[str, str, list[str] | None]:

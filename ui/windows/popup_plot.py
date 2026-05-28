@@ -669,36 +669,6 @@ class PlotPopup(BasePlotWindow):
         btn_h.addWidget(self.btn_next)
         nav_group.addLayout(btn_h)
 
-        self._combined_export_block = QWidget()
-        self.btn_export_combined_txt = QPushButton(
-            "Combined txt 저장", self._combined_export_block
-        )
-        self.btn_export_combined_txt.setFixedHeight(30)
-        font_export = QFont(self.ui_font_name, 8)
-        self.btn_export_combined_txt.setFont(font_export)
-        self.btn_export_combined_txt.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.btn_export_combined_txt.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-        self.btn_export_combined_txt.setToolTip(
-            "합쳐진 포먼트 데이터를 GichanFormant 입력 형식(.txt)으로 저장합니다."
-        )
-        self._combined_export_btn_style = """
-            QPushButton {
-                background-color: #FAFBFC;
-                border: 1px solid #E4E7ED;
-                border-radius: 4px;
-                color: #606266;
-                padding: 0 10px;
-            }
-            QPushButton:hover {
-                background-color: #F5F7FA;
-                color: #409EFF;
-                border-color: #DCDFE6;
-            }
-        """
-        self.btn_export_combined_txt.setStyleSheet(self._combined_export_btn_style)
-        self.btn_export_combined_txt.clicked.connect(self._on_export_combined_txt)
-        self._combined_export_block.hide()
-
         layout.addLayout(nav_group)
 
         self.line1 = QFrame()
@@ -998,22 +968,38 @@ class PlotPopup(BasePlotWindow):
 
         save_h = QHBoxLayout()
         save_h.setSpacing(4)
-        btn_jpg = QPushButton("JPG 저장")
-        btn_png = QPushButton("PNG 저장")
-        btn_svg = QPushButton("SVG 저장")
+        export_btn_style = """
+            QPushButton { background-color: white; border: 1px solid #C0C4CC; border-radius: 4px; }
+            QPushButton:hover { background-color: #F5F7FA; border: 1px solid #909399; }
+        """
+        self._btn_export_jpg = QPushButton("JPG 저장")
+        self._btn_export_png = QPushButton("PNG 저장")
+        self._btn_export_svg = QPushButton("SVG 저장")
+        self._btn_export_txt = QPushButton("TXT")
+        self._btn_export_txt.setToolTip(
+            "합쳐진 포먼트 데이터를 GichanFormant 입력 형식(.txt)으로 저장합니다."
+        )
+        self._btn_export_txt.clicked.connect(self._on_export_combined_txt)
+        self._btn_export_txt.hide()
 
-        for btn, fmt in zip([btn_jpg, btn_png, btn_svg], ["jpg", "png", "svg"]):
+        for btn, fmt in zip(
+            [self._btn_export_jpg, self._btn_export_png, self._btn_export_svg],
+            ["jpg", "png", "svg"],
+        ):
             btn.setFixedHeight(34)
             btn.setFont(QFont(self.ui_font_name, 8))
             btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-            btn.setStyleSheet("""
-                QPushButton { background-color: white; border: 1px solid #C0C4CC; border-radius: 4px; }
-                QPushButton:hover { background-color: #F5F7FA; border: 1px solid #909399; }
-            """)
+            btn.setStyleSheet(export_btn_style)
             btn.clicked.connect(
                 lambda checked, f=fmt: self._on_download_plot(checked, f)
             )
             save_h.addWidget(btn)
+
+        self._btn_export_txt.setFixedHeight(34)
+        self._btn_export_txt.setFont(QFont(self.ui_font_name, 8))
+        self._btn_export_txt.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        self._btn_export_txt.setStyleSheet(export_btn_style)
+        save_h.addWidget(self._btn_export_txt)
         export_group.addLayout(save_h)
 
         btn_batch = QPushButton("일괄 저장")
@@ -1055,8 +1041,17 @@ class PlotPopup(BasePlotWindow):
         self.setWindowTitle(base)
 
     def _update_combined_txt_export_visibility(self, data_item=None):
-        """Combined txt 저장 UI는 재배치 전까지 숨김. 기능(_on_export_combined_txt)은 유지."""
-        pass
+        """Combined 항목: JPG|PNG|SVG|TXT(4열). 그 외: JPG·PNG·SVG 저장(3열)."""
+        is_combined = bool(data_item and data_item.get("is_combined"))
+        long_labels = ("JPG 저장", "PNG 저장", "SVG 저장")
+        short_labels = ("JPG", "PNG", "SVG")
+        labels = short_labels if is_combined else long_labels
+        for btn, text in zip(
+            (self._btn_export_jpg, self._btn_export_png, self._btn_export_svg),
+            labels,
+        ):
+            btn.setText(text)
+        self._btn_export_txt.setVisible(is_combined)
 
     def _on_export_combined_txt(self):
         self.controller.prompt_save_combined_txt(parent_window=self, parent_widget=self)

@@ -131,11 +131,7 @@ def _lobanov_zscore_series(series: pd.Series) -> pd.Series | float:
     """단일 화자(또는 그룹) 토큰에 대한 Lobanov Z-score."""
     mu = series.mean()
     sigma = series.std()
-    if (
-        pd.isna(sigma)
-        or sigma is None
-        or (hasattr(sigma, "__float__") and sigma == 0)
-    ):
+    if pd.isna(sigma) or sigma is None or (hasattr(sigma, "__float__") and sigma == 0):
         return 0.0
     return (series - mu) / sigma
 
@@ -400,10 +396,18 @@ def _pick_group_columns_for_outlier_scope(df: pd.DataFrame, scope: str):
     - scope='combined': 화자 구분 무시 → 모음 라벨만 기준
     - scope='individual': 화자+모음 기준. 단, 화자 컬럼이 없으면(단일 파일 df 등) 모음 라벨만 사용.
     """
-    label_col = "Label" if "Label" in df.columns else ("label" if "label" in df.columns else None)
+    label_col = (
+        "Label"
+        if "Label" in df.columns
+        else ("label" if "label" in df.columns else None)
+    )
     if label_col is None:
         return None, None, None
-    speaker_col = "Speaker" if "Speaker" in df.columns else ("speaker" if "speaker" in df.columns else None)
+    speaker_col = (
+        "Speaker"
+        if "Speaker" in df.columns
+        else ("speaker" if "speaker" in df.columns else None)
+    )
     if scope == "combined":
         return [label_col], label_col, speaker_col
     if speaker_col:
@@ -438,7 +442,9 @@ def remove_outliers_tukey_iqr(df, plot_type, *, scope: str = "individual"):
     if xy_df is None or y_col is None or x_col is None:
         return df.copy(), 0, {}, {"groups_too_small": set(), "groups_tested": set()}
 
-    group_cols, label_col, speaker_col = _pick_group_columns_for_outlier_scope(df_work, scope)
+    group_cols, label_col, speaker_col = _pick_group_columns_for_outlier_scope(
+        df_work, scope
+    )
     if group_cols is None:
         return df.copy(), 0, {}, {"groups_too_small": set(), "groups_tested": set()}
 
@@ -465,7 +471,12 @@ def remove_outliers_tukey_iqr(df, plot_type, *, scope: str = "individual"):
         groups_tested.add(str(gkey))
         lb_y, ub_y = _iqr_bounds(group[y_col])
         lb_x, ub_x = _iqr_bounds(group[x_col])
-        valid = (group[y_col] >= lb_y) & (group[y_col] <= ub_y) & (group[x_col] >= lb_x) & (group[x_col] <= ub_x)
+        valid = (
+            (group[y_col] >= lb_y)
+            & (group[y_col] <= ub_y)
+            & (group[x_col] >= lb_x)
+            & (group[x_col] <= ub_x)
+        )
         remove_in_group = ~valid
         n_removed = int(remove_in_group.sum())
         if n_removed > 0:
@@ -502,7 +513,9 @@ def remove_outliers_mahalanobis_scoped(df, plot_type, *, scope: str = "individua
     if xy_df is None or y_col is None or x_col is None:
         return df.copy(), 0, {}, {"groups_too_small": set(), "groups_tested": set()}
 
-    group_cols, label_col, speaker_col = _pick_group_columns_for_outlier_scope(df_work, scope)
+    group_cols, label_col, speaker_col = _pick_group_columns_for_outlier_scope(
+        df_work, scope
+    )
     if group_cols is None:
         return df.copy(), 0, {}, {"groups_too_small": set(), "groups_tested": set()}
 
@@ -559,9 +572,18 @@ def remove_outliers_tukey_iqr_auto(df, plot_type, *, speaker_col: str = "Speaker
     df는 최소한 speaker_col과 라벨 컬럼(Label/label)을 포함해야 한다.
     """
     if df is None or df.empty:
-        return df.copy() if df is not None else df, 0, {}, {"groups_too_small": set(), "groups_tested": set()}
+        return (
+            df.copy() if df is not None else df,
+            0,
+            {},
+            {"groups_too_small": set(), "groups_tested": set()},
+        )
 
-    label_col = "Label" if "Label" in df.columns else ("label" if "label" in df.columns else None)
+    label_col = (
+        "Label"
+        if "Label" in df.columns
+        else ("label" if "label" in df.columns else None)
+    )
     if label_col is None or speaker_col not in df.columns:
         # speaker 정보가 없으면 individual과 구분 불가 → 일반 individual로 처리
         return remove_outliers_tukey_iqr(df, plot_type, scope="individual")
@@ -614,7 +636,6 @@ def remove_outliers_tukey_iqr_auto(df, plot_type, *, speaker_col: str = "Speaker
 
     for key, g in xy_df.groupby([speaker_col, label_col], sort=False):
         spk, v = key
-        n = len(g)
         # 1) 충분하면 individual 통계
         bounds = indiv_bounds.get(key)
         # 2) 부족하면 pooled 통계(가능하면)
@@ -629,7 +650,12 @@ def remove_outliers_tukey_iqr_auto(df, plot_type, *, speaker_col: str = "Speaker
         groups_tested.add(str(key))
         (lb_y, ub_y) = bounds["y"]
         (lb_x, ub_x) = bounds["x"]
-        valid = (g[y_col] >= lb_y) & (g[y_col] <= ub_y) & (g[x_col] >= lb_x) & (g[x_col] <= ub_x)
+        valid = (
+            (g[y_col] >= lb_y)
+            & (g[y_col] <= ub_y)
+            & (g[x_col] >= lb_x)
+            & (g[x_col] <= ub_x)
+        )
         removed = int((~valid).sum())
         if removed:
             per_group_removed[key] = removed
@@ -650,9 +676,18 @@ def remove_outliers_mahalanobis_auto(df, plot_type, *, speaker_col: str = "Speak
     - pooled도 N<5이면 bypass
     """
     if df is None or df.empty:
-        return df.copy() if df is not None else df, 0, {}, {"groups_too_small": set(), "groups_tested": set()}
+        return (
+            df.copy() if df is not None else df,
+            0,
+            {},
+            {"groups_too_small": set(), "groups_tested": set()},
+        )
 
-    label_col = "Label" if "Label" in df.columns else ("label" if "label" in df.columns else None)
+    label_col = (
+        "Label"
+        if "Label" in df.columns
+        else ("label" if "label" in df.columns else None)
+    )
     if label_col is None or speaker_col not in df.columns:
         return remove_outliers_mahalanobis_scoped(df, plot_type, scope="individual")
 

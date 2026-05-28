@@ -2,6 +2,7 @@
 
 from ui.widgets.display_utils import (
     compare_item_legend_display,
+    default_combined_export_txt_basename,
     format_combined_group_short_label,
     format_combined_members_tooltip,
 )
@@ -37,3 +38,17 @@ def test_compare_item_legend_display_combined():
     assert short == "x 외 1명"
     assert "포함 2명" in tip
     assert members == ["x.txt", "y.txt"]
+
+
+def test_default_combined_export_txt_basename():
+    names = [
+        "GichanFormant_박성진_Short.txt",
+        "GichanFormant_김철수_Short.txt",
+    ]
+    assert default_combined_export_txt_basename(names) == "박성진_Short_외1명"
+
+
+def test_default_combined_export_txt_basename_three_sources():
+    assert (
+        default_combined_export_txt_basename(["a.txt", "b.txt", "c.txt"]) == "a_외2명"
+    )
