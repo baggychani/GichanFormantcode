@@ -247,9 +247,13 @@ class MainUI(QMainWindow):
         preview_group = getattr(self, "preview_group", None)
         if panel is None or data_group is None or preview_group is None:
             return
-        ref_h = panel.sizeHint().height()
-        if ref_h <= 0:
-            ref_h = panel.minimumSizeHint().height()
+        ref_h = 0
+        try:
+            ref_h = panel.sizeHint().height()
+            if ref_h <= 0:
+                ref_h = panel.minimumSizeHint().height()
+        except Exception:
+            return
         if ref_h <= 0:
             return
         data_group.setFixedHeight(ref_h)
@@ -616,7 +620,6 @@ class MainUI(QMainWindow):
         workspace_layout.addLayout(col3, stretch=32)
 
         self.main_v_layout.addLayout(workspace_layout)
-        QTimer.singleShot(0, self._sync_workspace_column_heights)
 
     def _build_bottom_log(self):
         log_group = QGroupBox("SYSTEM LOG")
