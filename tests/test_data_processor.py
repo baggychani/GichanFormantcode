@@ -9,7 +9,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import unittest
 import pandas as pd
 import config
-from model.data_processor import DataProcessor
+from model.data_processor import DataProcessor, is_lobanov_file_header
 
 
 class TestParseFixedColumns(unittest.TestCase):
@@ -146,6 +146,22 @@ class TestParseFixedColumns(unittest.TestCase):
         result_df, error, _ = self.processor._parse_fixed_columns(df)
         self.assertIsNone(error)
         self.assertListEqual(result_df["Label"].tolist(), ["o", "u"])
+
+    def test_lobanov_mode_skips_hz_f1_less_than_f2(self):
+        """Lobanov z: F1 > F2(음수 F2) 허용."""
+        df = pd.DataFrame(
+            {0: [2.6, 1.9], 1: [-0.12, -0.52], 2: ["/a/", "/i/"]}
+        )
+        result_df, error, _ = self.processor._parse_fixed_columns(
+            df, lobanov_mode=True
+        )
+        self.assertIsNone(error)
+        self.assertEqual(len(result_df), 2)
+
+    def test_is_lobanov_file_header(self):
+        self.assertTrue(is_lobanov_file_header("Lobanov"))
+        self.assertTrue(is_lobanov_file_header("  lobanov  "))
+        self.assertFalse(is_lobanov_file_header("F1"))
 
     def test_skip_placeholder_column_before_label(self):
         """// placeholder 열을 건너뛰고 라벨 인식."""

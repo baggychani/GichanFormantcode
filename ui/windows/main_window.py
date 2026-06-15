@@ -893,6 +893,8 @@ class MainUI(QMainWindow):
         """정규화 방법: None | 'Lobanov' (1단계)"""
         if not hasattr(self, "cb_normalization"):
             return None
+        if getattr(self, "_pre_lobanov_locked", False):
+            return "Lobanov"
         if not self.cb_normalization.isEnabled():
             return None
         idx = self.cb_normalization.currentIndex()
@@ -900,6 +902,32 @@ class MainUI(QMainWindow):
             return None
         val = self.cb_normalization.currentData()
         return val if val else None
+
+    def sync_pre_lobanov_normalization(self, active: bool):
+        """Lobanov 헤더 파일만 로드된 경우 정규화 콤보를 Lobanov로 고정."""
+        if not hasattr(self, "cb_normalization"):
+            return
+        self._pre_lobanov_locked = bool(active)
+        self.cb_normalization.blockSignals(True)
+        if active:
+            for i in range(self.cb_normalization.count()):
+                if self.cb_normalization.itemData(i) == "Lobanov":
+                    self.cb_normalization.setCurrentIndex(i)
+                    break
+            self.cb_normalization.setEnabled(False)
+            self._set_norm_mode_active(True)
+        else:
+            self._pre_lobanov_locked = False
+            ptype = self.get_plot_type()
+            unsupported = ptype in ("f1_f2_minus_f1", "f1_f2_prime_minus_f1")
+            has_files = self.controller.get_plot_data_count() > 0
+            self.cb_normalization.setEnabled(has_files and not unsupported)
+            if not has_files:
+                self.cb_normalization.setCurrentIndex(0)
+            self._set_norm_mode_active(bool(self.get_normalization()))
+        self.cb_normalization.blockSignals(False)
+        if active:
+            app_logger.info(config.LOG_MSG["NORM_ON"].format(method="Lobanov"))
 
     def _set_norm_mode_active(self, active: bool):
         """정규화 선택 시 Hz/Bark·스케일 설정은 무의미하므로 AXIS SCALES 잠금."""
@@ -909,6 +937,9 @@ class MainUI(QMainWindow):
     def _update_normalization_combo_for_plot_type(self):
         """파생 플롯 타입에서는 정규화 불가 (compare와 동일)."""
         if not hasattr(self, "cb_normalization"):
+            return
+        if getattr(self, "_pre_lobanov_locked", False):
+            self.sync_pre_lobanov_normalization(True)
             return
         ptype = self.get_plot_type()
         unsupported = ptype in ("f1_f2_minus_f1", "f1_f2_prime_minus_f1")
@@ -981,6 +1012,7 @@ class MainUI(QMainWindow):
             for b in self.outlier_scope_group.buttons():
                 b.setChecked(False)
         self._update_outlier_scope_ui()
+        self._pre_lobanov_locked = False
         if hasattr(self, "cb_normalization"):
             self.cb_normalization.blockSignals(True)
             self.cb_normalization.setCurrentIndex(0)

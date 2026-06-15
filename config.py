@@ -282,6 +282,11 @@ PARSE_ERR_F1_F2_INVALID = (
     "F1/F2가 모두 숫자가 아니거나 F1 < F2 조건을 만족하지 않습니다."
 )
 PARSE_ERR_EMPTY_RESULT = "데이터 파싱 결과가 비어 있습니다."
+PARSE_ERR_LOBANOV_MIXED = (
+    "Lobanov 형식 파일은 Hz 형식 파일과 함께 로드할 수 없습니다. "
+    "모든 파일의 첫 줄이 Lobanov이거나, 모두 일반 Hz 데이터여야 합니다."
+)
+LOBANOV_FILE_HEADER = "Lobanov"
 
 
 # =============================================================================
@@ -300,6 +305,10 @@ LOG_MSG = {
     "OUTLIER_OFF": "[INFO] 이상치 제거가 해제되었습니다.",
     "NORM_OFF": "[INFO] 정규화가 해제되었습니다.",
     "NORM_ON": "[INFO] 정규화가 적용되었습니다: {method}",
+    "LOBANOV_FILE_DETECTED": (
+        "[INFO] Lobanov 입력 파일이 감지되었습니다. "
+        "정규화가 Lobanov로 고정되었으며, 값은 재정규화하지 않습니다."
+    ),
     "OUTLIER_REMOVED_SUMMARY": "총 {file_count}개 파일에서 {total_removed}개의 데이터 포인트가 이상치로 제거되었습니다.{detail}",
     "OUTLIER_NOT_REMOVED_MIN_LABELS": "[INFO] 이상치 제거가 수행되지 않았습니다. "
     "모음별 최소 5개 데이터가 있어야 이상치 제거가 가능합니다. (데이터 수 부족 라벨 예시: {detail})",
@@ -341,6 +350,14 @@ LOG_MSG = {
     "PLOT_OPEN_FAIL": "[오류] 다중 플롯 창 생성 실패: {e}",
     "PLOT_APPLY_FAIL": "[오류] 플롯 갱신 실패: {e}",
 }
+
+# =============================================================================
+# 8b. 플롯 폰트 (포스터 STIX 우선 / 롤백)
+# =============================================================================
+# True: poster/poster.css 와 동일 계열 — IPA·축·라틴에 STIX Two Text 우선.
+# False: 기존 Noto Serif KR + Charis SIL 우선 (이전 동작).
+# 기존 스택 정의는 utils/font_stacks.py FONT_LEGACY_* 에 그대로 둠.
+USE_POSTER_FONT_STACK = True
 
 # =============================================================================
 # 9. UI 옵션 리스트 (콤보박스/라디오 버튼용)

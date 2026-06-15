@@ -66,12 +66,15 @@ def build_combined_entry(real_items: list[dict]) -> Optional[dict]:
     # UI 표시는 strip_gichan_prefix()로 display 문자열만 보여 준다.
     name = f"GichanFormant_{display}"
 
+    is_pre_lobanov = all(bool(it.get("is_pre_lobanov")) for it in real_items)
+
     return {
         "name": name,
         "df": df_combined,
         "df_original": df_orig_combined,
         "has_f3": has_f3,
         "is_combined": True,
+        "is_pre_lobanov": is_pre_lobanov,
         "combined_source_names": [it.get("name", "") for it in real_items],
     }
 
@@ -94,5 +97,6 @@ def build_compare_group_entry(real_items: list[dict]) -> Optional[dict]:
             "df_original": df_orig,
             "has_f3": bool(it.get("has_f3", False)),
             "is_combined": False,
+            "is_pre_lobanov": bool(it.get("is_pre_lobanov", False)),
         }
     return build_combined_entry(real_items)

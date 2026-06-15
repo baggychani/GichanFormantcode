@@ -57,6 +57,9 @@ class TestMainController(unittest.TestCase):
 
         # None일 경우 원본 복사본 반환
         res = self.controller._apply_normalization(df, None)
+        # pre-Lobanov: 재정규화 생략
+        out = self.controller._apply_normalization(df, "Lobanov", is_pre_lobanov=True)
+        pd.testing.assert_frame_equal(out, df)
         pd.testing.assert_frame_equal(res, df)
 
     def test_get_main_ui_plot_params_includes_normalization(self):

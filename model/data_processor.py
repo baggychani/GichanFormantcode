@@ -18,13 +18,18 @@ _FORMANT_NUMERIC_RATIO_MIN = 0.9
 _SKIP_COLUMN_TOKENS = frozenset({"", "//", "[]", "-", "—"})
 
 
-def _read_csv_with_encoding(path):
+def _read_csv_with_encoding(path, *, skiprows: int = 0):
     """여러 인코딩을 순서대로 시도하여 CSV/텍스트 파일을 읽는다. 성공 시 DataFrame 반환."""
     last_err = None
     for enc in ENCODINGS:
         try:
             return pd.read_csv(
-                path, sep=None, engine="python", header=None, encoding=enc
+                path,
+                sep=None,
+                engine="python",
+                header=None,
+                encoding=enc,
+                skiprows=skiprows,
             )
         except (UnicodeDecodeError, UnicodeError) as e:
             last_err = e
@@ -32,6 +37,41 @@ def _read_csv_with_encoding(path):
     if last_err is not None:
         raise last_err
     raise ValueError("파일을 읽을 수 있는 인코딩을 찾지 못했습니다.")
+
+
+def _peek_first_line(path: str) -> str:
+    """텍스트 파일 첫 줄(인코딩 자동 감지). 읽기 실패 시 빈 문자열."""
+    last_err = None
+    for enc in ENCODINGS:
+        try:
+            with open(path, encoding=enc) as f:
+                return f.readline().strip()
+        except (UnicodeDecodeError, UnicodeError, OSError) as e:
+            last_err = e
+            continue
+    if last_err is not None:
+        app_logger.debug(f"[DataProcessor] 첫 줄 읽기 실패 ({path}): {last_err}")
+    return ""
+
+
+def is_lobanov_file_header(line: str) -> bool:
+    """첫 줄이 Lobanov(대소문자 무시)이면 True."""
+    return (line or "").strip().lower() == config.LOBANOV_FILE_HEADER.lower()
+
+
+def _lobanov_header_on_excel_first_row(df: pd.DataFrame) -> bool:
+    if df is None or df.empty:
+        return False
+    first = _normalize_cell_strings(df.iloc[:, 0]).iloc[0]
+    return is_lobanov_file_header(str(first))
+
+
+def _strip_lobanov_header_row(df: pd.DataFrame) -> pd.DataFrame:
+    if df is None or df.empty:
+        return df
+    if _lobanov_header_on_excel_first_row(df):
+        return df.iloc[1:].reset_index(drop=True)
+    return df
 
 
 def _normalize_cell_strings(col_data: pd.Series) -> pd.Series:
@@ -136,6 +176,8 @@ class DataProcessor:
         self.has_f3 = False
         # 파일별 조건 미충족 행(라벨별 누락) 정보: load_files 호출마다 갱신
         self.row_drops = []
+        # 마지막 load_files에서 단일 파일이 Lobanov 헤더 형식이었는지
+        self.is_pre_lobanov = False
 
     def load_files(self, filepaths):
         """
@@ -148,19 +190,30 @@ class DataProcessor:
         dfs = []
         errors = []
         self.row_drops = []
+        self.is_pre_lobanov = False
 
         for path in filepaths:
             try:
                 # 확장자에 따른 파일 읽기 방식 분기
                 ext = os.path.splitext(path)[1].lower()
+                lobanov_mode = False
                 if ext in [".xls", ".xlsx"]:
                     temp_df = pd.read_excel(path, header=None)
+                    lobanov_mode = _lobanov_header_on_excel_first_row(temp_df)
+                    if lobanov_mode:
+                        temp_df = _strip_lobanov_header_row(temp_df)
                 else:
-                    temp_df = _read_csv_with_encoding(path)
+                    first_line = _peek_first_line(path)
+                    lobanov_mode = is_lobanov_file_header(first_line)
+                    skip = 1 if lobanov_mode else 0
+                    temp_df = _read_csv_with_encoding(path, skiprows=skip)
+
+                if len(filepaths) == 1:
+                    self.is_pre_lobanov = lobanov_mode
 
                 # 개별 파일 전처리 (실패 시 구체적 사유 반환)
                 processed_df, parse_error, drop_report = self._parse_fixed_columns(
-                    temp_df
+                    temp_df, lobanov_mode=lobanov_mode
                 )
 
                 if parse_error:
@@ -197,12 +250,13 @@ class DataProcessor:
         else:
             return False, False, errors
 
-    def _parse_fixed_columns(self, df):
+    def _parse_fixed_columns(self, df, *, lobanov_mode: bool = False):
         """
         데이터프레임의 열을 분석하여 포먼트 및 라벨을 추출합니다.
         - Col 0: F1, Col 1: F2 (필수)
         - Col 2~: F3/F4 후보 → placeholder 건너뜀 → 첫 라벨 열
         - 라벨 뒤 추가 열은 무시 (PlotFormant trailing metadata 등)
+        - lobanov_mode: 첫 줄 Lobanov 헤더로 읽은 z-score — Hz F1<F2 검증 생략
         반환: (결과 DataFrame 또는 None, 실패 시 오류 메시지 또는 None, 제거된 행 리포트 또는 None)
         """
         # 분석에 필요한 최소 열 개수 검증
@@ -216,12 +270,21 @@ class DataProcessor:
         f1_numeric = pd.to_numeric(f1_col, errors="coerce")
         f2_numeric = pd.to_numeric(f2_col, errors="coerce")
 
-        # 문자열 헤더 제거 및 F1 < F2 물리적 검증 (음성학적 예외 데이터 차단)
-        valid_idx = f1_numeric.notna() & f2_numeric.notna() & (f1_numeric < f2_numeric)
+        # Hz: F1 < F2 물리 검증. Lobanov z: 유한 숫자만 요구
+        if lobanov_mode:
+            valid_idx = f1_numeric.notna() & f2_numeric.notna()
+            invalid_msg = (
+                "F1/F2가 모두 숫자가 아닙니다. (Lobanov z-score 형식)"
+            )
+        else:
+            valid_idx = (
+                f1_numeric.notna() & f2_numeric.notna() & (f1_numeric < f2_numeric)
+            )
+            invalid_msg = config.PARSE_ERR_F1_F2_INVALID
         df = df[valid_idx].copy()
 
         if df.empty:
-            return None, config.PARSE_ERR_F1_F2_INVALID, None
+            return None, invalid_msg, None
 
         # 2. 결과 데이터프레임 초기화
         final_df = pd.DataFrame()
@@ -252,7 +315,7 @@ class DataProcessor:
         # F3가 유효한 행(>0, >F2)만 F3 조건 적용; F3=NaN(측정 없음) 행은 F1·F2만 검사.
         # ------------------------------------------------------------------
         drop_report = None
-        if not final_df.empty:
+        if not final_df.empty and not lobanov_mode:
             base_ok = (final_df["F1"] > 0) & (final_df["F2"] > final_df["F1"])
 
             if "F3" in final_df.columns:
@@ -264,6 +327,12 @@ class DataProcessor:
             else:
                 cond = base_ok
 
+            invalid_rows = final_df[~cond]
+            if not invalid_rows.empty:
+                drop_report = invalid_rows["Label"].value_counts().to_dict()
+            final_df = final_df[cond]
+        elif not final_df.empty and lobanov_mode:
+            cond = final_df["F1"].notna() & final_df["F2"].notna()
             invalid_rows = final_df[~cond]
             if not invalid_rows.empty:
                 drop_report = invalid_rows["Label"].value_counts().to_dict()

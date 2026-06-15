@@ -28,6 +28,7 @@ from utils.math_utils import (
     calc_f2_prime,
     filter_for_plot_type,
 )
+from utils.font_stacks import axis_font_list, label_font_family
 
 
 # assets/fonts에 있는 폰트 등록 (Noto Serif KR Medium 등)
@@ -118,9 +119,7 @@ class PlotEngine:
     @staticmethod
     def _get_axis_font_list(font_style):
         """축/틱 라벨용 폰트 패밀리 리스트. rcParams를 건드리지 않고 객체에 주입할 때 사용."""
-        if font_style == "serif":
-            return ["Noto Serif KR", "Charis SIL", "DejaVu Serif"]
-        return ["Noto Sans KR", "Andika", "DejaVu Sans"]
+        return axis_font_list(font_style)
 
     @staticmethod
     def _is_korean(text):
@@ -139,11 +138,8 @@ class PlotEngine:
         return False
 
     def _label_font_family(self, label_text, font_style):
-        """라벨 문자에 따라 한글이면 Noto, 아니면 IPA용 폰트(Charis/Andika) 반환. (fontfamily_list, serif_normal_use_medium)."""
-        is_serif = font_style == "serif"
-        if self._is_korean(label_text):
-            return (["Noto Serif KR"] if is_serif else ["Noto Sans KR"], is_serif)
-        return (["Charis SIL"] if is_serif else ["Andika"], False)
+        """라벨 문자에 따라 폰트 스택 반환. (fontfamily_list, serif_normal_use_medium)."""
+        return label_font_family(label_text, font_style)
 
     @staticmethod
     def _resolve_plot_color(color, fallback="#606060"):
@@ -2028,6 +2024,7 @@ class PlotEngine:
                     )
                 mean_x, mean_y = x.mean(), y.mean()
                 if show_centroid:
+                    mean_alpha = 0.2 if is_semi else 1.0
                     z_offset = -10 if is_semi else 0
                     mpl_marker, face_c, edge_c, lw, m_size = (
                         self._resolve_centroid_marker(
@@ -2042,6 +2039,7 @@ class PlotEngine:
                         marker=mpl_marker,
                         edgecolors=edge_c,
                         linewidths=lw,
+                        alpha=mean_alpha,
                         zorder=3 + z_offset,
                         clip_on=False,
                     )

@@ -18,6 +18,7 @@ from PySide6.QtWidgets import (
     QSizePolicy,
     QApplication,
     QSplitter,
+    QLabel,
 )
 from PySide6.QtCore import (
     Qt,
@@ -28,7 +29,7 @@ from PySide6.QtCore import (
     QEasingCurve,
     QTimer,
 )
-from PySide6.QtGui import QFont
+from PySide6.QtGui import QFont, QCursor
 
 import config
 from utils import app_logger
@@ -46,6 +47,7 @@ from ui.widgets.layer_logic import (
 )
 from ui.widgets.design_panel import (
     ColorPalette,
+    NoWheelComboBox,
     _field_group,
     _wrap_marker_shape_bar,
     _ell_fill_has_color,
@@ -372,6 +374,56 @@ class LayerDockWidget(QWidget):
         color_layout.addWidget(self.lbl_color_picker)
         label_body.addLayout(color_layout)
 
+        font_block = _field_group("폰트", font_normal)
+        font_style_layout = QHBoxLayout()
+        font_style_layout.setSpacing(6)
+
+        self.combo_lbl_size = NoWheelComboBox()
+        self.combo_lbl_size.setStyleSheet(
+            "QComboBox { padding: 2px 4px; border: 1px solid #DCDFE6; border-radius: 3px; }"
+        )
+        self.combo_lbl_size.addItems(["14", "16", "18", "20", "22", "24"])
+        self.combo_lbl_size.setCurrentText("20")
+        self.combo_lbl_size.setFixedWidth(55)
+        self.combo_lbl_size.setMaxVisibleItems(8)
+        font_style_layout.addWidget(self.combo_lbl_size)
+        font_style_layout.addWidget(QLabel("pt", font=font_normal))
+        font_style_layout.addSpacing(10)
+
+        toolbar_style = """
+            QPushButton { background-color: transparent; border: 1px solid transparent; border-radius: 4px; color: #333333; }
+            QPushButton:hover { background-color: #E4E7ED; }
+            QPushButton:checked { background-color: #DCDFE6; border: 1px solid #C0C4CC; }
+        """
+        self.btn_lbl_bold = QPushButton("B")
+        self.btn_lbl_bold.setCheckable(True)
+        self.btn_lbl_bold.setChecked(True)
+        self.btn_lbl_bold.setFixedSize(26, 26)
+        self.btn_lbl_bold.setFont(QFont("Arial", 10, QFont.Weight.Bold))
+        self.btn_lbl_bold.setStyleSheet(toolbar_style)
+        self.btn_lbl_bold.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
+        self.btn_lbl_bold.setToolTip("굵게 (Bold)")
+
+        self.btn_lbl_italic = QPushButton("I")
+        self.btn_lbl_italic.setCheckable(True)
+        self.btn_lbl_italic.setFixedSize(26, 26)
+        font_i = QFont("Times New Roman", 10)
+        font_i.setItalic(True)
+        self.btn_lbl_italic.setFont(font_i)
+        self.btn_lbl_italic.setStyleSheet(toolbar_style)
+        self.btn_lbl_italic.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
+        self.btn_lbl_italic.setToolTip("기울임 (Italic)")
+
+        font_style_layout.addWidget(self.btn_lbl_bold, 1)
+        font_style_layout.addWidget(self.btn_lbl_italic, 1)
+        font_toolbar = QFrame()
+        font_toolbar.setStyleSheet(
+            "QFrame { background-color: #F5F7FA; border: 1px solid #EBEEF5; border-radius: 4px; }"
+        )
+        font_toolbar.setLayout(font_style_layout)
+        font_block.addWidget(font_toolbar)
+        label_body.addLayout(font_block)
+
         centroid_layout = _field_group("모음 중심점 모양", font_normal)
         self.group_centroid_marker = QButtonGroup(self.vowel_design_container)
         centroid_btns = []
@@ -638,6 +690,15 @@ class LayerDockWidget(QWidget):
 
         self.lbl_color_picker.color_changed.connect(
             make_apply("lbl_color", lambda: self.lbl_color_picker.current_color)
+        )
+        self.combo_lbl_size.currentTextChanged.connect(
+            make_apply("lbl_size", lambda: int(self.combo_lbl_size.currentText()))
+        )
+        self.btn_lbl_bold.toggled.connect(
+            make_apply("lbl_bold", lambda: self.btn_lbl_bold.isChecked())
+        )
+        self.btn_lbl_italic.toggled.connect(
+            make_apply("lbl_italic", lambda: self.btn_lbl_italic.isChecked())
         )
         self.ell_color_picker.color_changed.connect(
             make_apply(
@@ -2694,6 +2755,14 @@ class LayerDockWidget(QWidget):
                 self.lbl_color_picker.set_color(
                     o.get("lbl_color", ds.get("lbl_color", config.COLOR_PRIMARY_RED))
                 )
+                lbl_size = o.get("lbl_size", ds.get("lbl_size", 16))
+                self.combo_lbl_size.setCurrentText(str(int(lbl_size)))
+                self.btn_lbl_bold.setChecked(
+                    bool(o.get("lbl_bold", ds.get("lbl_bold", True)))
+                )
+                self.btn_lbl_italic.setChecked(
+                    bool(o.get("lbl_italic", ds.get("lbl_italic", False)))
+                )
                 idx = MARKER_IDS.get(
                     o.get("centroid_marker", ds.get("centroid_marker", "o")), 0
                 )
@@ -2734,6 +2803,9 @@ class LayerDockWidget(QWidget):
                 self.lbl_color_picker.set_color(
                     ds.get("lbl_color", config.COLOR_PRIMARY_RED)
                 )
+                self.combo_lbl_size.setCurrentText(str(int(ds.get("lbl_size", 16))))
+                self.btn_lbl_bold.setChecked(bool(ds.get("lbl_bold", True)))
+                self.btn_lbl_italic.setChecked(bool(ds.get("lbl_italic", False)))
                 self.group_centroid_marker.button(0).setChecked(True)
                 self.group_ell_thick.button(1).setChecked(True)
                 self.group_ell_style.button(2).setChecked(True)
@@ -2753,6 +2825,12 @@ class LayerDockWidget(QWidget):
             return ""
         if key == "lbl_color":
             return _format_color_display(value)
+        if key == "lbl_size":
+            return f"{int(value)}pt"
+        if key == "lbl_bold":
+            return "굵게" if value else "보통"
+        if key == "lbl_italic":
+            return "기울임" if value else "보통"
         if key == "centroid_marker":
             return MARKER_LABELS.get(value, str(value))
         if key == "ell_thick":
@@ -2768,6 +2846,9 @@ class LayerDockWidget(QWidget):
     def _effect_label(self, key):
         labels = {
             "lbl_color": "라벨 색",
+            "lbl_size": "라벨 크기",
+            "lbl_bold": "라벨 굵기",
+            "lbl_italic": "라벨 기울임",
             "centroid_marker": "중심점 모양",
             "ell_thick": "타원 선 두께",
             "ell_style": "타원 선 모양",
@@ -2825,6 +2906,9 @@ class LayerDockWidget(QWidget):
             first = True
             for key in [
                 "lbl_color",
+                "lbl_size",
+                "lbl_bold",
+                "lbl_italic",
                 "centroid_marker",
                 "ell_thick",
                 "ell_style",

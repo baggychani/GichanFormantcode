@@ -384,14 +384,18 @@ class MainController:
                     traceback.print_exc()
                     app_logger.error(config.LOG_MSG["PLOT_REFRESH_ERROR"].format(e=e))
 
-    def _apply_normalization(self, df, norm_name):
+    def _apply_normalization(self, df, norm_name, *, is_pre_lobanov: bool = False):
         """Raw Hz DataFrame에 정규화 적용.
+
+        is_pre_lobanov: 파일 첫 줄 Lobanov 헤더로 이미 z-score인 데이터 — Lobanov 선택 시 재적용 생략.
 
         W&F(2mW/F)는 코너 모음 'i', 'a' 식별을 위해 라벨을 음성학 코드(Vowel)로 매핑한 뒤 호출합니다.
         한글 라벨(ㅏ, ㅣ 등)도 매핑되어 W&F가 무동작이 되는 사일런트 실패를 방지합니다.
         매핑 후에도 'i' 또는 'a' 토큰이 없으면 경고 로그를 남깁니다(W&F는 적용 불가).
         """
         if not norm_name or df.empty:
+            return df.copy()
+        if is_pre_lobanov and norm_name == "Lobanov":
             return df.copy()
         df = df.copy()
         label_col = "Label" if "Label" in df.columns else "label"
@@ -415,6 +419,22 @@ class MainController:
         if norm_name == "Nearey1":
             return nearey1_normalization(df)
         return df
+
+    def _normalize_dataframe(self, df, norm_name, data_item=None):
+        """plot_data_list 항목의 is_pre_lobanov 플래그를 반영해 정규화."""
+        pre = bool(data_item and data_item.get("is_pre_lobanov"))
+        return self._apply_normalization(df, norm_name, is_pre_lobanov=pre)
+
+    def _real_plot_items(self):
+        return [it for it in self.plot_data_list if not it.get("is_combined")]
+
+    def all_real_items_pre_lobanov(self) -> bool:
+        real = self._real_plot_items()
+        return bool(real) and all(it.get("is_pre_lobanov") for it in real)
+
+    def _sync_pre_lobanov_ui(self):
+        if hasattr(self.ui, "sync_pre_lobanov_normalization"):
+            self.ui.sync_pre_lobanov_normalization(self.all_real_items_pre_lobanov())
 
     def _rebuild_combined_entry(self):
         """real 화자 항목들로부터 Combined 항목을 (재)구성한다.
@@ -558,10 +578,23 @@ class MainController:
             result["total_files"] = len(self.filepaths)
             return result
 
+        existing_real = self._real_plot_items()
+        existing_pre = (
+            all(it.get("is_pre_lobanov") for it in existing_real)
+            if existing_real
+            else None
+        )
+
         for f in new_files:
             fname = os.path.basename(f)
             temp_processor = DataProcessor()
             success, has_f3, errors = temp_processor.load_files([f])
+            is_pre_lobanov = bool(getattr(temp_processor, "is_pre_lobanov", False))
+
+            if success and existing_real and existing_pre is not None:
+                if is_pre_lobanov != existing_pre:
+                    success = False
+                    errors = [(f, config.PARSE_ERR_LOBANOV_MIXED)]
 
             if success:
                 # 로드된 원본 DataFrame 복사본 (plot_data_list 항목용)
@@ -573,6 +606,7 @@ class MainController:
                         "df": raw_df.copy(),
                         "df_original": raw_df.copy(),
                         "has_f3": has_f3,
+                        "is_pre_lobanov": is_pre_lobanov,
                     }
                 )
                 result["success_count"] += 1
@@ -642,6 +676,9 @@ class MainController:
         self.ui.update_file_status(result["total_files"])
         self.ui.toggle_f3_options(result["has_f3_all"])
         if result["success_count"] > 0:
+            if self.all_real_items_pre_lobanov():
+                app_logger.info(config.LOG_MSG["LOBANOV_FILE_DETECTED"])
+            self._sync_pre_lobanov_ui()
             self.update_live_preview()
 
     def _process_new_files(self, files):
@@ -692,6 +729,8 @@ class MainController:
         else:
             current_has_f3 = all(d["has_f3"] for d in real_items)
             self.ui.toggle_f3_options(current_has_f3)
+
+        self._sync_pre_lobanov_ui()
 
         # 제거 후 라이브 모니터 갱신
         self.update_live_preview()
@@ -821,7 +860,9 @@ class MainController:
         self.live_preview_fig.clear()
         norm = (params or {}).get("normalization")
         if norm:
-            df_norm = self._apply_normalization(current_data["df"], norm)
+            df_norm = self._normalize_dataframe(
+                current_data["df"], norm, current_data
+            )
             manual_ranges = self._norm_ranges_for_widgets(norm)
             *_, _ = self.plot_engine.draw_single_normalized(
                 self.live_preview_fig,
@@ -1020,7 +1061,9 @@ class MainController:
         )
         layer_overrides = popup.get_layer_design_overrides()
         if norm:
-            df_norm = self._apply_normalization(current_data["df"], norm)
+            df_norm = self._normalize_dataframe(
+                current_data["df"], norm, current_data
+            )
             popup.fixed_plot_params = dict(
                 popup.fixed_plot_params or {}, normalization=norm
             )
@@ -1492,7 +1535,9 @@ class MainController:
                         )
                     except (ValueError, TypeError):
                         pass
-                df_norm = self._apply_normalization(current_data["df"], norm)
+                df_norm = self._normalize_dataframe(
+                    current_data["df"], norm, current_data
+                )
                 sigma = float(
                     popup_window.fixed_plot_params.get("sigma", config.DEFAULT_SIGMA)
                 )
@@ -2008,9 +2053,12 @@ class MainController:
             ds_settings = self._get_default_design()
 
         norm_name = plot_params.get("normalization")
-        normalize_fn = (
-            (lambda df: self._apply_normalization(df, norm_name)) if norm_name else None
-        )
+        if norm_name and self.all_real_items_pre_lobanov() and norm_name == "Lobanov":
+            normalize_fn = lambda df: df.copy()
+        elif norm_name:
+            normalize_fn = lambda df: self._apply_normalization(df, norm_name)
+        else:
+            normalize_fn = None
 
         per_file_overrides = {}
         per_file_filters = {}

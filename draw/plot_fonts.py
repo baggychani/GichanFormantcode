@@ -5,6 +5,7 @@ from __future__ import annotations
 from matplotlib.font_manager import FontProperties
 
 from engine.plot_engine import PlotEngine
+from utils.font_stacks import label_font_family as resolve_label_font_family
 
 
 def resolve_font_style(ctx) -> str:
@@ -25,11 +26,8 @@ def is_korean_char(ch: str) -> bool:
 
 def font_family_for_run(*, is_korean: bool, font_style: str) -> tuple[list[str], bool]:
     """(fontfamily_list, serif_use_medium) — plot_engine._label_font_family 와 동일."""
-    if is_korean:
-        is_serif = font_style == "serif"
-        return (["Noto Serif KR"] if is_serif else ["Noto Sans KR"], is_serif)
-    is_serif = font_style == "serif"
-    return (["Charis SIL"] if is_serif else ["Andika"], False)
+    sample = "가" if is_korean else "a"
+    return resolve_label_font_family(sample, font_style)
 
 
 def font_properties_for_run(

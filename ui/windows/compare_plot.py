@@ -388,6 +388,7 @@ class SelectCompareDialog(QDialog):
         norm_row.addWidget(self.combo_normalization)
         norm_row.addStretch()
         layout.addLayout(norm_row)
+        self._apply_pre_lobanov_compare_norm_ui()
 
         btn_layout = QHBoxLayout()
         btn_layout.addStretch()
@@ -586,6 +587,16 @@ class SelectCompareDialog(QDialog):
             return set()
         return self._labels_in_df(entry["df"])
 
+    def _apply_pre_lobanov_compare_norm_ui(self):
+        """로드된 파일이 모두 Lobanov 헤더 형식이면 compare 정규화를 Lobanov로 고정."""
+        if not getattr(self.controller, "all_real_items_pre_lobanov", lambda: False)():
+            return
+        for i in range(self.combo_normalization.count()):
+            if self.combo_normalization.itemData(i) == "Lobanov":
+                self.combo_normalization.setCurrentIndex(i)
+                break
+        self.combo_normalization.setEnabled(False)
+
     def on_confirm(self):
         if getattr(self, "_confirming", False):
             return
@@ -595,11 +606,14 @@ class SelectCompareDialog(QDialog):
             QMessageBox.warning(self, "선택 오류", "양쪽 각각 1개 이상 선택해 주세요.")
             return
 
-        norm = (
-            self.combo_normalization.currentData()
-            if self.combo_normalization.isEnabled()
-            else None
-        )
+        if getattr(self.controller, "all_real_items_pre_lobanov", lambda: False)():
+            norm = "Lobanov"
+        else:
+            norm = (
+                self.combo_normalization.currentData()
+                if self.combo_normalization.isEnabled()
+                else None
+            )
         if norm == "2mW/F":
             lb = self._labels_for_group(left_indices)
             lr = self._labels_for_group(right_indices)

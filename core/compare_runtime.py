@@ -100,7 +100,7 @@ def build_compare_series_inputs(
         item = controller.get_data_item_at(idx)
         df = item["df"] if item else None
         if norm and df is not None:
-            df = controller._apply_normalization(df, norm)
+            df = controller._normalize_dataframe(df, norm, item)
         name = item["name"] if item else ""
         offset_key = compare_label_offset_key(plot_key, series_id)
         custom_offsets = controller.custom_label_offsets.get(offset_key, {})

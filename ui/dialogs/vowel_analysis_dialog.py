@@ -389,8 +389,8 @@ class VowelAnalysisDialog(QDialog):
                 self._add_empty_tab(name, "필수 컬럼(F1, F2, Label) 없음")
                 self._analysis_results.append((name, None))
                 continue
-            if norm and getattr(self.controller, "_apply_normalization", None):
-                df = self.controller._apply_normalization(df_raw, norm)
+            if norm and getattr(self.controller, "_normalize_dataframe", None):
+                df = self.controller._normalize_dataframe(df_raw, norm, data)
             else:
                 df = df_raw
             x_vals = _build_x_hz(df, plot_type)
