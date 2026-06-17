@@ -77,28 +77,18 @@ from ui.widgets.icon_widgets import (
 from utils.vowel_sorting import get_vowel_sort_key
 import ui.widgets.layout_constants as lc
 from draw.draw_common import polygon_area
+from ui.widgets.design_defaults import (
+    MARKER_IDS,
+    MARKER_LABELS,
+    MARKER_VALS,
+    STYLE_IDS,
+    STYLE_LABELS,
+    STYLE_VALS,
+    THICK_LABELS,
+    THICK_VALS,
+    get_single_design_defaults,
+)
 
-
-# design_panel과 동일 매핑. 검은색 4종 + 흰색 채움·검은 외곽선 4종
-MARKER_IDS = {"o": 0, "s": 1, "^": 2, "D": 3, "wo": 4, "ws": 5, "w^": 6, "wD": 7}
-MARKER_VALS = ["o", "s", "^", "D", "wo", "ws", "w^", "wD"]
-MARKER_LABELS = {
-    "o": "원",
-    "s": "사각형",
-    "^": "삼각형",
-    "D": "다이아몬드",
-    "wo": "원(흰색)",
-    "ws": "사각형(흰색)",
-    "w^": "삼각형(흰색)",
-    "wD": "다이아몬드(흰색)",
-}
-# 디자인 설정과 동일: 얇게=0.5, 보통=1.0, 두껍게=2.0
-THICK_VALS = [0.5, 1.0, 2.0]
-THICK_LABELS = {0.5: "얇게", 1.0: "보통", 2.0: "두껍게"}
-# 실선 '-', 긴 점선 '---'(긴 대시), 짧은 점선 '--'(중간 대시, 기존 긴 점선에 나오던 모양)
-STYLE_IDS = {"-": 0, "---": 1, "--": 2}
-STYLE_VALS = ["-", "---", "--"]
-STYLE_LABELS = {"-": "실선", "---": "긴 점선", "--": "짧은 점선"}
 
 COLOR_NAMES = {
     "#E64A19": "Red",
@@ -683,7 +673,6 @@ class LayerDockWidget(QWidget):
                     overrides.setdefault(v, {})
                     overrides[v][key] = val
                 self._set_layer_overrides(overrides)
-                self.overrides_changed.emit(overrides)
                 self._rebuild_effects()
 
             return apply
@@ -768,6 +757,7 @@ class LayerDockWidget(QWidget):
 
     def _set_filter_state(self, state):
         self.data_model.set_filter_state(state)
+        self.label_manager.sync_filter_state_by_current_file(state)
         self._update_global_row_state()
 
     def _get_layer_overrides(self):
@@ -775,6 +765,7 @@ class LayerDockWidget(QWidget):
 
     def _set_layer_overrides(self, overrides):
         self.data_model.set_layer_overrides(overrides)
+        self.label_manager.sync_overrides_by_current_file(overrides)
 
     def _on_label_filter_item_changed(self, vowel: str, new_state: str):
         """라벨 필터 델타 갱신: 단일 row 상태만 변경."""
@@ -2749,8 +2740,44 @@ class LayerDockWidget(QWidget):
                 ds = self._get_default_design() or {}
             else:
                 ds = getattr(self.popup, "design_settings", {}) or {}
-            if len(self._selected_vowels) == 1:
-                v = next(iter(self._selected_vowels))
+            if not ds:
+                ds = get_single_design_defaults()
+            selected_vowels = sorted(self._selected_vowels)
+
+            def _clear_mixed_tooltips():
+                for w in (
+                    self.lbl_color_picker,
+                    self.combo_lbl_size,
+                    self.btn_lbl_bold,
+                    self.btn_lbl_italic,
+                    self.ell_color_picker,
+                    self.ell_fill_picker,
+                    self.ell_fill_opacity_row,
+                    self.raw_color_picker,
+                ):
+                    w.setToolTip("")
+
+            def _set_group_mixed(group: QButtonGroup):
+                was_exclusive = group.exclusive()
+                group.setExclusive(False)
+                for btn in group.buttons():
+                    btn.setChecked(False)
+                group.setExclusive(was_exclusive)
+
+            def _effective_value(vowel: str, key: str, fallback):
+                o = overrides.get(vowel, {})
+                return o.get(key, ds.get(key, fallback))
+
+            def _common_or_none(key: str, fallback):
+                values = [_effective_value(v, key, fallback) for v in selected_vowels]
+                if not values:
+                    return ds.get(key, fallback)
+                first = values[0]
+                return first if all(val == first for val in values[1:]) else None
+
+            _clear_mixed_tooltips()
+            if len(selected_vowels) == 1:
+                v = selected_vowels[0]
                 o = overrides.get(v, {})
                 self.lbl_color_picker.set_color(
                     o.get("lbl_color", ds.get("lbl_color", config.COLOR_PRIMARY_RED))
@@ -2798,6 +2825,115 @@ class LayerDockWidget(QWidget):
                 self._sync_ell_fill_opacity_enabled()
                 self.raw_color_picker.set_color(
                     o.get("raw_color") or ds.get("raw_color") or "#606060"
+                )
+            elif len(selected_vowels) > 1:
+                mixed_tip = "여러 값(혼합)"
+                common_lbl_color = _common_or_none(
+                    "lbl_color", config.COLOR_PRIMARY_RED
+                )
+                common_lbl_size = _common_or_none("lbl_size", 16)
+                common_lbl_bold = _common_or_none("lbl_bold", True)
+                common_lbl_italic = _common_or_none("lbl_italic", False)
+                common_marker = _common_or_none("centroid_marker", "o")
+                common_thick = _common_or_none("ell_thick", 1.0)
+                common_style = _common_or_none("ell_style", "--")
+                common_ell_color = _common_or_none("ell_color", "#606060")
+                common_fill_color = _common_or_none("ell_fill_color", "transparent")
+                common_fill_opacity = _common_or_none(
+                    "ell_fill_opacity", DEFAULT_ELL_FILL_OPACITY
+                )
+                common_raw_color = _common_or_none("raw_color", "#606060")
+
+                self.lbl_color_picker.set_color(
+                    common_lbl_color
+                    if common_lbl_color is not None
+                    else ds.get("lbl_color", config.COLOR_PRIMARY_RED)
+                )
+                self.lbl_color_picker.setToolTip(
+                    "" if common_lbl_color is not None else mixed_tip
+                )
+
+                if common_lbl_size is None:
+                    self.combo_lbl_size.setCurrentIndex(-1)
+                    self.combo_lbl_size.setToolTip(mixed_tip)
+                else:
+                    self.combo_lbl_size.setCurrentText(str(int(common_lbl_size)))
+                    self.combo_lbl_size.setToolTip("")
+
+                self.btn_lbl_bold.setChecked(
+                    bool(common_lbl_bold if common_lbl_bold is not None else True)
+                )
+                self.btn_lbl_bold.setToolTip(
+                    "" if common_lbl_bold is not None else mixed_tip
+                )
+                self.btn_lbl_italic.setChecked(
+                    bool(common_lbl_italic if common_lbl_italic is not None else False)
+                )
+                self.btn_lbl_italic.setToolTip(
+                    "" if common_lbl_italic is not None else mixed_tip
+                )
+
+                if common_marker is None:
+                    _set_group_mixed(self.group_centroid_marker)
+                else:
+                    btn_c = self.group_centroid_marker.button(
+                        MARKER_IDS.get(common_marker, 0)
+                    )
+                    if btn_c:
+                        btn_c.setChecked(True)
+
+                if common_thick is None:
+                    _set_group_mixed(self.group_ell_thick)
+                else:
+                    tid = next(
+                        (
+                            i
+                            for i, t in enumerate(THICK_VALS)
+                            if abs(t - float(common_thick)) < 0.01
+                        ),
+                        1,
+                    )
+                    btn_t = self.group_ell_thick.button(tid)
+                    if btn_t:
+                        btn_t.setChecked(True)
+
+                if common_style is None:
+                    _set_group_mixed(self.group_ell_style)
+                else:
+                    btn_s = self.group_ell_style.button(STYLE_IDS.get(common_style, 2))
+                    if btn_s:
+                        btn_s.setChecked(True)
+
+                self.ell_color_picker.set_color(
+                    common_ell_color if common_ell_color is not None else "#606060"
+                )
+                self.ell_color_picker.setToolTip(
+                    "" if common_ell_color is not None else mixed_tip
+                )
+                self.ell_fill_picker.set_color(
+                    common_fill_color
+                    if common_fill_color is not None
+                    else (ds.get("ell_fill_color") or "transparent")
+                )
+                self.ell_fill_picker.setToolTip(
+                    "" if common_fill_color is not None else mixed_tip
+                )
+                self.ell_fill_opacity_row.set_opacity(
+                    float(
+                        common_fill_opacity
+                        if common_fill_opacity is not None
+                        else ds.get("ell_fill_opacity", DEFAULT_ELL_FILL_OPACITY)
+                    )
+                )
+                self.ell_fill_opacity_row.setToolTip(
+                    "" if common_fill_opacity is not None else mixed_tip
+                )
+                self._sync_ell_fill_opacity_enabled()
+                self.raw_color_picker.set_color(
+                    common_raw_color if common_raw_color is not None else "#606060"
+                )
+                self.raw_color_picker.setToolTip(
+                    "" if common_raw_color is not None else mixed_tip
                 )
             else:
                 self.lbl_color_picker.set_color(
@@ -2954,10 +3090,7 @@ class LayerDockWidget(QWidget):
                             if no:
                                 new_overrides[v_key] = no
                     self._set_layer_overrides(new_overrides)
-                    self.label_manager.sync_overrides_by_current_file(new_overrides)
-                    self.overrides_changed.emit(new_overrides)
                     self._rebuild_effects()
-                    self.label_manager.notify_apply()
 
                 row.effects_layout.addWidget(
                     self._make_effect_property_row(effect_text, font_effect, remove_key)

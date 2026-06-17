@@ -149,12 +149,8 @@ class TestParseFixedColumns(unittest.TestCase):
 
     def test_lobanov_mode_skips_hz_f1_less_than_f2(self):
         """Lobanov z: F1 > F2(음수 F2) 허용."""
-        df = pd.DataFrame(
-            {0: [2.6, 1.9], 1: [-0.12, -0.52], 2: ["/a/", "/i/"]}
-        )
-        result_df, error, _ = self.processor._parse_fixed_columns(
-            df, lobanov_mode=True
-        )
+        df = pd.DataFrame({0: [2.6, 1.9], 1: [-0.12, -0.52], 2: ["/a/", "/i/"]})
+        result_df, error, _ = self.processor._parse_fixed_columns(df, lobanov_mode=True)
         self.assertIsNone(error)
         self.assertEqual(len(result_df), 2)
 

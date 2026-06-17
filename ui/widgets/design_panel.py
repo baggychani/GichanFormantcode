@@ -48,12 +48,21 @@ from ui.widgets.opacity_slider import (
     OpacitySliderRow,
     opacity_to_slider,
 )
-from core.compare_settings import pack_compare_design_settings
+from core.compare_settings import (
+    default_compare_design_settings,
+    pack_compare_design_settings,
+)
 from ui.widgets.segmented_control import (
     wrap_segmented_buttons,
     create_line_preview_button_group,
     SLIDE_ANIM_MS,
     _SLIDE_EASING,
+)
+from ui.widgets.design_defaults import (
+    MARKER_VALS,
+    STYLE_VALS,
+    THICK_VALS,
+    get_single_design_defaults,
 )
 
 
@@ -823,40 +832,43 @@ class DesignSettingsPanel(QWidget):
         self.settings_changed.emit(self.get_current_settings())
 
     def _reset_to_defaults(self):
+        defaults = get_single_design_defaults()
         self._is_loading = True
 
-        self.sw_show_raw.setChecked(True)
-        self.sw_show_centroid.setChecked(True)
-        self.sw_show_axis_units.setChecked(False)
+        self.sw_show_raw.setChecked(bool(defaults["show_raw"]))
+        self.sw_show_centroid.setChecked(bool(defaults["show_centroid"]))
+        self.sw_show_axis_units.setChecked(bool(defaults["show_axis_units"]))
 
-        self.lbl_color_picker.set_color(config.COLOR_PRIMARY_RED)
-        self.raw_color_picker.set_color("#606060")
-        self.combo_lbl_size.setCurrentText("20")
-        self.btn_bold.setChecked(True)
-        self.btn_italic.setChecked(False)
+        self.lbl_color_picker.set_color(defaults["lbl_color"])
+        self.raw_color_picker.set_color(defaults["raw_color"])
+        self.combo_lbl_size.setCurrentText(str(int(defaults["lbl_size"])))
+        self.btn_bold.setChecked(bool(defaults["lbl_bold"]))
+        self.btn_italic.setChecked(bool(defaults["lbl_italic"]))
 
         self.group_ell_thick.button(1).setChecked(True)
         self.group_ell_style.button(2).setChecked(True)  # 짧은 점선
-        self.group_centroid_marker.button(0).setChecked(True)
+        centroid_idx = MARKER_VALS.index(defaults["centroid_marker"])
+        self.group_centroid_marker.button(centroid_idx).setChecked(True)
         self.group_font_style.button(0).setChecked(True)  # serif(명조) 기본
-        self.group_raw_marker.button(0).setChecked(True)
-        self.sw_label_slash_wrap.setChecked(False)
+        raw_idx = ["o", "x", "a"].index(defaults["raw_marker"])
+        self.group_raw_marker.button(raw_idx).setChecked(True)
+        self.sw_label_slash_wrap.setChecked(bool(defaults["label_slash_wrap"]))
 
-        self.ell_line_picker.set_color("#606060")
+        self.ell_line_picker.set_color(defaults["ell_color"] or "#606060")
         self.ell_fill_picker.set_color("transparent")
-        self.ell_fill_opacity_row.set_opacity(DEFAULT_ELL_FILL_OPACITY)
+        self.ell_fill_opacity_row.set_opacity(float(defaults["ell_fill_opacity"]))
         self._sync_ell_fill_opacity_enabled()
 
-        self.sw_axis_position_swap.setChecked(False)
-        self.sw_y_label_rotation.setChecked(False)
-        self.sw_box_spines.setChecked(False)
-        self.sw_show_grid.setChecked(False)
+        self.sw_axis_position_swap.setChecked(bool(defaults["axis_position_swap"]))
+        self.sw_y_label_rotation.setChecked(bool(defaults["y_label_rotation"]))
+        self.sw_box_spines.setChecked(bool(defaults["box_spines"]))
+        self.sw_show_grid.setChecked(bool(defaults["show_grid"]))
         if self._is_normalized:
             self.sw_y_label_rotation.setChecked(True)
             self.sw_box_spines.setChecked(True)
             self.sw_show_grid.setChecked(True)
             self.sw_axis_position_swap.setChecked(True)
-        self.sw_show_minor_ticks.setChecked(True)
+        self.sw_show_minor_ticks.setChecked(bool(defaults["show_minor_ticks"]))
 
         # 초기화 시 설정 유지도 OFF (로그 없이)
         self.btn_lock.blockSignals(True)
@@ -867,19 +879,6 @@ class DesignSettingsPanel(QWidget):
         self._on_setting_changed()
 
     def get_current_settings(self):
-        thick_map = {0: 0.5, 1: 1.0, 2: 2.0}
-        style_map = {0: "-", 1: "---", 2: "--"}  # 실선, 긴 점선, 짧은 점선
-        marker_map = {
-            0: "o",
-            1: "s",
-            2: "^",
-            3: "D",
-            4: "wo",
-            5: "ws",
-            6: "w^",
-            7: "wD",
-        }
-
         line_color = self.ell_line_picker.current_color
         fill_color = self.ell_fill_picker.current_color
 
@@ -890,9 +889,9 @@ class DesignSettingsPanel(QWidget):
             "show_raw": self.sw_show_raw.isChecked(),
             "show_centroid": self.sw_show_centroid.isChecked(),
             "show_axis_units": self.sw_show_axis_units.isChecked(),
-            "centroid_marker": marker_map.get(
-                self.group_centroid_marker.checkedId(), "o"
-            ),
+            "centroid_marker": MARKER_VALS[self.group_centroid_marker.checkedId()]
+            if 0 <= self.group_centroid_marker.checkedId() < len(MARKER_VALS)
+            else "o",
             "raw_marker": raw_marker,
             "raw_color": self.raw_color_picker.current_color,
             "font_style": font_style,
@@ -900,8 +899,12 @@ class DesignSettingsPanel(QWidget):
             "lbl_size": int(self.combo_lbl_size.currentText()),
             "lbl_bold": self.btn_bold.isChecked(),
             "lbl_italic": self.btn_italic.isChecked(),
-            "ell_thick": thick_map.get(self.group_ell_thick.checkedId(), 1.0),
-            "ell_style": style_map.get(self.group_ell_style.checkedId(), "--"),
+            "ell_thick": THICK_VALS[self.group_ell_thick.checkedId()]
+            if 0 <= self.group_ell_thick.checkedId() < len(THICK_VALS)
+            else 1.0,
+            "ell_style": STYLE_VALS[self.group_ell_style.checkedId()]
+            if 0 <= self.group_ell_style.checkedId() < len(STYLE_VALS)
+            else "--",
             "ell_color": line_color if line_color != "transparent" else None,
             "ell_fill_color": fill_color if fill_color != "transparent" else None,
             "ell_fill_opacity": self.ell_fill_opacity_row.get_opacity(),
@@ -1583,10 +1586,19 @@ class CompareDesignSettingsPanel(QWidget):
 
     def _reset_to_defaults(self):
         self._is_loading = True
+        single_defaults = get_single_design_defaults()
+        compare_defaults = default_compare_design_settings(2)
+        common_defaults = compare_defaults.get("common", {})
+        blue_defaults = compare_defaults.get("blue", {})
+        red_defaults = compare_defaults.get("red", {})
 
-        self.sw_show_raw.setChecked(True)
-        self.sw_show_centroid.setChecked(True)
-        self.sw_show_axis_units.setChecked(False)
+        self.sw_show_raw.setChecked(bool(common_defaults.get("show_raw", True)))
+        self.sw_show_centroid.setChecked(
+            bool(common_defaults.get("show_centroid", True))
+        )
+        self.sw_show_axis_units.setChecked(
+            bool(common_defaults.get("show_axis_units", False))
+        )
         # 정규화 여부에 따라 공통 스위치 디폴트 분기
         if self._is_normalized:
             # Case B: 정규화 모드 – Y라벨/테두리/그리드 ON, 축 위치 스위치는 기존 기본값 유지(ON)
@@ -1600,57 +1612,96 @@ class CompareDesignSettingsPanel(QWidget):
             self.sw_y_label_rotation.setChecked(False)
             self.sw_box_spines.setChecked(False)
             self.sw_show_grid.setChecked(False)
-        self.sw_show_minor_ticks.setChecked(True)
-        self.sw_label_slash_wrap_cmp.setChecked(False)
+        self.sw_show_minor_ticks.setChecked(
+            bool(common_defaults.get("show_minor_ticks", True))
+        )
+        self.sw_label_slash_wrap_cmp.setChecked(
+            bool(common_defaults.get("label_slash_wrap", False))
+        )
 
-        self.group_font_style_common.button(0).setChecked(True)  # serif(명조) 기본
-        self.group_raw_marker_common.button(0).setChecked(True)
+        font_id = 0 if common_defaults.get("font_style", "serif") == "serif" else 1
+        self.group_font_style_common.button(font_id).setChecked(True)
+        raw_idx = ["o", "x", "a"].index(common_defaults.get("raw_marker", "o"))
+        self.group_raw_marker_common.button(raw_idx).setChecked(True)
 
         # Blue 초기화
-        self.ctrl_blue["lbl_color_picker"].set_color(config.COLOR_PRIMARY_BLUE)
-        self.ctrl_blue["combo_lbl_size"].setCurrentText("20")
-        self.ctrl_blue["btn_bold"].setChecked(True)
-        self.ctrl_blue["btn_italic"].setChecked(False)
-        self.ctrl_blue["group_centroid_marker"].button(0).setChecked(True)
-        self.ctrl_blue["group_ell_thick"].button(1).setChecked(True)
-        self.ctrl_blue["group_ell_style"].button(0).setChecked(True)  # 실선
-        self.ctrl_blue["ell_line_picker"].set_color(config.COLOR_PRIMARY_BLUE)
+        self.ctrl_blue["lbl_color_picker"].set_color(
+            blue_defaults.get("lbl_color", config.COLOR_PRIMARY_BLUE)
+        )
+        self.ctrl_blue["combo_lbl_size"].setCurrentText(
+            str(int(blue_defaults.get("lbl_size", single_defaults["lbl_size"])))
+        )
+        self.ctrl_blue["btn_bold"].setChecked(bool(blue_defaults.get("lbl_bold", True)))
+        self.ctrl_blue["btn_italic"].setChecked(
+            bool(blue_defaults.get("lbl_italic", False))
+        )
+        blue_marker_idx = MARKER_VALS.index(blue_defaults.get("centroid_marker", "o"))
+        self.ctrl_blue["group_centroid_marker"].button(blue_marker_idx).setChecked(True)
+        blue_thick_val = float(blue_defaults.get("ell_thick", 1.0))
+        blue_thick_idx = next(
+            (i for i, v in enumerate(THICK_VALS) if abs(v - blue_thick_val) < 0.01),
+            1,
+        )
+        self.ctrl_blue["group_ell_thick"].button(blue_thick_idx).setChecked(True)
+        blue_style_idx = STYLE_VALS.index(
+            blue_defaults.get("ell_style", "-")
+            if blue_defaults.get("ell_style", "-") in STYLE_VALS
+            else "-"
+        )
+        self.ctrl_blue["group_ell_style"].button(blue_style_idx).setChecked(True)
+        self.ctrl_blue["ell_line_picker"].set_color(
+            blue_defaults.get("ell_color", config.COLOR_PRIMARY_BLUE)
+        )
         self.ctrl_blue["ell_fill_picker"].set_color("transparent")
-        self.ctrl_blue["ell_fill_opacity_row"].set_opacity(DEFAULT_ELL_FILL_OPACITY)
-        self.ctrl_blue["raw_color_picker"].set_color("#606060")
+        self.ctrl_blue["ell_fill_opacity_row"].set_opacity(
+            float(blue_defaults.get("ell_fill_opacity", DEFAULT_ELL_FILL_OPACITY))
+        )
+        self.ctrl_blue["raw_color_picker"].set_color(
+            blue_defaults.get("raw_color", single_defaults["raw_color"])
+        )
         self._sync_compare_ell_fill_opacity(self.ctrl_blue)
 
         # Red 초기화
-        self.ctrl_red["lbl_color_picker"].set_color(config.COLOR_PRIMARY_RED)
-        self.ctrl_red["combo_lbl_size"].setCurrentText("20")
-        self.ctrl_red["btn_bold"].setChecked(True)
-        self.ctrl_red["btn_italic"].setChecked(False)
-        self.ctrl_red["group_centroid_marker"].button(0).setChecked(True)
-        self.ctrl_red["group_ell_thick"].button(1).setChecked(True)
-        self.ctrl_red["group_ell_style"].button(1).setChecked(True)  # 긴 점선
-        self.ctrl_red["ell_line_picker"].set_color(config.COLOR_PRIMARY_RED)
+        self.ctrl_red["lbl_color_picker"].set_color(
+            red_defaults.get("lbl_color", config.COLOR_PRIMARY_RED)
+        )
+        self.ctrl_red["combo_lbl_size"].setCurrentText(
+            str(int(red_defaults.get("lbl_size", single_defaults["lbl_size"])))
+        )
+        self.ctrl_red["btn_bold"].setChecked(bool(red_defaults.get("lbl_bold", True)))
+        self.ctrl_red["btn_italic"].setChecked(
+            bool(red_defaults.get("lbl_italic", False))
+        )
+        red_marker_idx = MARKER_VALS.index(red_defaults.get("centroid_marker", "o"))
+        self.ctrl_red["group_centroid_marker"].button(red_marker_idx).setChecked(True)
+        red_thick_val = float(red_defaults.get("ell_thick", 1.0))
+        red_thick_idx = next(
+            (i for i, v in enumerate(THICK_VALS) if abs(v - red_thick_val) < 0.01),
+            1,
+        )
+        self.ctrl_red["group_ell_thick"].button(red_thick_idx).setChecked(True)
+        red_style_idx = STYLE_VALS.index(
+            red_defaults.get("ell_style", "---")
+            if red_defaults.get("ell_style", "---") in STYLE_VALS
+            else "---"
+        )
+        self.ctrl_red["group_ell_style"].button(red_style_idx).setChecked(True)
+        self.ctrl_red["ell_line_picker"].set_color(
+            red_defaults.get("ell_color", config.COLOR_PRIMARY_RED)
+        )
         self.ctrl_red["ell_fill_picker"].set_color("transparent")
-        self.ctrl_red["ell_fill_opacity_row"].set_opacity(DEFAULT_ELL_FILL_OPACITY)
-        self.ctrl_red["raw_color_picker"].set_color("#606060")
+        self.ctrl_red["ell_fill_opacity_row"].set_opacity(
+            float(red_defaults.get("ell_fill_opacity", DEFAULT_ELL_FILL_OPACITY))
+        )
+        self.ctrl_red["raw_color_picker"].set_color(
+            red_defaults.get("raw_color", single_defaults["raw_color"])
+        )
         self._sync_compare_ell_fill_opacity(self.ctrl_red)
 
         self._is_loading = False
         self._on_setting_changed()
 
     def _parse_individual_settings(self, ctrl):
-        thick_map = {0: 0.5, 1: 1.0, 2: 2.0}
-        style_map = {0: "-", 1: "---", 2: "--"}  # 실선, 긴 점선, 짧은 점선
-        marker_map = {
-            0: "o",
-            1: "s",
-            2: "^",
-            3: "D",
-            4: "wo",
-            5: "ws",
-            6: "w^",
-            7: "wD",
-        }
-
         line_color = ctrl["ell_line_picker"].current_color
         fill_color = ctrl["ell_fill_picker"].current_color
 
@@ -1660,17 +1711,19 @@ class CompareDesignSettingsPanel(QWidget):
         if style_id < 0:
             btn = g_ell.checkedButton()
             style_id = g_ell.id(btn) if btn else 0
-        ell_style = style_map.get(style_id, "-")
+        ell_style = STYLE_VALS[style_id] if 0 <= style_id < len(STYLE_VALS) else "-"
 
         return {
             "lbl_color": ctrl["lbl_color_picker"].current_color,
             "lbl_size": int(ctrl["combo_lbl_size"].currentText()),
             "lbl_bold": ctrl["btn_bold"].isChecked(),
             "lbl_italic": ctrl["btn_italic"].isChecked(),
-            "centroid_marker": marker_map.get(
-                ctrl["group_centroid_marker"].checkedId(), "o"
-            ),
-            "ell_thick": thick_map.get(ctrl["group_ell_thick"].checkedId(), 1.0),
+            "centroid_marker": MARKER_VALS[ctrl["group_centroid_marker"].checkedId()]
+            if 0 <= ctrl["group_centroid_marker"].checkedId() < len(MARKER_VALS)
+            else "o",
+            "ell_thick": THICK_VALS[ctrl["group_ell_thick"].checkedId()]
+            if 0 <= ctrl["group_ell_thick"].checkedId() < len(THICK_VALS)
+            else 1.0,
             "ell_style": ell_style,
             "ell_color": line_color if line_color != "transparent" else None,
             "ell_fill_color": fill_color if fill_color != "transparent" else None,

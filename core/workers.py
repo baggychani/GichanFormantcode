@@ -29,6 +29,7 @@ class BatchSaveWorker(QThread):
         per_file_overrides=None,
         label_offsets=None,
         per_file_draw_objects=None,
+        layer_order=None,
         apply_layer_visibility=True,
         apply_layer_design=True,
         apply_label_positions=True,
@@ -48,6 +49,7 @@ class BatchSaveWorker(QThread):
         self.per_file_overrides = per_file_overrides or {}
         self.label_offsets = label_offsets or {}
         self.per_file_draw_objects = per_file_draw_objects or {}
+        self.layer_order = list(layer_order or [])
         self.apply_layer_visibility = apply_layer_visibility
         self.apply_layer_design = apply_layer_design
         self.apply_label_positions = apply_label_positions
@@ -90,6 +92,7 @@ class BatchSaveWorker(QThread):
                 custom_label_offsets=custom_offsets,
                 layer_overrides=layer_overrides,
                 plot_params=self.plot_params,
+                layer_order=self.layer_order,
             )
         return self.plot_engine.draw_plot(
             figure,
@@ -100,6 +103,7 @@ class BatchSaveWorker(QThread):
             design_settings=self.ds_settings,
             custom_label_offsets=custom_offsets,
             layer_overrides=layer_overrides,
+            layer_order=self.layer_order,
         )
 
     def _render_draw_annotations(self, figure, file_index):

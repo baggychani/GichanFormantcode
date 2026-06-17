@@ -2,6 +2,7 @@
 
 import os
 import platform
+from time import perf_counter
 from ui.windows.base_plot_window import BasePlotWindow
 from PySide6.QtWidgets import (
     QDialog,
@@ -704,11 +705,16 @@ class ComparePlotPopup(BasePlotWindow):
         self._draw_tool = None
         self.snapping_data = []  # draw tool 활성화에 필요; refresh_compare_plot에서 주입됨
 
-        # 디자인 설정 실시간 반영 디바운스 타이머 (150ms)
-        # 사유: 동기식 on_apply() 호출 시 Matplotlib 렌더링 부하로 인한 버튼 클릭 UI 피드백 지연 방지
+        # 플롯 갱신 디바운스 타이머 (기본 150ms)
+        # 사유: 동기식 on_apply() 호출 시 Matplotlib 렌더링 부하로 인한 UI 피드백 지연 방지
         self._design_timer = QTimer(self)
         self._design_timer.setSingleShot(True)
         self._design_timer.timeout.connect(self.on_apply)
+        self._refresh_profile_enabled = (
+            os.getenv("GICHAN_REFRESH_PROFILE", "0").strip() == "1"
+        )
+        self._refresh_request_seq = 0
+        self._last_refresh_requested_at = 0.0
 
         # 범례 위젯들을 저장하여 실시간 렌더링에 사용
         self.legend_refs = {"blue": {}, "red": {}}
@@ -1605,13 +1611,24 @@ class ComparePlotPopup(BasePlotWindow):
         if hasattr(self.design_tab, "update_legend_indicators"):
             self.design_tab.update_legend_indicators(settings)
 
-        # 즉시 렌더링 대신 150ms 디바운스 타이머 시작
-        # (무거운 렌더링 작업을 뒤로 미뤄서 버튼의 시각적 눌림 상태가 즉시 리페인트되도록 함)
-        self._design_timer.start(150)
+        self.request_plot_refresh(debounce_ms=150)
         if hasattr(self, "_layer_dock_blue") and self._layer_dock_blue:
             self._layer_dock_blue.refresh_design_ui()
         if hasattr(self, "_layer_dock_red") and self._layer_dock_red:
             self._layer_dock_red.refresh_design_ui()
+
+    def request_plot_refresh(self, debounce_ms: int = 150):
+        """레이어/전역/필터 변경 시 플롯 갱신 진입점을 일원화한다."""
+        ms = max(0, int(debounce_ms))
+        self._refresh_request_seq += 1
+        self._last_refresh_requested_at = perf_counter()
+        if self._refresh_profile_enabled:
+            app_logger.debug(
+                "[refresh-profile:compare] queue #%s debounce=%sms",
+                self._refresh_request_seq,
+                ms,
+            )
+        self._design_timer.start(ms)
 
     # ── 단축키 ────────────────────────────────────────────────────────────────
     def _bind_shortcuts(self):
@@ -1689,6 +1706,7 @@ class ComparePlotPopup(BasePlotWindow):
         app_logger.info(config.LOG_MSG["PLOT_RANGE_INIT"])
 
     def on_apply(self):
+        started_at = perf_counter()
         self.setFocus()
         self.figure.set_size_inches(6.5, 6.5)
         try:
@@ -1747,6 +1765,15 @@ class ComparePlotPopup(BasePlotWindow):
         if hasattr(self, "_layer_dock_red") and self._layer_dock_red is not None:
             self._layer_dock_red.update_draw_layer_list(
                 self._get_current_draw_objects()
+            )
+        if self._refresh_profile_enabled:
+            wait_ms = max(0.0, (started_at - self._last_refresh_requested_at) * 1000.0)
+            elapsed_ms = (perf_counter() - started_at) * 1000.0
+            app_logger.debug(
+                "[refresh-profile:compare] apply #%s wait=%.1fms render=%.1fms",
+                self._refresh_request_seq,
+                wait_ms,
+                elapsed_ms,
             )
         return True
 
@@ -1951,11 +1978,11 @@ class ComparePlotPopup(BasePlotWindow):
     def _on_multi_filter_changed(self, state_blue, state_red):
         self.vowel_filter_state_blue = state_blue
         self.vowel_filter_state_red = state_red
-        self.on_apply()
+        self.request_plot_refresh(debounce_ms=90)
 
     def _on_compare_layer_filter_changed(self, state):
         """레이어 도크에서 필터(눈/반투명) 변경 시 플롯만 갱신. 상태는 도크가 이미 반영함."""
-        self.on_apply()
+        self.request_plot_refresh(debounce_ms=90)
 
     def _init_compare_layer_dock_layout(self):
         """Compare 레이어 도크: 스플리터 비율 고정 + 숨겨진 스택 페이지 선레이아웃."""
@@ -2037,7 +2064,7 @@ class ComparePlotPopup(BasePlotWindow):
 
     def _on_compare_layer_overrides_changed(self, overrides):
         """레이어 도크에서 디자인 오버라이드 변경 시 플롯만 갱신. 상태는 도크가 이미 반영함."""
-        self.on_apply()
+        self.request_plot_refresh(debounce_ms=90)
 
     def _on_compare_layer_order_changed(self, order):
         sender = self.sender()

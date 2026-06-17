@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from copy import deepcopy
 from typing import Any, Protocol
 
 from core.compare_series import (
@@ -73,12 +74,17 @@ def _read_filter_state(popup_window: Any, series_id: int) -> dict:
 def _read_layer_overrides(popup_window: Any, series_id: int) -> dict:
     getter = getattr(popup_window, "get_layer_design_overrides_for_series", None)
     if getter is not None:
-        return dict(getter(series_id) or {})
+        return deepcopy(getter(series_id) or {})
     legacy = legacy_key_from_series_id(series_id)
     legacy_getter = getattr(popup_window, f"get_layer_design_overrides_{legacy}", None)
     if legacy_getter is not None:
-        return dict(legacy_getter() or {})
+        return deepcopy(legacy_getter() or {})
     return {}
+
+
+def _read_layer_order(popup_window: Any) -> list[str]:
+    order = getattr(popup_window, "layer_order", None) or []
+    return list(order)
 
 
 def build_compare_series_inputs(
@@ -112,6 +118,7 @@ def build_compare_series_inputs(
                 design_cfg=get_series_design_cfg(normalized_design, series_id),
                 layer_overrides=_read_layer_overrides(popup_window, series_id),
                 custom_label_offsets=custom_offsets,
+                layer_order=_read_layer_order(popup_window),
             )
         )
     return inputs

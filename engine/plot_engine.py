@@ -22,6 +22,7 @@ from core.compare_settings import (
     get_series_design_cfg,
     normalize_compare_design_settings,
 )
+from ui.widgets.design_defaults import get_single_design_defaults
 from utils.math_utils import (
     hz_to_bark,
     hz_to_log,
@@ -77,29 +78,20 @@ class PlotEngine:
 
     def _get_default_design(self):
         """단일 플롯 디자인 설정이 전달되지 않았을 때를 대비한 기본값"""
-        return {
-            "show_raw": True,
-            "show_centroid": True,
-            "raw_marker": "o",
-            "raw_color": "#606060",
-            "centroid_marker": "o",
-            "lbl_color": "#E64A19",
-            "lbl_size": 16,
-            "lbl_bold": True,
-            "lbl_italic": False,
-            "ell_thick": 1.0,
-            "ell_style": "--",
-            "ell_color": "#606060",
-            "ell_fill_color": None,
-            "ell_fill_opacity": 0.15,
-            "box_spines": False,
-            "show_grid": False,
-            "y_label_rotation": False,
-            "show_axis_units": False,
-            "show_minor_ticks": True,
-            "font_style": "serif",
-            "label_slash_wrap": False,
-        }
+        return get_single_design_defaults()
+
+    @staticmethod
+    def _order_labels_for_render(labels, layer_order=None):
+        ordered = list(labels)
+        if not layer_order:
+            return ordered
+        layer_order = list(layer_order)
+        labels_set = set(ordered)
+        front = [v for v in layer_order if v in labels_set]
+        if not front:
+            return ordered
+        tail = [v for v in ordered if v not in set(front)]
+        return front + tail
 
     def _to_mpl_linestyle(self, ell_style):
         """디자인/레이어의 ell_style('-', '--', '---')을 matplotlib linestyle로 변환. '---' = 긴 대시."""
@@ -212,6 +204,7 @@ class PlotEngine:
         design_settings=None,
         custom_label_offsets=None,
         layer_overrides=None,
+        layer_order=None,
     ):
         """
         단일 데이터 세트에 대한 모음 플롯을 생성합니다.
@@ -305,7 +298,7 @@ class PlotEngine:
         final_min_x = ranges["final_min_x"]
         final_max_x = ranges["final_max_x"]
 
-        vowels = df_plot["Label"].unique()
+        vowels = self._order_labels_for_render(df_plot["Label"].unique(), layer_order)
         placed_labels = []
 
         ### [Phase 4] 모음별 렌더링 루프 (데이터 포인트, 타원, 중심점, 라벨)
@@ -722,6 +715,7 @@ class PlotEngine:
                     design_cfg=row.design_cfg,
                     layer_overrides=row.layer_overrides,
                     custom_label_offsets=row.custom_label_offsets,
+                    layer_order=list(row.layer_order or []),
                 )
             )
         return prepared
@@ -771,6 +765,7 @@ class PlotEngine:
                     or get_series_design_cfg(design_settings, series_id),
                     layer_overrides=row.layer_overrides or {},
                     custom_label_offsets=row.custom_label_offsets or {},
+                    layer_order=list(row.layer_order or []),
                 )
             )
 
@@ -860,7 +855,9 @@ class PlotEngine:
             df_plot["x_raw"] = x_raw
             df_plot["x_val"] = self._apply_scale(x_raw, plot_params["f2_scale"])
 
-            vowels = df_plot["Label"].unique()
+            vowels = self._order_labels_for_render(
+                df_plot["Label"].unique(), spec.layer_order
+            )
 
             for vowel in vowels:
                 state = "ON"
@@ -1370,6 +1367,7 @@ class PlotEngine:
         custom_label_offsets=None,
         layer_overrides=None,
         plot_params=None,
+        layer_order=None,
     ):
         """단일 데이터 세트에 대한 정규화 F1 vs F2 플롯 (nF1 / nF2)."""
         figure.clear()
@@ -1518,7 +1516,7 @@ class PlotEngine:
         if label_col not in df_plot.columns:
             return ax, [], [], []
 
-        vowels = df_plot[label_col].unique()
+        vowels = self._order_labels_for_render(df_plot[label_col].unique(), layer_order)
         placed_labels = []
 
         for vowel in vowels:
@@ -1793,6 +1791,7 @@ class PlotEngine:
                     or get_series_design_cfg(design_settings, series_id),
                     layer_overrides=row.layer_overrides or {},
                     custom_label_offsets=row.custom_label_offsets or {},
+                    layer_order=list(row.layer_order or []),
                 )
             )
 
@@ -1926,7 +1925,9 @@ class PlotEngine:
             df_plot["y_val"] = df_plot["F1"]
             df_plot["x_val"] = df_plot["F2"]
             label_col = "Label" if "Label" in df_plot.columns else "label"
-            vowels = df_plot[label_col].unique()
+            vowels = self._order_labels_for_render(
+                df_plot[label_col].unique(), spec.layer_order
+            )
 
             for vowel in vowels:
                 state = curr_filter_state.get(vowel, "ON")

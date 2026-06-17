@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from copy import deepcopy
 from typing import Any, Dict, List
 
 
@@ -22,7 +23,7 @@ class LabelManager:
         setattr(self._popup, self._scoped_attr("vowel_filter_state"), dict(state))
 
     def get_layer_overrides(self) -> Dict[str, Dict[str, Any]]:
-        return (
+        return deepcopy(
             getattr(self._popup, self._scoped_attr("layer_design_overrides"), {}) or {}
         )
 
@@ -30,7 +31,7 @@ class LabelManager:
         setattr(
             self._popup,
             self._scoped_attr("layer_design_overrides"),
-            dict(overrides),
+            deepcopy(overrides),
         )
 
     def get_layer_order(self) -> List[str]:
@@ -40,6 +41,9 @@ class LabelManager:
         self._popup.layer_order = list(order)
 
     def notify_apply(self) -> None:
+        if hasattr(self._popup, "request_plot_refresh"):
+            self._popup.request_plot_refresh()
+            return
         if hasattr(self._popup, "on_apply"):
             self._popup.on_apply()
 
@@ -82,7 +86,18 @@ class LabelManager:
         by_file = getattr(self._popup, "layer_design_overrides_by_file", None)
         if by_file is None:
             return
-        by_file[idx] = {k: dict(v) for k, v in overrides.items()}
+        by_file[idx] = deepcopy(overrides)
+
+    def sync_filter_state_by_current_file(self, state: Dict[str, str]) -> None:
+        if self._state_key:
+            return
+        idx = self.get_current_index(default=None)
+        if idx is None:
+            return
+        by_file = getattr(self._popup, "vowel_filter_state_by_file", None)
+        if by_file is None:
+            return
+        by_file[idx] = dict(state)
 
     def prune_to_locked_only_for_current_file(self) -> set[str]:
         locked_set = self.get_locked_vowels_set()

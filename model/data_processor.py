@@ -273,9 +273,7 @@ class DataProcessor:
         # Hz: F1 < F2 물리 검증. Lobanov z: 유한 숫자만 요구
         if lobanov_mode:
             valid_idx = f1_numeric.notna() & f2_numeric.notna()
-            invalid_msg = (
-                "F1/F2가 모두 숫자가 아닙니다. (Lobanov z-score 형식)"
-            )
+            invalid_msg = "F1/F2가 모두 숫자가 아닙니다. (Lobanov z-score 형식)"
         else:
             valid_idx = (
                 f1_numeric.notna() & f2_numeric.notna() & (f1_numeric < f2_numeric)

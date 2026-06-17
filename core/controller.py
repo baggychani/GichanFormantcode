@@ -860,9 +860,7 @@ class MainController:
         self.live_preview_fig.clear()
         norm = (params or {}).get("normalization")
         if norm:
-            df_norm = self._normalize_dataframe(
-                current_data["df"], norm, current_data
-            )
+            df_norm = self._normalize_dataframe(current_data["df"], norm, current_data)
             manual_ranges = self._norm_ranges_for_widgets(norm)
             *_, _ = self.plot_engine.draw_single_normalized(
                 self.live_preview_fig,
@@ -1061,9 +1059,7 @@ class MainController:
         )
         layer_overrides = popup.get_layer_design_overrides()
         if norm:
-            df_norm = self._normalize_dataframe(
-                current_data["df"], norm, current_data
-            )
+            df_norm = self._normalize_dataframe(current_data["df"], norm, current_data)
             popup.fixed_plot_params = dict(
                 popup.fixed_plot_params or {}, normalization=norm
             )
@@ -1081,6 +1077,7 @@ class MainController:
                     custom_label_offsets=custom_offsets,
                     layer_overrides=layer_overrides,
                     plot_params=popup.fixed_plot_params,
+                    layer_order=getattr(popup, "layer_order", []),
                 )
             )
             popup._update_window_title(current_data["name"])
@@ -1095,6 +1092,7 @@ class MainController:
                     design_settings=ds_settings,
                     custom_label_offsets=custom_offsets,
                     layer_overrides=layer_overrides,
+                    layer_order=getattr(popup, "layer_order", []),
                 )
             )
         popup.set_draw_result(
@@ -1553,6 +1551,7 @@ class MainController:
                         custom_label_offsets=custom_offsets,
                         layer_overrides=layer_overrides,
                         plot_params=popup_window.fixed_plot_params,
+                        layer_order=getattr(popup_window, "layer_order", []),
                     )
                 )
                 popup_window._update_window_title(current_data["name"])
@@ -1567,6 +1566,7 @@ class MainController:
                         design_settings=ds_settings,
                         custom_label_offsets=custom_offsets,
                         layer_overrides=layer_overrides,
+                        layer_order=getattr(popup_window, "layer_order", []),
                     )
                 )
             popup_window.set_draw_result(
@@ -2054,9 +2054,13 @@ class MainController:
 
         norm_name = plot_params.get("normalization")
         if norm_name and self.all_real_items_pre_lobanov() and norm_name == "Lobanov":
-            normalize_fn = lambda df: df.copy()
+
+            def normalize_fn(df):
+                return df.copy()
         elif norm_name:
-            normalize_fn = lambda df: self._apply_normalization(df, norm_name)
+
+            def normalize_fn(df):
+                return self._apply_normalization(df, norm_name)
         else:
             normalize_fn = None
 
@@ -2079,6 +2083,11 @@ class MainController:
             per_file_draw_objects = dict(
                 getattr(parent_popup, "_draw_objects_by_file", {})
             )
+        layer_order = (
+            list(getattr(parent_popup, "layer_order", []) or [])
+            if parent_popup is not None
+            else []
+        )
 
         return BatchSaveWorker(
             save_dir,
@@ -2093,6 +2102,7 @@ class MainController:
             per_file_overrides=per_file_overrides,
             label_offsets=label_offsets,
             per_file_draw_objects=per_file_draw_objects,
+            layer_order=layer_order,
             apply_layer_visibility=apply_visibility,
             apply_layer_design=apply_layer,
             apply_label_positions=apply_labels,

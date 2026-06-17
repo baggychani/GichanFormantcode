@@ -1,6 +1,9 @@
 # ui_popup.py
 
 import platform
+import os
+from copy import deepcopy
+from time import perf_counter
 from ui.windows.base_plot_window import BasePlotWindow
 from ui.dialogs.batch_save_dialog import BatchSaveDialog
 from PySide6.QtWidgets import (
@@ -203,11 +206,16 @@ class PlotPopup(BasePlotWindow):
         self.filter_panel = None
         self._layer_dock_was_docked_before_hide = False  # 창 크기 연동용
 
-        # 디자인 설정 실시간 반영 디바운스 타이머 (150ms)
-        # 사유: 동기식 on_apply() 호출 시 Matplotlib 렌더링 부하로 인한 버튼 클릭 UI 피드백 지연 방지
+        # 플롯 갱신 디바운스 타이머 (기본 150ms)
+        # 사유: 동기식 on_apply() 호출 시 Matplotlib 렌더링 부하로 인한 UI 피드백 지연 방지
         self._design_timer = QTimer(self)
         self._design_timer.setSingleShot(True)
         self._design_timer.timeout.connect(self.on_apply)
+        self._refresh_profile_enabled = (
+            os.getenv("GICHAN_REFRESH_PROFILE", "0").strip() == "1"
+        )
+        self._refresh_request_seq = 0
+        self._last_refresh_requested_at = 0.0
 
         # 컨트롤러가 set_initial_plot_state / set_draw_result 로 주입 (직접 대입 대신 명시적 API)
         self.fixed_plot_params = {}
@@ -487,6 +495,9 @@ class PlotPopup(BasePlotWindow):
         self.design_tab.btn_reset.clicked.connect(
             self.design_tab._reset_to_defaults
         )  # 4. 화면 다시 그리기 (가장 마지막에 실행)
+        self.design_tab.btn_reset.clicked.connect(
+            self._sync_design_lock_indicator_from_button
+        )
         # ---------------------------------------------------
 
         self.design_tab.label_move_clicked.connect(self.on_toggle_label_move)
@@ -1024,10 +1035,20 @@ class PlotPopup(BasePlotWindow):
             and self._layer_dock_content is not None
         ):
             self._layer_dock_content._sync_design_controls_to_selection()
+        self.request_plot_refresh(debounce_ms=150)
 
-        # 즉시 렌더링 대신 150ms 디바운스 타이머 시작
-        # (무거운 렌더링 작업을 뒤로 미뤄서 버튼의 시각적 눌림 상태가 즉시 리페인트되도록 함)
-        self._design_timer.start(150)
+    def request_plot_refresh(self, debounce_ms: int = 150):
+        """레이어/전역/필터 변경 시 플롯 갱신 진입점을 일원화한다."""
+        ms = max(0, int(debounce_ms))
+        self._refresh_request_seq += 1
+        self._last_refresh_requested_at = perf_counter()
+        if self._refresh_profile_enabled:
+            app_logger.debug(
+                "[refresh-profile:single] queue #%s debounce=%sms",
+                self._refresh_request_seq,
+                ms,
+            )
+        self._design_timer.start(ms)
 
     def _update_window_title(self, file_name):
         base = f"Plot Result - {strip_gichan_prefix(file_name)}"
@@ -1277,17 +1298,15 @@ class PlotPopup(BasePlotWindow):
         """현재 파일 인덱스에 대한 레이어 오버라이드를 저장."""
         idx = getattr(self, "current_idx", self.controller.get_current_index())
         overrides = getattr(self, "layer_design_overrides", {})
-        self.layer_design_overrides_by_file[idx] = {
-            v: dict(o) for v, o in overrides.items()
-        }
+        self.layer_design_overrides_by_file[idx] = deepcopy(overrides)
 
     def _load_layer_overrides_for_file(self, idx):
         """해당 파일 인덱스의 레이어 오버라이드를 복원."""
         self.layer_design_overrides = {}
         if idx in self.layer_design_overrides_by_file:
-            self.layer_design_overrides = {
-                v: dict(o) for v, o in self.layer_design_overrides_by_file[idx].items()
-            }
+            self.layer_design_overrides = deepcopy(
+                self.layer_design_overrides_by_file[idx]
+            )
         if hasattr(self, "_layer_dock_content") and self._layer_dock_content:
             self._layer_dock_content._rebuild_effects()
 
@@ -1366,6 +1385,16 @@ class PlotPopup(BasePlotWindow):
         )
         if hasattr(self, "tool_indicator") and self.tool_indicator is not None:
             self.tool_indicator.set_lock_on(checked)
+
+    def _sync_design_lock_indicator_from_button(self):
+        if (
+            hasattr(self, "design_tab")
+            and self.design_tab is not None
+            and hasattr(self.design_tab, "btn_lock")
+            and hasattr(self, "tool_indicator")
+            and self.tool_indicator is not None
+        ):
+            self.tool_indicator.set_lock_on(self.design_tab.btn_lock.isChecked())
 
     def _log_design_reset(self):
         app_logger.info(config.LOG_MSG["DESIGN_RESET"])
@@ -1726,14 +1755,15 @@ class PlotPopup(BasePlotWindow):
     def _on_layer_filter_state_changed(self, state: dict):
         """레이어 도크에서 필터 상태가 바뀌었을 때 플롯만 다시 그립니다."""
         # state 자체는 LayerDockWidget에서 popup.vowel_filter_state에 이미 반영함.
-        self.on_apply()
+        self.request_plot_refresh(debounce_ms=90)
 
     def _on_layer_overrides_changed(self, overrides: dict):
         """레이어 도크에서 디자인 오버라이드가 바뀌었을 때 플롯만 다시 그립니다."""
         # overrides 역시 LayerDockWidget에서 popup.layer_design_overrides에 반영된 상태.
-        self.on_apply()
+        self.request_plot_refresh(debounce_ms=90)
 
     def on_apply(self):
+        started_at = perf_counter()
         self.setFocus()
         self.figure.set_size_inches(6.5, 6.5)
         try:
@@ -1776,6 +1806,15 @@ class PlotPopup(BasePlotWindow):
         self._update_window_title(current_data["name"])
         # on_apply는 좌표/디자인/필터 등의 변경에 대한 플롯 갱신만 담당하고,
         # 레이어 도크(모음 목록) 재구성은 파일 전환 시점(_on_file_index_changed 등)에서만 수행한다.
+        if self._refresh_profile_enabled:
+            wait_ms = max(0.0, (started_at - self._last_refresh_requested_at) * 1000.0)
+            elapsed_ms = (perf_counter() - started_at) * 1000.0
+            app_logger.debug(
+                "[refresh-profile:single] apply #%s wait=%.1fms render=%.1fms",
+                self._refresh_request_seq,
+                wait_ms,
+                elapsed_ms,
+            )
         return True
 
     def _on_range_apply_clicked(self):
@@ -1826,9 +1865,12 @@ class PlotPopup(BasePlotWindow):
 
     def _on_filter_changed(self, new_state):
         self.vowel_filter_state = new_state
-        self.on_apply()
+        self.request_plot_refresh(debounce_ms=90)
 
     def on_batch_save(self):
+        # 배치 저장 직전에 현재 파일의 최신 레이어/필터 상태를 by_file 캐시에 강제 반영
+        self._save_layer_overrides_for_current_file()
+        self._save_filter_state_for_current_file()
         current_ranges = {k: v.text() for k, v in self.range_widgets.items()}
         current_sigma = self.cb_sigma.currentText()
 

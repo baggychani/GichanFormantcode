@@ -113,6 +113,7 @@ class CompareSeriesInput:
     design_cfg: dict | None = None
     layer_overrides: dict | None = None
     custom_label_offsets: dict | None = None
+    layer_order: list[str] | None = None
 
 
 @dataclass
@@ -127,6 +128,7 @@ class CompareDatasetSpec:
     design_cfg: dict
     layer_overrides: dict
     custom_label_offsets: dict
+    layer_order: list[str]
 
 
 def build_compare_dataset_specs(
@@ -147,6 +149,7 @@ def build_compare_dataset_specs(
                 design_cfg=row.design_cfg or {},
                 layer_overrides=row.layer_overrides or {},
                 custom_label_offsets=row.custom_label_offsets or {},
+                layer_order=list(row.layer_order or []),
             )
         )
     return specs
