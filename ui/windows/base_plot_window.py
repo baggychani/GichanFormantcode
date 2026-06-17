@@ -491,6 +491,12 @@ class BasePlotWindow(QMainWindow):
 
     def _refresh_draw_layer_list(self) -> None:
         objs = self._get_current_draw_objects()
+        docks_by_series = getattr(self, "_layer_docks_by_series", None)
+        if isinstance(docks_by_series, dict) and docks_by_series:
+            for dock in docks_by_series.values():
+                if dock is not None and hasattr(dock, "update_draw_layer_list"):
+                    dock.update_draw_layer_list(objs)
+            return
         for attr in ("_layer_dock_content", "_layer_dock_blue", "_layer_dock_red"):
             dock = getattr(self, attr, None)
             if dock is not None and hasattr(dock, "update_draw_layer_list"):

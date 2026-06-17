@@ -52,6 +52,12 @@ from core.compare_settings import (
     default_compare_design_settings,
     pack_compare_design_settings,
 )
+from core.compare_series import (
+    default_series_color,
+    default_series_ell_style,
+    legacy_key_from_series_id,
+    normalize_series_ref,
+)
 from ui.widgets.segmented_control import (
     wrap_segmented_buttons,
     create_line_preview_button_group,
@@ -924,7 +930,7 @@ class CompareDesignSettingsPanel(QWidget):
     """
 
     settings_changed = Signal(dict)
-    label_move_clicked = Signal(str)  # 'blue' | 'red'
+    label_move_clicked = Signal(object)  # series_id, legacy aliases accepted by callers
 
     def __init__(
         self,
@@ -940,10 +946,22 @@ class CompareDesignSettingsPanel(QWidget):
         self.ui_font_name = ui_font_name
         self.name_blue = name_blue
         self.name_red = name_red
+        self._series_ids = (0, 1)
+        self._series_names = {
+            0: name_blue,
+            1: name_red,
+        }
         self._legend_meta = {
             "blue": legend_meta_blue,
             "red": legend_meta_red,
         }
+        self._legend_meta_by_series = {
+            0: legend_meta_blue,
+            1: legend_meta_red,
+        }
+        self.series_tabs = {}
+        self.series_controls = {}
+        self._series_tab_indices = {}
         self._is_loading = True
         self._is_normalized = is_normalized
 
@@ -964,6 +982,19 @@ class CompareDesignSettingsPanel(QWidget):
     def _create_visual_button_group(self, options, default_idx):
         return create_line_preview_button_group(self, options, default_idx)
 
+    def _series_legacy_key(self, series_id: int | str) -> str:
+        return legacy_key_from_series_id(normalize_series_ref(series_id))
+
+    def _series_display_name(self, series_id: int) -> str:
+        return self._series_names.get(series_id, f"Series {series_id + 1}")
+
+    def _initial_series_style(self, series_id: int) -> str:
+        # Preserve the existing second-tab long-dash preview while the settings
+        # backend keeps its own normalized default.
+        if series_id == 1:
+            return "---"
+        return default_series_ell_style(series_id)
+
     def _add_separator(self, layout):
         line = QFrame()
         line.setFrameShape(QFrame.Shape.HLine)
@@ -971,7 +1002,9 @@ class CompareDesignSettingsPanel(QWidget):
         layout.addWidget(line)
 
     def _build_individual_tab(self, default_color, default_style_str, series):
-        """서브 탭 내부에 들어갈 개별 디자인 요소 팩토리. series: 'blue' | 'red'. default_style_str: '-', '--', '---'."""
+        """서브 탭 내부에 들어갈 개별 디자인 요소 팩토리."""
+        series_id = normalize_series_ref(series)
+        series_key = self._series_legacy_key(series_id)
         tab_widget = QWidget()
         layout = QVBoxLayout(tab_widget)
         layout.setContentsMargins(0, 15, 0, 10)
@@ -980,11 +1013,13 @@ class CompareDesignSettingsPanel(QWidget):
         font_normal = QFont(self.ui_font_name, 9)
 
         # 0. 데이터 범례 (현재 탭 파일명)
-        meta = self._legend_meta.get(series)
+        meta = self._legend_meta_by_series.get(series_id) or self._legend_meta.get(
+            series_key
+        )
         if meta:
             display_name, tooltip, members = meta
         else:
-            file_name = self.name_blue if series == "blue" else self.name_red
+            file_name = self._series_display_name(series_id)
             clean_name = os.path.splitext(strip_gichan_prefix(file_name))[0]
             display_name = truncate_display_name(clean_name, MAX_DISPLAY_NAME_LEN)
             tooltip = clean_name
@@ -1017,7 +1052,7 @@ class CompareDesignSettingsPanel(QWidget):
             "라벨과 중심점",
             font_bold,
             panel_id="compare_design",
-            settings_key=f"label_{series}",
+            settings_key=f"label_{series_key}",
             default_collapsed=False,
         )
         label_body = sec_label.body_layout()
@@ -1034,7 +1069,9 @@ class CompareDesignSettingsPanel(QWidget):
             QPushButton:checked { background-color: #E6A23C; color: white; font-weight: bold; border: none; }
         """)
 
-        btn_label_move.clicked.connect(lambda: self.label_move_clicked.emit(series))
+        btn_label_move.clicked.connect(
+            lambda _checked=False, sid=series_id: self.label_move_clicked.emit(sid)
+        )
         label_body.addWidget(btn_label_move)
 
         color_layout = _field_group("라벨 텍스트 색상", font_normal)
@@ -1132,7 +1169,7 @@ class CompareDesignSettingsPanel(QWidget):
             "신뢰 타원",
             font_bold,
             panel_id="compare_design",
-            settings_key=f"confidence_ellipse_{series}",
+            settings_key=f"confidence_ellipse_{series_key}",
             default_collapsed=False,
         )
         ell_body = sec_ellipse.body_layout()
@@ -1203,24 +1240,18 @@ class CompareDesignSettingsPanel(QWidget):
         return tab_widget, controls
 
     def update_legend_indicators(self, settings):
-        """디자인 설정 변경 시 각 탭(Blue/Red) 상단 범례 아이콘·텍스트 색상을 실시간 반영. 점 모양은 모음 중심점 모양을 따름."""
+        """디자인 설정 변경 시 각 시리즈 탭 상단 범례를 실시간 반영."""
         if not settings:
             return
         marker_map = ["o", "s", "^", "D", "wo", "ws", "w^", "wD"]
-        for series, ctrl in [("blue", self.ctrl_blue), ("red", self.ctrl_red)]:
-            cfg = settings.get(series, {})
-            ell_color = cfg.get("ell_color") or (
-                config.COLOR_PRIMARY_BLUE
-                if series == "blue"
-                else config.COLOR_PRIMARY_RED
-            )
+        for series_id, ctrl in sorted(self.series_controls.items()):
+            series_key = self._series_legacy_key(series_id)
+            default_color = default_series_color(series_id)
+            cfg = settings.get(series_key, {})
+            ell_color = cfg.get("ell_color") or default_color
             if ell_color == "transparent":
-                ell_color = (
-                    config.COLOR_PRIMARY_BLUE
-                    if series == "blue"
-                    else config.COLOR_PRIMARY_RED
-                )
-            ell_style = cfg.get("ell_style", "-" if series == "blue" else "--")
+                ell_color = default_color
+            ell_style = cfg.get("ell_style", default_series_ell_style(series_id))
             centroid_marker = cfg.get("centroid_marker", "o")
             if centroid_marker not in marker_map:
                 centroid_marker = "o"
@@ -1457,22 +1488,23 @@ class CompareDesignSettingsPanel(QWidget):
             QTabBar::tab:selected {{ background: #FFFFFF; color: #303133; font-weight: bold; }}
         """)
 
-        # Blue (기준) 탭: 텍스트 및 선 디폴트 Blue, 실선('-')
-        self.tab_blue, self.ctrl_blue = self._build_individual_tab(
-            config.COLOR_PRIMARY_BLUE, "-", "blue"
-        )
-        # Red (비교) 탭: 텍스트 및 선 디폴트 Red, 긴 점선('---')
-        self.tab_red, self.ctrl_red = self._build_individual_tab(
-            config.COLOR_PRIMARY_RED, "---", "red"
-        )
+        for series_id in self._series_ids:
+            tab, ctrl = self._build_individual_tab(
+                default_series_color(series_id),
+                self._initial_series_style(series_id),
+                series_id,
+            )
+            self.series_tabs[series_id] = tab
+            self.series_controls[series_id] = ctrl
+            display_name = self._series_display_name(series_id)
+            tab_index = self.sub_tabs.addTab(tab, strip_gichan_prefix(display_name))
+            self.sub_tabs.setTabToolTip(tab_index, display_name)
+            self._series_tab_indices[series_id] = tab_index
 
-        idx_blue = self.sub_tabs.addTab(
-            self.tab_blue, strip_gichan_prefix(self.name_blue)
-        )
-        self.sub_tabs.setTabToolTip(idx_blue, self.name_blue)
-
-        idx_red = self.sub_tabs.addTab(self.tab_red, strip_gichan_prefix(self.name_red))
-        self.sub_tabs.setTabToolTip(idx_red, self.name_red)
+        self.tab_blue = self.series_tabs[0]
+        self.ctrl_blue = self.series_controls[0]
+        self.tab_red = self.series_tabs[1]
+        self.ctrl_red = self.series_controls[1]
 
         self._update_compare_tab_text_colors()
         layout.addSpacing(10)
@@ -1524,7 +1556,7 @@ class CompareDesignSettingsPanel(QWidget):
         self.group_font_style_common.buttonToggled.connect(self._on_setting_changed)
         self.group_raw_marker_common.buttonToggled.connect(self._on_setting_changed)
 
-        for ctrl in [self.ctrl_blue, self.ctrl_red]:
+        for ctrl in self.series_controls.values():
             ctrl["combo_lbl_size"].currentTextChanged.connect(self._on_setting_changed)
             ctrl["btn_bold"].toggled.connect(self._on_setting_changed)
             ctrl["btn_italic"].toggled.connect(self._on_setting_changed)
@@ -1543,12 +1575,10 @@ class CompareDesignSettingsPanel(QWidget):
                 self._on_setting_changed
             )
             ctrl["raw_color_picker"].color_changed.connect(self._on_setting_changed)
-        self.ctrl_blue["ell_line_picker"].color_changed.connect(
-            self._update_compare_tab_text_colors
-        )
-        self.ctrl_red["ell_line_picker"].color_changed.connect(
-            self._update_compare_tab_text_colors
-        )
+        for ctrl in self.series_controls.values():
+            ctrl["ell_line_picker"].color_changed.connect(
+                self._update_compare_tab_text_colors
+            )
 
     def _sync_compare_ell_fill_opacity(self, ctrl):
         ctrl["ell_fill_opacity_row"].set_enabled(
@@ -1565,32 +1595,69 @@ class CompareDesignSettingsPanel(QWidget):
             c = QColor(raw)
             return c if c.isValid() else QColor(fallback)
 
-        bar.setTabTextColor(
-            0,
-            to_qcolor(
-                self.ctrl_blue["ell_line_picker"].current_color,
-                config.COLOR_PRIMARY_BLUE,
-            ),
-        )
-        bar.setTabTextColor(
-            1,
-            to_qcolor(
-                self.ctrl_red["ell_line_picker"].current_color, config.COLOR_PRIMARY_RED
-            ),
-        )
+        for series_id, ctrl in sorted(self.series_controls.items()):
+            tab_index = self._series_tab_indices.get(series_id)
+            if tab_index is None:
+                continue
+            bar.setTabTextColor(
+                tab_index,
+                to_qcolor(
+                    ctrl["ell_line_picker"].current_color,
+                    default_series_color(series_id),
+                ),
+            )
 
     def _on_setting_changed(self, *args):
         if self._is_loading:
             return
         self.settings_changed.emit(self.get_current_settings())
 
+    def _apply_individual_defaults(self, series_id, defaults, single_defaults):
+        ctrl = self.series_controls.get(series_id)
+        if ctrl is None:
+            return
+        default_color = default_series_color(series_id)
+        ctrl["lbl_color_picker"].set_color(defaults.get("lbl_color", default_color))
+        ctrl["combo_lbl_size"].setCurrentText(
+            str(int(defaults.get("lbl_size", single_defaults["lbl_size"])))
+        )
+        ctrl["btn_bold"].setChecked(bool(defaults.get("lbl_bold", True)))
+        ctrl["btn_italic"].setChecked(bool(defaults.get("lbl_italic", False)))
+
+        marker = defaults.get("centroid_marker", "o")
+        marker_idx = MARKER_VALS.index(marker if marker in MARKER_VALS else "o")
+        ctrl["group_centroid_marker"].button(marker_idx).setChecked(True)
+
+        thick_val = float(defaults.get("ell_thick", 1.0))
+        thick_idx = next(
+            (i for i, v in enumerate(THICK_VALS) if abs(v - thick_val) < 0.01),
+            1,
+        )
+        ctrl["group_ell_thick"].button(thick_idx).setChecked(True)
+
+        fallback_style = default_series_ell_style(series_id)
+        ell_style = defaults.get("ell_style", fallback_style)
+        if ell_style not in STYLE_VALS:
+            ell_style = fallback_style if fallback_style in STYLE_VALS else "-"
+        ctrl["group_ell_style"].button(STYLE_VALS.index(ell_style)).setChecked(True)
+
+        ctrl["ell_line_picker"].set_color(defaults.get("ell_color", default_color))
+        ctrl["ell_fill_picker"].set_color(
+            defaults.get("ell_fill_color") or "transparent"
+        )
+        ctrl["ell_fill_opacity_row"].set_opacity(
+            float(defaults.get("ell_fill_opacity", DEFAULT_ELL_FILL_OPACITY))
+        )
+        ctrl["raw_color_picker"].set_color(
+            defaults.get("raw_color", single_defaults["raw_color"])
+        )
+        self._sync_compare_ell_fill_opacity(ctrl)
+
     def _reset_to_defaults(self):
         self._is_loading = True
         single_defaults = get_single_design_defaults()
-        compare_defaults = default_compare_design_settings(2)
+        compare_defaults = default_compare_design_settings(len(self._series_ids))
         common_defaults = compare_defaults.get("common", {})
-        blue_defaults = compare_defaults.get("blue", {})
-        red_defaults = compare_defaults.get("red", {})
 
         self.sw_show_raw.setChecked(bool(common_defaults.get("show_raw", True)))
         self.sw_show_centroid.setChecked(
@@ -1624,79 +1691,12 @@ class CompareDesignSettingsPanel(QWidget):
         raw_idx = ["o", "x", "a"].index(common_defaults.get("raw_marker", "o"))
         self.group_raw_marker_common.button(raw_idx).setChecked(True)
 
-        # Blue 초기화
-        self.ctrl_blue["lbl_color_picker"].set_color(
-            blue_defaults.get("lbl_color", config.COLOR_PRIMARY_BLUE)
-        )
-        self.ctrl_blue["combo_lbl_size"].setCurrentText(
-            str(int(blue_defaults.get("lbl_size", single_defaults["lbl_size"])))
-        )
-        self.ctrl_blue["btn_bold"].setChecked(bool(blue_defaults.get("lbl_bold", True)))
-        self.ctrl_blue["btn_italic"].setChecked(
-            bool(blue_defaults.get("lbl_italic", False))
-        )
-        blue_marker_idx = MARKER_VALS.index(blue_defaults.get("centroid_marker", "o"))
-        self.ctrl_blue["group_centroid_marker"].button(blue_marker_idx).setChecked(True)
-        blue_thick_val = float(blue_defaults.get("ell_thick", 1.0))
-        blue_thick_idx = next(
-            (i for i, v in enumerate(THICK_VALS) if abs(v - blue_thick_val) < 0.01),
-            1,
-        )
-        self.ctrl_blue["group_ell_thick"].button(blue_thick_idx).setChecked(True)
-        blue_style_idx = STYLE_VALS.index(
-            blue_defaults.get("ell_style", "-")
-            if blue_defaults.get("ell_style", "-") in STYLE_VALS
-            else "-"
-        )
-        self.ctrl_blue["group_ell_style"].button(blue_style_idx).setChecked(True)
-        self.ctrl_blue["ell_line_picker"].set_color(
-            blue_defaults.get("ell_color", config.COLOR_PRIMARY_BLUE)
-        )
-        self.ctrl_blue["ell_fill_picker"].set_color("transparent")
-        self.ctrl_blue["ell_fill_opacity_row"].set_opacity(
-            float(blue_defaults.get("ell_fill_opacity", DEFAULT_ELL_FILL_OPACITY))
-        )
-        self.ctrl_blue["raw_color_picker"].set_color(
-            blue_defaults.get("raw_color", single_defaults["raw_color"])
-        )
-        self._sync_compare_ell_fill_opacity(self.ctrl_blue)
-
-        # Red 초기화
-        self.ctrl_red["lbl_color_picker"].set_color(
-            red_defaults.get("lbl_color", config.COLOR_PRIMARY_RED)
-        )
-        self.ctrl_red["combo_lbl_size"].setCurrentText(
-            str(int(red_defaults.get("lbl_size", single_defaults["lbl_size"])))
-        )
-        self.ctrl_red["btn_bold"].setChecked(bool(red_defaults.get("lbl_bold", True)))
-        self.ctrl_red["btn_italic"].setChecked(
-            bool(red_defaults.get("lbl_italic", False))
-        )
-        red_marker_idx = MARKER_VALS.index(red_defaults.get("centroid_marker", "o"))
-        self.ctrl_red["group_centroid_marker"].button(red_marker_idx).setChecked(True)
-        red_thick_val = float(red_defaults.get("ell_thick", 1.0))
-        red_thick_idx = next(
-            (i for i, v in enumerate(THICK_VALS) if abs(v - red_thick_val) < 0.01),
-            1,
-        )
-        self.ctrl_red["group_ell_thick"].button(red_thick_idx).setChecked(True)
-        red_style_idx = STYLE_VALS.index(
-            red_defaults.get("ell_style", "---")
-            if red_defaults.get("ell_style", "---") in STYLE_VALS
-            else "---"
-        )
-        self.ctrl_red["group_ell_style"].button(red_style_idx).setChecked(True)
-        self.ctrl_red["ell_line_picker"].set_color(
-            red_defaults.get("ell_color", config.COLOR_PRIMARY_RED)
-        )
-        self.ctrl_red["ell_fill_picker"].set_color("transparent")
-        self.ctrl_red["ell_fill_opacity_row"].set_opacity(
-            float(red_defaults.get("ell_fill_opacity", DEFAULT_ELL_FILL_OPACITY))
-        )
-        self.ctrl_red["raw_color_picker"].set_color(
-            red_defaults.get("raw_color", single_defaults["raw_color"])
-        )
-        self._sync_compare_ell_fill_opacity(self.ctrl_red)
+        for series_id in self._series_ids:
+            self._apply_individual_defaults(
+                series_id,
+                compare_defaults.get(self._series_legacy_key(series_id), {}),
+                single_defaults,
+            )
 
         self._is_loading = False
         self._on_setting_changed()
@@ -1754,7 +1754,27 @@ class CompareDesignSettingsPanel(QWidget):
                 "font_style": font_style,
             },
             series_cfgs=[
-                self._parse_individual_settings(self.ctrl_blue),
-                self._parse_individual_settings(self.ctrl_red),
+                self._parse_individual_settings(self.series_controls[series_id])
+                for series_id in self._series_ids
+                if series_id in self.series_controls
             ],
         )
+
+    def active_series_id(self) -> int:
+        current_index = self.sub_tabs.currentIndex()
+        for series_id, tab_index in self._series_tab_indices.items():
+            if tab_index == current_index:
+                return series_id
+        return self._series_ids[0]
+
+    def controls_for_series(self, series_id: int | str):
+        return self.series_controls.get(normalize_series_ref(series_id))
+
+    def active_controls(self):
+        return self.controls_for_series(self.active_series_id())
+
+    def iter_series_controls(self):
+        for series_id in self._series_ids:
+            ctrl = self.series_controls.get(series_id)
+            if ctrl is not None:
+                yield series_id, ctrl

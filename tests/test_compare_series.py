@@ -234,6 +234,7 @@ def test_draw_compare_plot_supports_three_series():
 
 class _PopupStub:
     compare_session = CompareSession.from_data_indices(0, 1, 2)
+    layer_order_by_series = {0: ["a", "i"], 1: ["u", "o"], 2: ["e"]}
 
     def get_design_settings(self):
         return None
@@ -243,6 +244,9 @@ class _PopupStub:
 
     def get_layer_design_overrides_for_series(self, series_id):
         return {}
+
+    def get_layer_order_for_series(self, series_id):
+        return self.layer_order_by_series.get(series_id, [])
 
 
 class _ControllerStub:
@@ -274,6 +278,169 @@ def test_build_compare_series_inputs_for_three_series():
     )
     assert len(inputs) == 3
     assert inputs[2].display_name == "C.txt"
+    assert inputs[0].layer_order == ["a", "i"]
+    assert inputs[1].layer_order == ["u", "o"]
+    assert inputs[2].layer_order == ["e"]
+
+
+def test_build_compare_series_inputs_layer_order_fallback_to_legacy_field():
+    class _PopupLegacyOrderStub:
+        compare_session = CompareSession.from_data_indices(0, 1)
+        layer_order = ["i", "a", "u"]
+
+        def get_design_settings(self):
+            return None
+
+        def get_filter_state_for_series(self, series_id):
+            return {}
+
+        def get_layer_design_overrides_for_series(self, series_id):
+            return {}
+
+    session = CompareSession.from_data_indices(0, 1)
+    plot_key = make_compare_plot_key(session, "f1_f2")
+    inputs = build_compare_series_inputs(
+        _ControllerStub(),
+        session,
+        _PopupLegacyOrderStub(),
+        design_settings=None,
+        plot_type="f1_f2",
+        norm=None,
+        plot_key=plot_key,
+    )
+    assert len(inputs) == 2
+    assert inputs[0].layer_order == ["i", "a", "u"]
+    assert inputs[1].layer_order == ["i", "a", "u"]
+
+
+def test_compare_layer_state_is_isolated_by_series():
+    class _PopupScopedStateStub:
+        compare_session = CompareSession.from_data_indices(0, 1)
+        layer_order_by_series = {}
+
+        def __init__(self):
+            self._filter_states = {0: {"a": "OFF"}, 1: {"i": "SEMI"}}
+            self._overrides = {
+                0: {"a": {"lbl_color": "#111111"}},
+                1: {"i": {"lbl_color": "#222222"}},
+            }
+
+        def get_design_settings(self):
+            return None
+
+        def get_filter_state_for_series(self, series_id):
+            return self._filter_states.get(series_id, {})
+
+        def get_layer_design_overrides_for_series(self, series_id):
+            return self._overrides.get(series_id, {})
+
+        def get_layer_order_for_series(self, series_id):
+            return []
+
+    session = CompareSession.from_data_indices(0, 1)
+    plot_key = make_compare_plot_key(session, "f1_f2")
+    popup = _PopupScopedStateStub()
+    inputs = build_compare_series_inputs(
+        _ControllerStub(),
+        session,
+        popup,
+        design_settings=None,
+        plot_type="f1_f2",
+        norm=None,
+        plot_key=plot_key,
+    )
+    assert inputs[0].filter_state == {"a": "OFF"}
+    assert inputs[1].filter_state == {"i": "SEMI"}
+    assert inputs[0].layer_overrides == {"a": {"lbl_color": "#111111"}}
+    assert inputs[1].layer_overrides == {"i": {"lbl_color": "#222222"}}
+
+    # 반환값 변경이 popup 내부 상태를 오염시키지 않아야 한다.
+    inputs[0].layer_overrides["a"]["lbl_color"] = "#999999"
+    assert popup._overrides[0]["a"]["lbl_color"] == "#111111"
+
+
+def test_compare_layer_order_is_isolated_by_series():
+    class _PopupScopedOrderStub:
+        compare_session = CompareSession.from_data_indices(0, 1)
+
+        def __init__(self):
+            self.layer_order_by_series = {0: ["a", "i"], 1: ["u", "o"]}
+
+        def get_design_settings(self):
+            return None
+
+        def get_filter_state_for_series(self, series_id):
+            return {}
+
+        def get_layer_design_overrides_for_series(self, series_id):
+            return {}
+
+        def get_layer_order_for_series(self, series_id):
+            return self.layer_order_by_series.get(series_id, [])
+
+    session = CompareSession.from_data_indices(0, 1)
+    plot_key = make_compare_plot_key(session, "f1_f2")
+    popup = _PopupScopedOrderStub()
+    inputs = build_compare_series_inputs(
+        _ControllerStub(),
+        session,
+        popup,
+        design_settings=None,
+        plot_type="f1_f2",
+        norm=None,
+        plot_key=plot_key,
+    )
+    assert inputs[0].layer_order == ["a", "i"]
+    assert inputs[1].layer_order == ["u", "o"]
+
+
+def test_layer_order_persists_across_compare_refresh():
+    class _PopupScopedOrderStub:
+        compare_session = CompareSession.from_data_indices(0, 1)
+
+        def __init__(self):
+            self.layer_order_by_series = {0: ["a", "i"], 1: ["u", "o"]}
+
+        def get_design_settings(self):
+            return None
+
+        def get_filter_state_for_series(self, series_id):
+            return {}
+
+        def get_layer_design_overrides_for_series(self, series_id):
+            return {}
+
+        def get_layer_order_for_series(self, series_id):
+            return self.layer_order_by_series.get(series_id, [])
+
+    session = CompareSession.from_data_indices(0, 1)
+    plot_key = make_compare_plot_key(session, "f1_f2")
+    popup = _PopupScopedOrderStub()
+
+    first_inputs = build_compare_series_inputs(
+        _ControllerStub(),
+        session,
+        popup,
+        design_settings=None,
+        plot_type="f1_f2",
+        norm=None,
+        plot_key=plot_key,
+    )
+    assert first_inputs[0].layer_order == ["a", "i"]
+    assert first_inputs[1].layer_order == ["u", "o"]
+
+    popup.layer_order_by_series[1] = ["o", "u"]
+    second_inputs = build_compare_series_inputs(
+        _ControllerStub(),
+        session,
+        popup,
+        design_settings=None,
+        plot_type="f1_f2",
+        norm=None,
+        plot_key=plot_key,
+    )
+    assert second_inputs[0].layer_order == ["a", "i"]
+    assert second_inputs[1].layer_order == ["o", "u"]
 
 
 def test_apply_compare_render_to_popup_sets_by_series():
@@ -295,12 +462,13 @@ def test_merged_label_move_context_combines_all_series():
     popup.label_data_by_series = {
         0: [{"vowel": "a", "lx": 1.0, "ly": 2.0}],
         1: [{"vowel": "i", "lx": 3.0, "ly": 4.0}],
+        2: [{"vowel": "u", "lx": 5.0, "ly": 6.0}],
     }
-    popup.label_text_artists_by_series = {0: ["A-art"], 1: ["I-art"]}
+    popup.label_text_artists_by_series = {0: ["A-art"], 1: ["I-art"], 2: ["U-art"]}
     label_data, artists = merged_label_move_context(popup)
-    assert len(label_data) == 2
-    assert {entry["series"] for entry in label_data} == {"blue", "red"}
-    assert artists == ["A-art", "I-art"]
+    assert len(label_data) == 3
+    assert {entry["series"] for entry in label_data} == {0, 1, 2}
+    assert artists == ["A-art", "I-art", "U-art"]
 
 
 def test_merged_label_move_context_legacy_blue_red():
@@ -312,6 +480,6 @@ def test_merged_label_move_context_legacy_blue_red():
 
     label_data, artists = merged_label_move_context(_LegacyPopup())
     assert len(label_data) == 2
-    assert label_data[0]["series"] == "blue"
-    assert label_data[1]["series"] == "red"
+    assert label_data[0]["series"] == 0
+    assert label_data[1]["series"] == 1
     assert artists == ["A", "U"]

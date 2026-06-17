@@ -3,13 +3,49 @@ from __future__ import annotations
 from copy import deepcopy
 from typing import Any, Dict, List
 
+from core.compare_series import legacy_key_from_series_id, normalize_series_ref
+
 
 class LabelManager:
     """라벨(모음) 도메인 상태 접근 전용 매니저."""
 
-    def __init__(self, popup: object, state_key: str | None = None):
+    def __init__(
+        self,
+        popup: object,
+        state_key: str | None = None,
+        series_id: int | str | None = None,
+    ):
         self._popup = popup
-        self._state_key = state_key
+        self._series_id = self._coerce_series_id(series_id, state_key)
+        self._state_key = None if self._series_id is not None else state_key
+
+    @staticmethod
+    def _coerce_series_id(
+        series_id: int | str | None,
+        state_key: str | None,
+    ) -> int | None:
+        ref = series_id if series_id is not None else state_key
+        if ref is None:
+            return None
+        try:
+            return normalize_series_ref(ref)
+        except (TypeError, ValueError):
+            return None
+
+    def _is_series_scoped(self) -> bool:
+        return self._series_id is not None
+
+    def _series_map(self, attr: str) -> dict:
+        mapping = getattr(self._popup, attr, None)
+        if mapping is None:
+            mapping = {}
+            setattr(self._popup, attr, mapping)
+        return mapping
+
+    def _legacy_attr(self, base_name: str) -> str | None:
+        if self._series_id is None or self._series_id > 1:
+            return None
+        return f"{base_name}_{legacy_key_from_series_id(self._series_id)}"
 
     def _scoped_attr(self, base_name: str) -> str:
         if self._state_key:
@@ -17,17 +53,47 @@ class LabelManager:
         return base_name
 
     def get_filter_state(self) -> Dict[str, str]:
-        return getattr(self._popup, self._scoped_attr("vowel_filter_state"), {}) or {}
+        if self._is_series_scoped():
+            states = getattr(self._popup, "vowel_filter_states", {}) or {}
+            if self._series_id in states:
+                return dict(states[self._series_id] or {})
+            legacy_attr = self._legacy_attr("vowel_filter_state")
+            if legacy_attr:
+                return dict(getattr(self._popup, legacy_attr, {}) or {})
+            return {}
+        return dict(
+            getattr(self._popup, self._scoped_attr("vowel_filter_state"), {}) or {}
+        )
 
     def set_filter_state(self, state: Dict[str, str]) -> None:
+        if self._is_series_scoped():
+            copied = dict(state)
+            self._series_map("vowel_filter_states")[self._series_id] = copied
+            return
         setattr(self._popup, self._scoped_attr("vowel_filter_state"), dict(state))
 
     def get_layer_overrides(self) -> Dict[str, Dict[str, Any]]:
+        if self._is_series_scoped():
+            by_series = (
+                getattr(self._popup, "layer_design_overrides_by_series", {}) or {}
+            )
+            if self._series_id in by_series:
+                return deepcopy(by_series[self._series_id])
+            legacy_attr = self._legacy_attr("layer_design_overrides")
+            if legacy_attr:
+                return deepcopy(getattr(self._popup, legacy_attr, {}) or {})
+            return {}
         return deepcopy(
             getattr(self._popup, self._scoped_attr("layer_design_overrides"), {}) or {}
         )
 
     def set_layer_overrides(self, overrides: Dict[str, Dict[str, Any]]) -> None:
+        if self._is_series_scoped():
+            copied = deepcopy(overrides)
+            self._series_map("layer_design_overrides_by_series")[self._series_id] = (
+                copied
+            )
+            return
         setattr(
             self._popup,
             self._scoped_attr("layer_design_overrides"),
@@ -35,9 +101,17 @@ class LabelManager:
         )
 
     def get_layer_order(self) -> List[str]:
+        if self._is_series_scoped():
+            by_series = getattr(self._popup, "layer_order_by_series", {}) or {}
+            if self._series_id in by_series:
+                return list(by_series[self._series_id] or [])
+            return list(getattr(self._popup, "layer_order", None) or [])
         return list(getattr(self._popup, "layer_order", None) or [])
 
     def set_layer_order(self, order: List[str]) -> None:
+        if self._is_series_scoped():
+            self._series_map("layer_order_by_series")[self._series_id] = list(order)
+            return
         self._popup.layer_order = list(order)
 
     def notify_apply(self) -> None:
@@ -55,6 +129,18 @@ class LabelManager:
         return getattr(controller, "current_idx", default)
 
     def get_locked_vowels_set(self) -> set[str]:
+        if self._is_series_scoped():
+            by_series = self._series_map("layer_locked_vowels_by_series")
+            if self._series_id not in by_series:
+                legacy_attr = self._legacy_attr("layer_locked_vowels")
+                legacy_value = (
+                    getattr(self._popup, legacy_attr, None) if legacy_attr else None
+                )
+                by_series[self._series_id] = (
+                    legacy_value if isinstance(legacy_value, set) else set()
+                )
+            return by_series[self._series_id]
+
         if self._state_key:
             attr = f"layer_locked_vowels_{self._state_key}"
             if not hasattr(self._popup, attr):
@@ -78,7 +164,7 @@ class LabelManager:
     def sync_overrides_by_current_file(
         self, overrides: Dict[str, Dict[str, Any]]
     ) -> None:
-        if self._state_key:
+        if self._is_series_scoped() or self._state_key:
             return
         idx = self.get_current_index(default=None)
         if idx is None:
@@ -89,7 +175,7 @@ class LabelManager:
         by_file[idx] = deepcopy(overrides)
 
     def sync_filter_state_by_current_file(self, state: Dict[str, str]) -> None:
-        if self._state_key:
+        if self._is_series_scoped() or self._state_key:
             return
         idx = self.get_current_index(default=None)
         if idx is None:
@@ -101,6 +187,19 @@ class LabelManager:
 
     def prune_to_locked_only_for_current_file(self) -> set[str]:
         locked_set = self.get_locked_vowels_set()
+        if self._is_series_scoped():
+            self.set_layer_overrides(
+                {
+                    v: dict(ov)
+                    for v, ov in self.get_layer_overrides().items()
+                    if v in locked_set
+                }
+            )
+            self.set_filter_state(
+                {v: st for v, st in self.get_filter_state().items() if v in locked_set}
+            )
+            return locked_set
+
         if self._state_key:
             ov_attr = self._scoped_attr("layer_design_overrides")
             st_attr = self._scoped_attr("vowel_filter_state")

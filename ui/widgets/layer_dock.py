@@ -2,7 +2,7 @@
 #
 # compare_plot 이식 시 재사용할 로직 정리:
 # - 상태 접근: _get_current_filter_state() / _set_filter_state(state) 로만 읽기·쓰기.
-# - 표시 순서: _get_ordered_vowels_for_display(vowels) 에서 popup.layer_order 사용. compare 시 탭별로 동일 구조 확장 가능.
+# - 표시 순서: _get_ordered_vowels_for_display(vowels) 에서 LabelManager 저장소 사용.
 # - 전체 한 줄: _build_global_row() 는 눈/반투명만 사용, 동일 규칙(눈=전체 끄기/켜기, 반투명=전체 반투명/해제).
 # - 순서 변경: _on_layer_reorder(dragged, target, after) 로 저장 후 set_vowels(ordered). 삽입 위치 미리 보기는 _set_drop_indicator_between / _hide_drop_indicator.
 
@@ -54,11 +54,16 @@ from ui.widgets.design_panel import (
 )
 from ui.widgets.collapsible_section import CollapsibleSection
 from ui.widgets.opacity_slider import DEFAULT_ELL_FILL_OPACITY, OpacitySliderRow
-from ui.widgets.segmented_control import create_line_preview_button_group
 from ui.widgets.draw_design_panel import DrawDesignPanel
 from ui.widgets.layer_data_model import LayerDataModel
 from ui.widgets.label_manager import LabelManager
 from ui.widgets.draw_manager import DrawManager
+from ui.widgets.layer_display import (
+    create_visual_button_group,
+    draw_object_display_name,
+    format_color_display,
+)
+from ui.widgets.layer_selection_state import common_override_value
 from ui.widgets.layer_row_widgets import (
     _RowClickForwarder,
     _LayerRowFrame,
@@ -90,26 +95,6 @@ from ui.widgets.design_defaults import (
 )
 
 
-COLOR_NAMES = {
-    "#E64A19": "Red",
-    "#F57C00": "Orange",
-    "#FFEB3B": "Yellow",
-    "#388E3C": "Green",
-    "#00BCD4": "Cyan",
-    "#1976D2": "Blue",
-    "#7B1FA2": "Purple",
-    "#E91E63": "Pink",
-    "#606060": "Dark Gray",
-    "#000000": "Black",
-    "#AAAAAA": "Light Gray",
-    "#795548": "Brown",
-    "#009688": "Teal",
-    "#FF9800": "Amber",
-    "transparent": "Transparent",
-    "custom": "Custom Color",
-}
-
-
 class TabBarWheelBlocker(QObject):
     """탭 위에서 마우스 휠로 탭이 바뀌지 않도록 휠 이벤트를 흡수합니다."""
 
@@ -117,111 +102,6 @@ class TabBarWheelBlocker(QObject):
         if event.type() == QEvent.Type.Wheel:
             return True
         return False
-
-
-def _draw_object_display_name(draw_objects, index, normalization=None):
-    """그리기 객체의 레이어 목록 표시명. 선 N : a-e-o, 영역 N : o-e-a-o, 참조선 X/Y=..."""
-    if not draw_objects or index < 0 or index >= len(draw_objects):
-        return ""
-    obj = draw_objects[index]
-    t = getattr(obj, "type", "")
-    if t == "legend":
-        return getattr(obj, "name", None) or "범례"
-    if t == "text":
-        n = 1 + sum(
-            1 for i in range(index) if getattr(draw_objects[i], "type", "") == "text"
-        )
-        preview = str(getattr(obj, "text", "") or "").strip().split("\n", 1)[0]
-        if len(preview) > 18:
-            preview = preview[:17] + "…"
-        suffix = f" : {preview}" if preview else ""
-        return f"텍스트 {n}{suffix}"
-    if t == "line":
-        n = 1 + sum(
-            1 for i in range(index) if getattr(draw_objects[i], "type", "") == "line"
-        )
-        labels = getattr(obj, "point_labels", None) or []
-        s = getattr(obj, "series", None)
-        if s in ("blue", "red"):
-            suffix = "1" if s == "blue" else "2"
-            norm_labels = []
-            for lb in labels:
-                t_lb = str(lb).strip()
-                if t_lb in ("", "?"):
-                    norm_labels.append(t_lb)
-                elif t_lb.endswith("1") or t_lb.endswith("2"):
-                    norm_labels.append(t_lb)
-                else:
-                    norm_labels.append(f"{t_lb}{suffix}")
-            labels = norm_labels
-        suffix = " : " + "-".join(labels) if labels else ""
-        return f"선 {n}{suffix}"
-    if t == "polygon":
-        n = 1 + sum(
-            1 for i in range(index) if getattr(draw_objects[i], "type", "") == "polygon"
-        )
-        labels = getattr(obj, "point_labels", None) or []
-        s = getattr(obj, "series", None)
-        if s in ("blue", "red"):
-            suffix = "1" if s == "blue" else "2"
-            norm_labels = []
-            for lb in labels:
-                t_lb = str(lb).strip()
-                if t_lb in ("", "?"):
-                    norm_labels.append(t_lb)
-                elif t_lb.endswith("1") or t_lb.endswith("2"):
-                    norm_labels.append(t_lb)
-                else:
-                    norm_labels.append(f"{t_lb}{suffix}")
-            labels = norm_labels
-        if labels:
-            suffix = " : " + "-".join(labels) + "-" + labels[0]
-        else:
-            suffix = ""
-        return f"영역 {n}{suffix}"
-    if t == "reference":
-        v = getattr(obj, "value", 0)  # 단위(Unit) 기준 순수 데이터 값
-        axis_name = getattr(obj, "axis_name", None) or ""
-        unit = (getattr(obj, "axis_units", "Hz") or "Hz").strip().lower()
-        is_norm = unit == "norm" or "norm" in unit
-        if not axis_name and getattr(obj, "mode", "") == "horizontal":
-            axis_name = "nF1" if is_norm else "F1"
-        if not axis_name:
-            axis_name = "nF2" if is_norm else "F2"
-        unit = (getattr(obj, "axis_units", "Hz") or "Hz").strip().lower()
-        if unit == "norm" or "norm" in unit:
-            if "gerstman" in str(normalization or "").strip().lower():
-                s = f"{int(round(float(v)))}"
-            else:
-                s = f"{v:.2f}"
-        elif unit in ("bk", "bark"):
-            s = f"{v:.1f}"
-        else:
-            s = str(int(v))
-        return f"참조선 : {axis_name}={s}"
-    if t == "area_label":
-        v = getattr(obj, "value", 0)
-        unit = (getattr(obj, "axis_units", "Hz") or "Hz").strip().lower()
-        if unit == "norm" or "norm" in unit:
-            s = f"{v:.2f}"
-        else:
-            s = str(int(round(v)))
-        return f"넓이 : {s}"
-    return f"그리기 {index + 1}"
-
-
-def _format_color_display(color_hex):
-    if not color_hex or color_hex == "transparent":
-        return "Transparent"
-    key = color_hex if color_hex in COLOR_NAMES else color_hex.upper()
-    name = COLOR_NAMES.get(key, "Custom Color")
-    if name == "Custom Color":
-        return f"Custom ({color_hex})"
-    return f"{name} ({color_hex})"
-
-
-def _create_visual_button_group(parent, options, default_idx):
-    return create_line_preview_button_group(parent, options, default_idx)
 
 
 class LayerDockWidget(QWidget):
@@ -238,6 +118,7 @@ class LayerDockWidget(QWidget):
         parent_popup,
         ui_font_name="Malgun Gothic",
         state_key=None,
+        series_id=None,
         compare_mode=False,
         file_a_name="",
         file_b_name="",
@@ -247,12 +128,14 @@ class LayerDockWidget(QWidget):
         file_b_tooltip=None,
         get_default_design=None,
     ):
-        """state_key: None=단일 플롯, 'blue'/'red'=compare_plot 쪽 탭별 상태. compare_mode 시 레이어 탭 내에 파일 선택 행 표시.
-        get_default_design: compare_plot용. None이면 popup.design_settings 사용, callable이면 호출해 해당 시리즈(Blue/Red) 기본값 사용."""
+        """state_key: legacy compare alias. series_id: compare_plot 쪽 탭별 상태.
+        compare_mode 시 레이어 탭 내에 파일 선택 행 표시.
+        get_default_design: compare_plot용. None이면 popup.design_settings 사용, callable이면 호출해 해당 시리즈 기본값 사용."""
         super().__init__(parent_popup)
         self.popup = parent_popup
         self.ui_font_name = ui_font_name
-        self._state_key = state_key  # None | 'blue' | 'red'
+        self._state_key = state_key
+        self._series_id = series_id
         self._compare_mode = compare_mode
         self._file_a_name = file_a_name
         self._file_b_name = file_b_name
@@ -261,7 +144,11 @@ class LayerDockWidget(QWidget):
         self._file_a_tooltip = file_a_tooltip
         self._file_b_tooltip = file_b_tooltip
         self._get_default_design = get_default_design  # callable() -> dict | None
-        self.label_manager = LabelManager(self.popup, state_key=self._state_key)
+        self.label_manager = LabelManager(
+            self.popup,
+            state_key=self._state_key,
+            series_id=self._series_id,
+        )
         self.draw_manager = DrawManager(self.popup)
         self.data_model = LayerDataModel(self.label_manager, self.draw_manager, self)
 
@@ -467,7 +354,7 @@ class LayerDockWidget(QWidget):
             (2.0, Qt.PenStyle.SolidLine, "0px", "보통"),
             (3.5, Qt.PenStyle.SolidLine, "0 4px 4px 0", "두껍게"),
         ]
-        thick_frame, self.group_ell_thick = _create_visual_button_group(
+        thick_frame, self.group_ell_thick = create_visual_button_group(
             self.vowel_design_container, thicks, 1
         )
         styles = [
@@ -475,7 +362,7 @@ class LayerDockWidget(QWidget):
             (2.0, Qt.PenStyle.DashLine, "0px", "긴 점선"),
             (2.0, Qt.PenStyle.DotLine, "0 4px 4px 0", "짧은 점선"),
         ]
-        style_frame, self.group_ell_style = _create_visual_button_group(
+        style_frame, self.group_ell_style = create_visual_button_group(
             self.vowel_design_container, styles, 2
         )
         ell_type_row = _field_group("타원 선 타입", font_normal)
@@ -1106,7 +993,7 @@ class LayerDockWidget(QWidget):
         name_layout.setSpacing(4)
         font_name = QFont(self.ui_font_name)
         font_name.setPointSizeF(8)
-        full_name = _draw_object_display_name(
+        full_name = draw_object_display_name(
             draw_objects,
             draw_index,
             normalization=getattr(self.popup, "normalization", None)
@@ -2140,7 +2027,7 @@ class LayerDockWidget(QWidget):
                     is_selected = i in getattr(self, "_selected_draw_indices", set())
                     row.setProperty("selected", is_selected)
                     if hasattr(row, "name_btn"):
-                        full_name = _draw_object_display_name(
+                        full_name = draw_object_display_name(
                             draw_objects,
                             i,
                             normalization=getattr(self.popup, "normalization", None)
@@ -2764,17 +2651,6 @@ class LayerDockWidget(QWidget):
                     btn.setChecked(False)
                 group.setExclusive(was_exclusive)
 
-            def _effective_value(vowel: str, key: str, fallback):
-                o = overrides.get(vowel, {})
-                return o.get(key, ds.get(key, fallback))
-
-            def _common_or_none(key: str, fallback):
-                values = [_effective_value(v, key, fallback) for v in selected_vowels]
-                if not values:
-                    return ds.get(key, fallback)
-                first = values[0]
-                return first if all(val == first for val in values[1:]) else None
-
             _clear_mixed_tooltips()
             if len(selected_vowels) == 1:
                 v = selected_vowels[0]
@@ -2828,21 +2704,47 @@ class LayerDockWidget(QWidget):
                 )
             elif len(selected_vowels) > 1:
                 mixed_tip = "여러 값(혼합)"
-                common_lbl_color = _common_or_none(
-                    "lbl_color", config.COLOR_PRIMARY_RED
+                common_lbl_color = common_override_value(
+                    selected_vowels,
+                    "lbl_color",
+                    overrides,
+                    ds,
+                    config.COLOR_PRIMARY_RED,
                 )
-                common_lbl_size = _common_or_none("lbl_size", 16)
-                common_lbl_bold = _common_or_none("lbl_bold", True)
-                common_lbl_italic = _common_or_none("lbl_italic", False)
-                common_marker = _common_or_none("centroid_marker", "o")
-                common_thick = _common_or_none("ell_thick", 1.0)
-                common_style = _common_or_none("ell_style", "--")
-                common_ell_color = _common_or_none("ell_color", "#606060")
-                common_fill_color = _common_or_none("ell_fill_color", "transparent")
-                common_fill_opacity = _common_or_none(
-                    "ell_fill_opacity", DEFAULT_ELL_FILL_OPACITY
+                common_lbl_size = common_override_value(
+                    selected_vowels, "lbl_size", overrides, ds, 16
                 )
-                common_raw_color = _common_or_none("raw_color", "#606060")
+                common_lbl_bold = common_override_value(
+                    selected_vowels, "lbl_bold", overrides, ds, True
+                )
+                common_lbl_italic = common_override_value(
+                    selected_vowels, "lbl_italic", overrides, ds, False
+                )
+                common_marker = common_override_value(
+                    selected_vowels, "centroid_marker", overrides, ds, "o"
+                )
+                common_thick = common_override_value(
+                    selected_vowels, "ell_thick", overrides, ds, 1.0
+                )
+                common_style = common_override_value(
+                    selected_vowels, "ell_style", overrides, ds, "--"
+                )
+                common_ell_color = common_override_value(
+                    selected_vowels, "ell_color", overrides, ds, "#606060"
+                )
+                common_fill_color = common_override_value(
+                    selected_vowels, "ell_fill_color", overrides, ds, "transparent"
+                )
+                common_fill_opacity = common_override_value(
+                    selected_vowels,
+                    "ell_fill_opacity",
+                    overrides,
+                    ds,
+                    DEFAULT_ELL_FILL_OPACITY,
+                )
+                common_raw_color = common_override_value(
+                    selected_vowels, "raw_color", overrides, ds, "#606060"
+                )
 
                 self.lbl_color_picker.set_color(
                     common_lbl_color
@@ -2960,7 +2862,7 @@ class LayerDockWidget(QWidget):
         if value is None:
             return ""
         if key == "lbl_color":
-            return _format_color_display(value)
+            return format_color_display(value)
         if key == "lbl_size":
             return f"{int(value)}pt"
         if key == "lbl_bold":
@@ -2974,7 +2876,7 @@ class LayerDockWidget(QWidget):
         if key == "ell_style":
             return STYLE_LABELS.get(value, str(value))
         if key in ["ell_color", "ell_fill_color", "raw_color"]:
-            return _format_color_display(value)
+            return format_color_display(value)
         if key == "ell_fill_opacity":
             return f"{int(round(float(value) * 100))}%"
         return str(value)[:20]
@@ -3125,7 +3027,7 @@ class LayerDockWidget(QWidget):
             if value is None:
                 return ""
             if key in ("line_color", "border_color", "fill_color"):
-                return _format_color_display(value)
+                return format_color_display(value)
             if key == "line_style" or key == "border_style":
                 return STYLE_LABELS.get(value, str(value))
             if key == "arrow_mode":

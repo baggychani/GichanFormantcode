@@ -1761,7 +1761,7 @@ class MainController:
             app_logger.info(config.LOG_MSG["LABEL_MOVE_OFF"])
 
     def _save_compare_label_offset(self, dragging, popup_window):
-        series = dragging.get("series", "blue")
+        series = dragging.get("series", 0)
         key = self._get_compare_label_offset_key(popup_window, series)
         if not key:
             return
@@ -1779,10 +1779,10 @@ class MainController:
 
     def _clear_compare_label_offset_from_arg(self, popup_window, arg):
         if isinstance(arg, dict):
-            series = arg.get("series", "blue")
+            series = arg.get("series", 0)
             vowel = arg.get("vowel")
         else:
-            series = "blue"
+            series = 0
             vowel = arg
         if vowel is None:
             return

@@ -29,6 +29,8 @@ class ComparePopupSeriesAccess(Protocol):
 
     def get_layer_design_overrides_for_series(self, series_id: int) -> dict: ...
 
+    def get_layer_order_for_series(self, series_id: int) -> list[str]: ...
+
 
 def resolve_compare_session(
     popup_window: Any,
@@ -82,7 +84,10 @@ def _read_layer_overrides(popup_window: Any, series_id: int) -> dict:
     return {}
 
 
-def _read_layer_order(popup_window: Any) -> list[str]:
+def _read_layer_order(popup_window: Any, series_id: int) -> list[str]:
+    getter = getattr(popup_window, "get_layer_order_for_series", None)
+    if getter is not None:
+        return list(getter(series_id) or [])
     order = getattr(popup_window, "layer_order", None) or []
     return list(order)
 
@@ -118,7 +123,7 @@ def build_compare_series_inputs(
                 design_cfg=get_series_design_cfg(normalized_design, series_id),
                 layer_overrides=_read_layer_overrides(popup_window, series_id),
                 custom_label_offsets=custom_offsets,
-                layer_order=_read_layer_order(popup_window),
+                layer_order=_read_layer_order(popup_window, series_id),
             )
         )
     return inputs
@@ -173,10 +178,9 @@ def merged_label_move_context(popup_window: Any) -> tuple[list[dict], list]:
     artists_by_series = getattr(popup_window, "label_text_artists_by_series", None)
     if isinstance(by_series, dict) and by_series:
         for series_id in sorted(by_series.keys()):
-            legacy = legacy_key_from_series_id(series_id)
             for lb in by_series.get(series_id, []) or []:
                 entry = dict(lb)
-                entry["series"] = legacy
+                entry["series"] = series_id
                 label_data.append(entry)
             if isinstance(artists_by_series, dict):
                 label_text_artists.extend(artists_by_series.get(series_id, []) or [])
@@ -184,7 +188,7 @@ def merged_label_move_context(popup_window: Any) -> tuple[list[dict], list]:
     for legacy in ("blue", "red"):
         for lb in getattr(popup_window, f"label_data_{legacy}", []) or []:
             entry = dict(lb)
-            entry["series"] = legacy
+            entry["series"] = normalize_series_ref(legacy)
             label_data.append(entry)
         label_text_artists.extend(
             getattr(popup_window, f"label_text_artists_{legacy}", []) or []

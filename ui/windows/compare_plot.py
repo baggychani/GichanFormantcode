@@ -50,7 +50,13 @@ from engine.plot_engine import PlotEngine
 from ui.widgets.tool_indicator import ToolStatusIndicator
 from utils import icon_utils
 import config
-from core.compare_series import CompareSession, normalize_series_ref
+from core.compare_series import (
+    CompareSession,
+    default_series_color,
+    default_series_ell_style,
+    legacy_key_from_series_id,
+    normalize_series_ref,
+)
 from utils import app_logger
 from ui.widgets.filter_panel import MultiVowelFilterPanel
 
@@ -68,6 +74,7 @@ import ui.widgets.layout_constants as layout
 from draw import DrawModeIndicator
 from draw.draw_common import polygon_area, AreaLabelObject
 from utils.vowel_sorting import get_vowel_sort_key
+from core.compare_settings import get_series_design_cfg
 
 
 class ClickClearFocusFilter(QObject):
@@ -673,6 +680,7 @@ class ComparePlotPopup(BasePlotWindow):
         self.idx_blue = idx_blue
         self.idx_red = idx_red
         self.compare_session = CompareSession.from_data_indices(idx_blue, idx_red)
+        self._series_ids = tuple(range(self.compare_session.count))
         self.x_axis_label = x_axis_label
         self.normalization = normalization
         self.fixed_plot_params = {}
@@ -685,17 +693,19 @@ class ComparePlotPopup(BasePlotWindow):
         self.layer_dock_floating_state = False
         self._layer_dock_geometry = None
 
-        self.vowel_filter_state_blue = {}
-        self.vowel_filter_state_red = {}
-        self.vowel_filter_states: dict[int, dict] = {}
-        self.layer_design_overrides_blue = {}
-        self.layer_design_overrides_red = {}
-        self.layer_design_overrides_by_series: dict[int, dict] = {}
+        self.vowel_filter_states: dict[int, dict] = {
+            series_id: {} for series_id in self._series_ids
+        }
+        self.layer_design_overrides_by_series: dict[int, dict] = {
+            series_id: {} for series_id in self._series_ids
+        }
         self.label_data_by_series: dict[int, list] = {}
         self.label_text_artists_by_series: dict[int, list] = {}
-        self.layer_order = []
-        self.layer_locked_vowels_blue = set()
-        self.layer_locked_vowels_red = set()
+        self.layer_order_by_series: dict[int, list[str]] = {}
+        self.layer_order = []  # legacy fallback for older helpers only
+        self.layer_locked_vowels_by_series: dict[int, set[str]] = {
+            series_id: set() for series_id in self._series_ids
+        }
         self.filter_panel = None
         self.design_settings = {}
         # 다중 플롯 draw는 파일별이 아닌 공통 리스트를 사용
@@ -717,11 +727,12 @@ class ComparePlotPopup(BasePlotWindow):
         self._last_refresh_requested_at = 0.0
 
         # 범례 위젯들을 저장하여 실시간 렌더링에 사용
-        self.legend_refs = {"blue": {}, "red": {}}
+        self.legend_refs = {
+            legacy_key_from_series_id(series_id): {}
+            for series_id in self._visible_layer_series_ids()
+        }
 
-        data_blue_item, data_red_item = self.controller.get_compare_data(
-            self.idx_blue, self.idx_red
-        )
+        data_blue_item, data_red_item = self._compare_data_pair()
         self._compare_data_blue = data_blue_item
         self._compare_data_red = data_red_item
         data_blue = data_blue_item["name"] if data_blue_item else ""
@@ -783,34 +794,65 @@ class ComparePlotPopup(BasePlotWindow):
 
     def get_filter_state_for_series(self, series_id: int):
         sid = normalize_series_ref(series_id)
-        if sid == 0:
-            return self.vowel_filter_state_blue
-        if sid == 1:
-            return self.vowel_filter_state_red
-        return self.vowel_filter_states.get(sid, {})
+        return self.vowel_filter_states.setdefault(sid, {})
 
     def get_layer_design_overrides_for_series(self, series_id: int):
         sid = normalize_series_ref(series_id)
-        if sid == 0:
-            return self.layer_design_overrides_blue
-        if sid == 1:
-            return self.layer_design_overrides_red
-        return self.layer_design_overrides_by_series.get(sid, {})
+        return self.layer_design_overrides_by_series.setdefault(sid, {})
+
+    def get_layer_order_for_series(self, series_id: int):
+        sid = normalize_series_ref(series_id)
+        return list(self.layer_order_by_series.get(sid, []))
 
     def get_filter_state_blue(self):
-        return self.vowel_filter_state_blue
+        return self.get_filter_state_for_series(0)
 
     def get_filter_state_red(self):
-        return self.vowel_filter_state_red
+        return self.get_filter_state_for_series(1)
 
     def get_design_settings(self):
         return self.design_settings
 
     def get_layer_design_overrides_blue(self):
-        return self.layer_design_overrides_blue
+        return self.get_layer_design_overrides_for_series(0)
 
     def get_layer_design_overrides_red(self):
-        return self.layer_design_overrides_red
+        return self.get_layer_design_overrides_for_series(1)
+
+    def _compare_series_ids(self) -> tuple[int, ...]:
+        session = getattr(self, "compare_session", None)
+        if session is not None:
+            return tuple(range(session.count))
+        return getattr(self, "_series_ids", (0, 1))
+
+    def _visible_layer_series_ids(self) -> tuple[int, ...]:
+        """현재 compare UI가 직접 조작 가능한 시리즈 id.
+
+        내부 모델은 N-way를 받을 수 있지만, 현 UI의 layer/design tab은 아직 첫 두
+        시리즈에 맞춰져 있다. 이 경계를 한 곳에 모아 둔다.
+        """
+        return self._compare_series_ids()[:2]
+
+    def _compare_data_item_for_series(self, series_id: int):
+        session = getattr(self, "compare_session", None)
+        if session is None:
+            return None
+        sid = normalize_series_ref(series_id)
+        if sid >= session.count:
+            return None
+        return self.controller.get_data_item_at(session.data_index(sid))
+
+    def _compare_data_items_for_visible_series(self):
+        return [
+            self._compare_data_item_for_series(series_id)
+            for series_id in self._visible_layer_series_ids()
+        ]
+
+    def _compare_data_pair(self):
+        items = self._compare_data_items_for_visible_series()
+        while len(items) < 2:
+            items.append(None)
+        return items[0], items[1]
 
     def _setup_ui(self, data_blue_item, data_red_item):
         self.central_widget = QWidget()
@@ -966,9 +1008,7 @@ class ComparePlotPopup(BasePlotWindow):
         self.dock_widget.topLevelChanged.connect(self._on_dock_state_changed)
 
         # 레이어 설정 도크 (우측 별도 도크). 파일 선택 버튼은 layer_dock 내부(레이어 탭, 전체 눈/반투명 행 바로 위)에 있음.
-        data_blue_item, data_red_item = self.controller.get_compare_data(
-            self.idx_blue, self.idx_red
-        )
+        data_blue_item, data_red_item = self._compare_data_pair()
         name_blue = (data_blue_item or {}).get("name", data_blue)
         name_red = (data_red_item or {}).get("name", data_red)
         lbl_blue = compare_item_legend_display(data_blue_item)
@@ -999,125 +1039,106 @@ class ComparePlotPopup(BasePlotWindow):
         layer_dock_layout.setSpacing(0)
 
         self._layer_stack = QStackedWidget()
-        self._layer_dock_blue = LayerDockWidget(
-            self,
-            ui_font_name=self.ui_font_name,
-            state_key="blue",
-            compare_mode=True,
-            file_a_name=name_blue,
-            file_b_name=name_red,
-            file_a_label=lbl_blue[0],
-            file_b_label=lbl_red[0],
-            file_a_tooltip=lbl_blue[1],
-            file_b_tooltip=lbl_red[1],
-            get_default_design=lambda: self._get_layer_dock_default_design("blue"),
+        self._layer_docks_by_series = {}
+
+        def _create_compare_layer_dock(series_id: int):
+            dock = LayerDockWidget(
+                self,
+                ui_font_name=self.ui_font_name,
+                series_id=series_id,
+                compare_mode=True,
+                file_a_name=name_blue,
+                file_b_name=name_red,
+                file_a_label=lbl_blue[0],
+                file_b_label=lbl_red[0],
+                file_a_tooltip=lbl_blue[1],
+                file_b_tooltip=lbl_red[1],
+                get_default_design=lambda sid=series_id: (
+                    self._get_layer_dock_default_design(sid)
+                ),
+            )
+            dock.filter_state_changed.connect(self._on_compare_layer_filter_changed)
+            dock.overrides_changed.connect(self._on_compare_layer_overrides_changed)
+            dock.compare_switch_requested.connect(
+                self._on_compare_layer_switch_requested
+            )
+            dock.splitter_sizes_changed.connect(self._on_compare_layer_splitter_changed)
+            dock.order_changed.connect(self._on_compare_layer_order_changed)
+            self._layer_stack.addWidget(dock)
+            self._layer_docks_by_series[series_id] = dock
+            return dock
+
+        for series_id in self._visible_layer_series_ids():
+            _create_compare_layer_dock(series_id)
+        first_series = self._visible_layer_series_ids()[0]
+        first_dock = self._compare_layer_dock_for_series(first_series)
+        self.layer_dock_splitter_sizes = (
+            first_dock._splitter.sizes() if first_dock is not None else [1, 1]
         )
-        self._layer_dock_blue.filter_state_changed.connect(
-            self._on_compare_layer_filter_changed
-        )
-        self._layer_dock_blue.overrides_changed.connect(
-            self._on_compare_layer_overrides_changed
-        )
-        self._layer_dock_blue.compare_switch_requested.connect(
-            self._on_compare_layer_switch_requested
-        )
-        self._layer_stack.addWidget(self._layer_dock_blue)
-        self.layer_dock_splitter_sizes = self._layer_dock_blue._splitter.sizes()
-        self._layer_dock_blue.splitter_sizes_changed.connect(
-            self._on_compare_layer_splitter_changed
-        )
-        self._layer_dock_blue.order_changed.connect(
-            self._on_compare_layer_order_changed
-        )
-        self._layer_dock_red = LayerDockWidget(
-            self,
-            ui_font_name=self.ui_font_name,
-            state_key="red",
-            compare_mode=True,
-            file_a_name=name_blue,
-            file_b_name=name_red,
-            file_a_label=lbl_blue[0],
-            file_b_label=lbl_red[0],
-            file_a_tooltip=lbl_blue[1],
-            file_b_tooltip=lbl_red[1],
-            get_default_design=lambda: self._get_layer_dock_default_design("red"),
-        )
-        self._layer_dock_red.filter_state_changed.connect(
-            self._on_compare_layer_filter_changed
-        )
-        self._layer_dock_red.overrides_changed.connect(
-            self._on_compare_layer_overrides_changed
-        )
-        self._layer_dock_red.compare_switch_requested.connect(
-            self._on_compare_layer_switch_requested
-        )
-        self._layer_dock_red.splitter_sizes_changed.connect(
-            self._on_compare_layer_splitter_changed
-        )
-        self._layer_dock_red.order_changed.connect(self._on_compare_layer_order_changed)
-        self._layer_stack.addWidget(self._layer_dock_red)
         layer_dock_layout.addWidget(self._layer_stack, 1)
 
-        # Blue/Red 레이어 도크 디자인 영역 스크롤 위치 동기화 (탭 전환 시 스크롤 유지)
+        # 시리즈 레이어 도크 디자인 영역 스크롤 위치 동기화 (탭 전환 시 스크롤 유지)
         self._layer_scroll_sync_block = False
-        vbar_blue = self._layer_dock_blue._design_scroll.verticalScrollBar()
-        vbar_red = self._layer_dock_red._design_scroll.verticalScrollBar()
+        dock_0 = self._compare_layer_dock_for_series(0)
+        dock_1 = self._compare_layer_dock_for_series(1)
+        vbar_0 = dock_0._design_scroll.verticalScrollBar()
+        vbar_1 = dock_1._design_scroll.verticalScrollBar()
 
-        def _sync_scroll_to_red(value):
+        def _sync_scroll_to_1(value):
             if self._layer_scroll_sync_block:
                 return
             self._layer_scroll_sync_block = True
-            vbar_red.setValue(value)
+            vbar_1.setValue(value)
             self._layer_scroll_sync_block = False
 
-        def _sync_scroll_to_blue(value):
+        def _sync_scroll_to_0(value):
             if self._layer_scroll_sync_block:
                 return
             self._layer_scroll_sync_block = True
-            vbar_blue.setValue(value)
+            vbar_0.setValue(value)
             self._layer_scroll_sync_block = False
 
-        vbar_blue.valueChanged.connect(_sync_scroll_to_red)
-        vbar_red.valueChanged.connect(_sync_scroll_to_blue)
+        vbar_0.valueChanged.connect(_sync_scroll_to_1)
+        vbar_1.valueChanged.connect(_sync_scroll_to_0)
 
-        # Blue/Red 레이어 목록(Vowel List / Draw List) 스크롤 동기화
-        vbar_v_blue = self._layer_dock_blue.layer_scroll.verticalScrollBar()
-        vbar_v_red = self._layer_dock_red.layer_scroll.verticalScrollBar()
-        vbar_d_blue = self._layer_dock_blue._draw_layer_scroll.verticalScrollBar()
-        vbar_d_red = self._layer_dock_red._draw_layer_scroll.verticalScrollBar()
+        # 시리즈 레이어 목록(Vowel List / Draw List) 스크롤 동기화
+        vbar_v_0 = dock_0.layer_scroll.verticalScrollBar()
+        vbar_v_1 = dock_1.layer_scroll.verticalScrollBar()
+        vbar_d_0 = dock_0._draw_layer_scroll.verticalScrollBar()
+        vbar_d_1 = dock_1._draw_layer_scroll.verticalScrollBar()
 
-        def _sync_v_to_red(value):
+        def _sync_v_to_1(value):
             if self._layer_scroll_sync_block:
                 return
             self._layer_scroll_sync_block = True
-            vbar_v_red.setValue(value)
+            vbar_v_1.setValue(value)
             self._layer_scroll_sync_block = False
 
-        def _sync_v_to_blue(value):
+        def _sync_v_to_0(value):
             if self._layer_scroll_sync_block:
                 return
             self._layer_scroll_sync_block = True
-            vbar_v_blue.setValue(value)
+            vbar_v_0.setValue(value)
             self._layer_scroll_sync_block = False
 
-        def _sync_d_to_red(value):
+        def _sync_d_to_1(value):
             if self._layer_scroll_sync_block:
                 return
             self._layer_scroll_sync_block = True
-            vbar_d_red.setValue(value)
+            vbar_d_1.setValue(value)
             self._layer_scroll_sync_block = False
 
-        def _sync_d_to_blue(value):
+        def _sync_d_to_0(value):
             if self._layer_scroll_sync_block:
                 return
             self._layer_scroll_sync_block = True
-            vbar_d_blue.setValue(value)
+            vbar_d_0.setValue(value)
             self._layer_scroll_sync_block = False
 
-        vbar_v_blue.valueChanged.connect(_sync_v_to_red)
-        vbar_v_red.valueChanged.connect(_sync_v_to_blue)
-        vbar_d_blue.valueChanged.connect(_sync_d_to_red)
-        vbar_d_red.valueChanged.connect(_sync_d_to_blue)
+        vbar_v_0.valueChanged.connect(_sync_v_to_1)
+        vbar_v_1.valueChanged.connect(_sync_v_to_0)
+        vbar_d_0.valueChanged.connect(_sync_d_to_1)
+        vbar_d_1.valueChanged.connect(_sync_d_to_0)
 
         self.layer_dock_widget.setWidget(self._layer_dock_container)
         self.addDockWidget(
@@ -1134,30 +1155,55 @@ class ComparePlotPopup(BasePlotWindow):
             )
 
         def _feed_layer_vowels():
-            d_blue = (data_blue_item or {}).get("df")
-            d_red = (data_red_item or {}).get("df")
-            lbl_col_blue = _get_label_column(d_blue)
-            lbl_col_red = _get_label_column(d_red)
-            if d_blue is not None and lbl_col_blue:
-                vowels_blue = sorted(
-                    d_blue[lbl_col_blue].dropna().astype(str).unique().tolist(),
-                    key=get_vowel_sort_key,
-                )
-                self._layer_dock_blue.set_vowels(vowels_blue)
-            if d_red is not None and lbl_col_red:
-                vowels_red = sorted(
-                    d_red[lbl_col_red].dropna().astype(str).unique().tolist(),
-                    key=get_vowel_sort_key,
-                )
-                self._layer_dock_red.set_vowels(vowels_red)
+            for series_id, data_item in zip(
+                self._visible_layer_series_ids(),
+                (data_blue_item, data_red_item),
+                strict=False,
+            ):
+                df = (data_item or {}).get("df")
+                label_col = _get_label_column(df)
+                dock = self._compare_layer_dock_for_series(series_id)
+                if df is not None and label_col and dock is not None:
+                    vowels = sorted(
+                        df[label_col].dropna().astype(str).unique().tolist(),
+                        key=get_vowel_sort_key,
+                    )
+                    dock.set_vowels(vowels)
 
         _feed_layer_vowels()
-        self._layer_dock_blue.set_compare_file_index(0)
-        self._layer_dock_red.set_compare_file_index(0)
-        self._layer_dock_red.set_splitter_sizes(self.layer_dock_splitter_sizes)
+        for dock in self._iter_compare_layer_docks():
+            dock.set_compare_file_index(0)
+        if dock_1 is not None:
+            dock_1.set_splitter_sizes(self.layer_dock_splitter_sizes)
         self._compare_layer_layout_inited = False
 
         self._on_dock_state_changed()
+
+    def _iter_compare_layer_docks(self):
+        docks = getattr(self, "_layer_docks_by_series", None)
+        if isinstance(docks, dict) and docks:
+            return [dock for _, dock in sorted(docks.items()) if dock is not None]
+        return []
+
+    def _compare_layer_dock_for_series(self, series_id: int):
+        sid = normalize_series_ref(series_id)
+        docks = getattr(self, "_layer_docks_by_series", None)
+        if isinstance(docks, dict) and sid in docks:
+            return docks[sid]
+        return None
+
+    def _active_compare_series_id(self) -> int:
+        if hasattr(self, "_layer_stack") and self._layer_stack is not None:
+            return max(0, self._layer_stack.currentIndex())
+        if hasattr(self, "design_tab") and self.design_tab is not None:
+            return max(0, self.design_tab.sub_tabs.currentIndex())
+        return 0
+
+    def _refresh_compare_draw_layer_lists(self, objs=None) -> None:
+        if objs is None:
+            objs = self._get_current_draw_objects()
+        for dock in self._iter_compare_layer_docks():
+            dock.update_draw_layer_list(objs)
 
     def _on_dock_state_changed(self, *args):
         tools_floating = self.dock_widget.isFloating()
@@ -1237,12 +1283,23 @@ class ComparePlotPopup(BasePlotWindow):
             self.legend_refs[group_id] = {"icon": icon_lbl, "text": lbl_a}
             return row
 
-        legend_group.addWidget(
-            create_legend_item("blue", "#1976D2", "-", data_blue_item, "o")
-        )
-        legend_group.addWidget(
-            create_legend_item("red", "#E64A19", "---", data_red_item, "o")
-        )
+        initial_legend_styles = {0: "-", 1: "---"}
+        for series_id, data_item in zip(
+            self._visible_layer_series_ids(),
+            (data_blue_item, data_red_item),
+        ):
+            legend_group.addWidget(
+                create_legend_item(
+                    legacy_key_from_series_id(series_id),
+                    default_series_color(series_id),
+                    initial_legend_styles.get(
+                        series_id,
+                        default_series_ell_style(series_id),
+                    ),
+                    data_item,
+                    "o",
+                )
+            )
         layout.addLayout(legend_group)
         legend_group.addSpacing(8)
 
@@ -1564,15 +1621,16 @@ class ComparePlotPopup(BasePlotWindow):
         if not self.design_settings:
             return
 
-        for ds_type in ["blue", "red"]:
+        for series_id in self._visible_layer_series_ids():
+            ds_type = legacy_key_from_series_id(series_id)
             if ds_type in self.design_settings and ds_type in self.legend_refs:
                 cfg = self.design_settings[ds_type]
 
                 ell_color = cfg.get("ell_color")
                 if not ell_color or ell_color == "transparent":
-                    ell_color = "#1976D2" if ds_type == "blue" else "#E64A19"
+                    ell_color = default_series_color(series_id)
 
-                ell_style = cfg.get("ell_style", "-" if ds_type == "blue" else "--")
+                ell_style = cfg.get("ell_style", default_series_ell_style(series_id))
                 centroid_marker = cfg.get("centroid_marker", "o")
                 if centroid_marker not in ("o", "s", "^", "D", "wo", "ws", "w^", "wD"):
                     centroid_marker = "o"
@@ -1584,7 +1642,7 @@ class ComparePlotPopup(BasePlotWindow):
 
                 lbl_color = cfg.get("lbl_color")
                 if not lbl_color or lbl_color == "transparent":
-                    lbl_color = "#1976D2" if ds_type == "blue" else "#E64A19"
+                    lbl_color = default_series_color(series_id)
 
                 # 범례 아이콘(선과 점) 새로 그리기 — 디자인 설정과 동일한 create_legend_icon_design 사용
                 new_pixmap = create_legend_icon_design(
@@ -1596,12 +1654,12 @@ class ComparePlotPopup(BasePlotWindow):
                 self.legend_refs[ds_type]["text"].setStyleSheet(f"color: {lbl_color};")
 
     def _get_layer_dock_default_design(self, series):
-        """레이어 도크에서 개별 오버라이드 없을 때 쓸 기본값. series='blue'|'red' → 좌측 디자인 탭의 해당 파일 설정(common+blue/red) 반환."""
+        """레이어 도크에서 개별 오버라이드 없을 때 쓸 per-series 기본값."""
         if not hasattr(self, "design_tab") or self.design_tab is None:
             return {}
-        s = self.design_tab.get_current_settings()
+        s = self.design_tab.get_current_settings() or {}
         common = s.get("common", {})
-        ind = s.get(series, {})
+        ind = get_series_design_cfg(s, normalize_series_ref(series))
         return {**common, **ind}
 
     def _on_design_settings_changed(self, settings):
@@ -1612,10 +1670,8 @@ class ComparePlotPopup(BasePlotWindow):
             self.design_tab.update_legend_indicators(settings)
 
         self.request_plot_refresh(debounce_ms=150)
-        if hasattr(self, "_layer_dock_blue") and self._layer_dock_blue:
-            self._layer_dock_blue.refresh_design_ui()
-        if hasattr(self, "_layer_dock_red") and self._layer_dock_red:
-            self._layer_dock_red.refresh_design_ui()
+        for dock in self._iter_compare_layer_docks():
+            dock.refresh_design_ui()
 
     def request_plot_refresh(self, debounce_ms: int = 150):
         """레이어/전역/필터 변경 시 플롯 갱신 진입점을 일원화한다."""
@@ -1644,23 +1700,17 @@ class ComparePlotPopup(BasePlotWindow):
         if self._is_input_focused():
             return
         if hasattr(self, "design_tab") and self.design_tab is not None:
-            ctrl = (
-                self.design_tab.ctrl_blue
-                if self.design_tab.sub_tabs.currentIndex() == 0
-                else self.design_tab.ctrl_red
-            )
-            ctrl["btn_bold"].setChecked(not ctrl["btn_bold"].isChecked())
+            ctrl = self.design_tab.active_controls()
+            if ctrl is not None:
+                ctrl["btn_bold"].setChecked(not ctrl["btn_bold"].isChecked())
 
     def _safe_toggle_italic(self):
         if self._is_input_focused():
             return
         if hasattr(self, "design_tab") and self.design_tab is not None:
-            ctrl = (
-                self.design_tab.ctrl_blue
-                if self.design_tab.sub_tabs.currentIndex() == 0
-                else self.design_tab.ctrl_red
-            )
-            ctrl["btn_italic"].setChecked(not ctrl["btn_italic"].isChecked())
+            ctrl = self.design_tab.active_controls()
+            if ctrl is not None:
+                ctrl["btn_italic"].setChecked(not ctrl["btn_italic"].isChecked())
 
     def _safe_switch_to_tab(self, index):
         if self._is_input_focused():
@@ -1751,21 +1801,12 @@ class ComparePlotPopup(BasePlotWindow):
             self.idx_blue,
             self.idx_red,
         )
-        data_blue_item, data_red_item = self.controller.get_compare_data(
-            self.idx_blue, self.idx_red
-        )
+        data_blue_item, data_red_item = self._compare_data_pair()
         data_blue = data_blue_item["name"] if data_blue_item else ""
         data_red = data_red_item["name"] if data_red_item else ""
         self._update_compare_window_title(data_blue, data_red)
         self._rebind_draw_tool_if_active()
-        if hasattr(self, "_layer_dock_blue") and self._layer_dock_blue is not None:
-            self._layer_dock_blue.update_draw_layer_list(
-                self._get_current_draw_objects()
-            )
-        if hasattr(self, "_layer_dock_red") and self._layer_dock_red is not None:
-            self._layer_dock_red.update_draw_layer_list(
-                self._get_current_draw_objects()
-            )
+        self._refresh_compare_draw_layer_lists()
         if self._refresh_profile_enabled:
             wait_ms = max(0.0, (started_at - self._last_refresh_requested_at) * 1000.0)
             elapsed_ms = (perf_counter() - started_at) * 1000.0
@@ -1783,11 +1824,7 @@ class ComparePlotPopup(BasePlotWindow):
             app_logger.info(config.LOG_MSG["PLOT_RANGE_APPLIED"])
 
     def _current_draw_series(self):
-        if hasattr(self, "_layer_stack") and self._layer_stack is not None:
-            return "blue" if self._layer_stack.currentIndex() == 0 else "red"
-        if hasattr(self, "design_tab") and self.design_tab is not None:
-            return "blue" if self.design_tab.sub_tabs.currentIndex() == 0 else "red"
-        return "blue"
+        return self._active_compare_series_id()
 
     # ── 그리기 객체 저장소 (공유 리스트 사용, base class의 파일별 dict를 대체) ──────
     def _get_current_draw_objects(self):
@@ -1798,7 +1835,7 @@ class ComparePlotPopup(BasePlotWindow):
         """ComparePlotPopup 전용 공통 draw 객체 리스트 교체."""
         self._draw_objects_shared = list(lst)
 
-    def _snapping_data_for_series(self, series: str):
+    def _snapping_data_for_series(self, series):
         # 요구사항: 다중 플롯 그리기에서는 두 파일 점 모두 스냅 대상이어야 한다.
         return getattr(self, "snapping_data", None) or []
 
@@ -1861,14 +1898,7 @@ class ComparePlotPopup(BasePlotWindow):
             objs.append(area_label)
 
         self._redraw_draw_layer()
-        if hasattr(self, "_layer_dock_blue") and self._layer_dock_blue is not None:
-            self._layer_dock_blue.update_draw_layer_list(
-                self._get_current_draw_objects()
-            )
-        if hasattr(self, "_layer_dock_red") and self._layer_dock_red is not None:
-            self._layer_dock_red.update_draw_layer_list(
-                self._get_current_draw_objects()
-            )
+        self._refresh_compare_draw_layer_lists()
         if self.canvas:
             self.canvas.draw_idle()
 
@@ -1895,7 +1925,7 @@ class ComparePlotPopup(BasePlotWindow):
             self.update_compare_label_move_style(self.controller.label_move_tool.active)
 
     def update_compare_label_move_style(self, is_on):
-        for ctrl in (self.design_tab.ctrl_blue, self.design_tab.ctrl_red):
+        for _series_id, ctrl in self.design_tab.iter_series_controls():
             btn = ctrl["btn_label_move"]
             btn.blockSignals(True)
             btn.setChecked(is_on)
@@ -1929,9 +1959,7 @@ class ComparePlotPopup(BasePlotWindow):
             self.filter_panel.activateWindow()
             return
 
-        data_blue, data_red = self.controller.get_compare_data(
-            self.idx_blue, self.idx_red
-        )
+        data_blue, data_red = self._compare_data_pair()
         if not data_blue or not data_red:
             return
         df_blue = data_blue["df"]
@@ -1967,17 +1995,17 @@ class ComparePlotPopup(BasePlotWindow):
             parent=self,
             file1_name=data_blue["name"],
             vowels1=vowels_blue,
-            state1=self.vowel_filter_state_blue,
+            state1=self.get_filter_state_for_series(0),
             file2_name=data_red["name"],
             vowels2=vowels_red,
-            state2=self.vowel_filter_state_red,
+            state2=self.get_filter_state_for_series(1),
             on_change_callback=self._on_multi_filter_changed,
         )
         self.filter_panel.show()
 
     def _on_multi_filter_changed(self, state_blue, state_red):
-        self.vowel_filter_state_blue = state_blue
-        self.vowel_filter_state_red = state_red
+        self.vowel_filter_states[0] = dict(state_blue)
+        self.vowel_filter_states[1] = dict(state_red)
         self.request_plot_refresh(debounce_ms=90)
 
     def _on_compare_layer_filter_changed(self, state):
@@ -1986,11 +2014,14 @@ class ComparePlotPopup(BasePlotWindow):
 
     def _init_compare_layer_dock_layout(self):
         """Compare 레이어 도크: 스플리터 비율 고정 + 숨겨진 스택 페이지 선레이아웃."""
-        blue_sizes = self._layer_dock_blue._splitter.sizes()
-        total = sum(blue_sizes)
+        first_dock = self._compare_layer_dock_for_series(0)
+        if first_dock is None:
+            return
+        first_sizes = first_dock._splitter.sizes()
+        total = sum(first_sizes)
         if total > 0:
-            self._layer_splitter_top_ratio = blue_sizes[0] / total
-            self.layer_dock_splitter_sizes = list(blue_sizes)
+            self._layer_splitter_top_ratio = first_sizes[0] / total
+            self.layer_dock_splitter_sizes = list(first_sizes)
         self._layer_splitter_sync_block = True
         container = self._layer_dock_container
         container.setUpdatesEnabled(False)
@@ -2022,12 +2053,12 @@ class ComparePlotPopup(BasePlotWindow):
             dock.set_splitter_sizes(self.layer_dock_splitter_sizes)
 
     def _sync_compare_layer_splitters(self):
-        for dock in (self._layer_dock_blue, self._layer_dock_red):
+        for dock in self._iter_compare_layer_docks():
             self._apply_compare_layer_splitter_to_dock(dock)
 
     def _on_compare_layer_switch_requested(self, index):
         """레이어 도크 내 파일 선택 버튼 클릭 시 스택 전환 및 양쪽 도크 버튼 상태 동기화."""
-        target = self._layer_dock_blue if index == 0 else self._layer_dock_red
+        target = self._compare_layer_dock_for_series(index)
         self._layer_splitter_sync_block = True
         try:
             self._sync_compare_layer_splitters()
@@ -2035,8 +2066,8 @@ class ComparePlotPopup(BasePlotWindow):
             self._apply_compare_layer_splitter_to_dock(target)
         finally:
             self._layer_splitter_sync_block = False
-        self._layer_dock_blue.set_compare_file_index(index)
-        self._layer_dock_red.set_compare_file_index(index)
+        for dock in self._iter_compare_layer_docks():
+            dock.set_compare_file_index(index)
         self._rebind_draw_tool_if_active()
 
     def _on_compare_layer_splitter_changed(self, sizes):
@@ -2049,16 +2080,14 @@ class ComparePlotPopup(BasePlotWindow):
         self._layer_splitter_top_ratio = sizes[0] / total
         self.layer_dock_splitter_sizes = list(sizes)
         sender = self.sender()
-        other = (
-            self._layer_dock_red
-            if sender is self._layer_dock_blue
-            else self._layer_dock_blue
-        )
-        if sender not in (self._layer_dock_blue, self._layer_dock_red):
+        docks = self._iter_compare_layer_docks()
+        if sender not in docks:
             return
         self._layer_splitter_sync_block = True
         try:
-            other.set_splitter_sizes(sizes)
+            for dock in docks:
+                if dock is not sender:
+                    dock.set_splitter_sizes(sizes)
         finally:
             self._layer_splitter_sync_block = False
 
@@ -2067,18 +2096,7 @@ class ComparePlotPopup(BasePlotWindow):
         self.request_plot_refresh(debounce_ms=90)
 
     def _on_compare_layer_order_changed(self, order):
-        sender = self.sender()
-        if sender is None:
-            return
-        # Blue에서 바꿨으면 Red를 새로고침
-        if sender == self._layer_dock_blue:
-            current_red_vowels = list(self._layer_dock_red._layer_rows.keys())
-            self._layer_dock_red.set_vowels(current_red_vowels)
-
-        # Red에서 바꿨으면 Blue를 새로고침
-        if sender == self._layer_dock_red:
-            current_blue_vowels = list(self._layer_dock_blue._layer_rows.keys())
-            self._layer_dock_blue.set_vowels(current_blue_vowels)
+        self.request_plot_refresh(debounce_ms=90)
 
     def _reset_ranges_to_default(self, apply_plot=True):
         if not hasattr(self, "fixed_plot_params"):
@@ -2141,11 +2159,7 @@ class ComparePlotPopup(BasePlotWindow):
             self._area_label_drag_cids = ()
 
     def _active_draw_layer_dock(self):
-        if hasattr(self, "_layer_stack") and self._layer_stack is not None:
-            if self._layer_stack.currentIndex() == 0:
-                return getattr(self, "_layer_dock_blue", None)
-            return getattr(self, "_layer_dock_red", None)
-        return getattr(self, "_layer_dock_blue", None)
+        return self._compare_layer_dock_for_series(self._active_compare_series_id())
 
     def _is_area_label_focused(self, obj):
         """부모 영역(polygon) 레이어가 활성 도크에서 단일 선택일 때만 True."""
@@ -2193,10 +2207,7 @@ class ComparePlotPopup(BasePlotWindow):
                 break
         if self.canvas:
             self.canvas.draw_idle()
-        if hasattr(self, "_layer_dock_blue") and self._layer_dock_blue is not None:
-            self._layer_dock_blue.update_draw_layer_list(objs)
-        if hasattr(self, "_layer_dock_red") and self._layer_dock_red is not None:
-            self._layer_dock_red.update_draw_layer_list(objs)
+        self._refresh_compare_draw_layer_lists(objs)
 
     def _area_label_hit_at_px(self, x_px, y_px, pad_px=14):
         """픽셀 좌표 (x_px, y_px)에서 넓이 텍스트 히트 여부."""

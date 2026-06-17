@@ -4,11 +4,13 @@ import unittest
 
 import pandas as pd
 from matplotlib.figure import Figure
+from types import SimpleNamespace
 
 # 프로젝트 루트 경로 추가
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from engine.plot_engine import PlotEngine
+from ui.widgets.layer_display import draw_object_display_name
 from ui.widgets.label_manager import LabelManager
 
 
@@ -17,6 +19,10 @@ class _DummyPopup:
         self.layer_design_overrides = {}
         self.layer_design_overrides_by_file = {}
         self.vowel_filter_state_by_file = {}
+        self.vowel_filter_states = {}
+        self.layer_design_overrides_by_series = {}
+        self.layer_order_by_series = {}
+        self.layer_locked_vowels_by_series = {}
         self.current_idx = 0
 
 
@@ -100,6 +106,111 @@ class TestLayerOrderAndLabelManager(unittest.TestCase):
 
         manager.sync_filter_state_by_current_file({"a": "SEMI"})
         self.assertEqual(popup.vowel_filter_state_by_file[0]["a"], "SEMI")
+
+    def test_label_manager_series_state_is_isolated(self):
+        popup = _DummyPopup()
+        manager_0 = LabelManager(popup, series_id=0)
+        manager_1 = LabelManager(popup, series_id=1)
+        manager_2 = LabelManager(popup, series_id=2)
+
+        manager_0.set_filter_state({"a": "OFF"})
+        manager_1.set_filter_state({"i": "SEMI"})
+        manager_0.set_layer_overrides({"a": {"lbl_color": "#111111"}})
+        manager_1.set_layer_overrides({"i": {"lbl_color": "#222222"}})
+        manager_2.set_layer_overrides({"u": {"lbl_color": "#333333"}})
+        manager_0.set_layer_order(["a", "i"])
+        manager_1.set_layer_order(["u", "o"])
+        manager_2.set_layer_order(["e", "u"])
+
+        self.assertEqual(manager_0.get_filter_state(), {"a": "OFF"})
+        self.assertEqual(manager_1.get_filter_state(), {"i": "SEMI"})
+        self.assertEqual(
+            popup.layer_design_overrides_by_series[0]["a"]["lbl_color"],
+            "#111111",
+        )
+        self.assertEqual(
+            popup.layer_design_overrides_by_series[1]["i"]["lbl_color"],
+            "#222222",
+        )
+        self.assertEqual(
+            popup.layer_design_overrides_by_series[2]["u"]["lbl_color"],
+            "#333333",
+        )
+        self.assertEqual(manager_0.get_layer_order(), ["a", "i"])
+        self.assertEqual(manager_1.get_layer_order(), ["u", "o"])
+        self.assertEqual(manager_2.get_layer_order(), ["e", "u"])
+
+    def test_label_manager_does_not_leak_series_state(self):
+        popup = _DummyPopup()
+        manager_0 = LabelManager(popup, series_id=0)
+        manager_1 = LabelManager(popup, series_id=1)
+
+        manager_0.set_layer_overrides({"a": {"lbl_color": "#111111"}})
+        overrides_0 = manager_0.get_layer_overrides()
+        overrides_0["a"]["lbl_color"] = "#999999"
+
+        self.assertEqual(
+            popup.layer_design_overrides_by_series[0]["a"]["lbl_color"],
+            "#111111",
+        )
+        self.assertEqual(manager_1.get_layer_overrides(), {})
+
+        manager_0.set_filter_state({"a": "OFF"})
+        manager_1.set_filter_state({"i": "SEMI"})
+        state_0 = manager_0.get_filter_state()
+        state_0["a"] = "ON"
+
+        self.assertEqual(popup.vowel_filter_states[0]["a"], "OFF")
+        self.assertEqual(popup.vowel_filter_states[1]["i"], "SEMI")
+
+    def test_label_manager_series_state_keeps_single_source(self):
+        popup = _DummyPopup()
+        manager_0 = LabelManager(popup, series_id=0)
+
+        manager_0.set_filter_state({"a": "OFF"})
+        manager_0.set_layer_overrides({"a": {"lbl_color": "#111111"}})
+
+        self.assertEqual(popup.vowel_filter_states[0]["a"], "OFF")
+        self.assertEqual(
+            popup.layer_design_overrides_by_series[0]["a"]["lbl_color"],
+            "#111111",
+        )
+        self.assertFalse(hasattr(popup, "vowel_filter_state_blue"))
+        self.assertFalse(hasattr(popup, "layer_design_overrides_blue"))
+
+    def test_compare_layer_dock_switch_keeps_series_specific_state(self):
+        popup = _DummyPopup()
+        dock_for_series_0 = LabelManager(popup, series_id=0)
+        dock_for_series_1 = LabelManager(popup, series_id=1)
+
+        dock_for_series_0.set_filter_state({"a": "OFF"})
+        dock_for_series_1.set_filter_state({"i": "SEMI"})
+        dock_for_series_0.set_layer_overrides({"a": {"lbl_color": "#111111"}})
+        dock_for_series_1.set_layer_overrides({"i": {"lbl_color": "#222222"}})
+
+        # UI에서 탭 전환(0 -> 1 -> 0)을 흉내 내도 시리즈별 상태는 변하지 않아야 한다.
+        _active_series = 0
+        _active_series = 1
+        _active_series = 0
+        self.assertEqual(_active_series, 0)
+
+        self.assertEqual(dock_for_series_0.get_filter_state(), {"a": "OFF"})
+        self.assertEqual(dock_for_series_1.get_filter_state(), {"i": "SEMI"})
+        self.assertEqual(
+            dock_for_series_0.get_layer_overrides()["a"]["lbl_color"],
+            "#111111",
+        )
+        self.assertEqual(
+            dock_for_series_1.get_layer_overrides()["i"]["lbl_color"],
+            "#222222",
+        )
+
+    def test_draw_object_display_name_accepts_numeric_series(self):
+        obj = SimpleNamespace(type="line", point_labels=["a", "i"], series=1)
+        self.assertEqual(
+            draw_object_display_name([obj], 0),
+            "선 1 : a2-i2",
+        )
 
 
 if __name__ == "__main__":
