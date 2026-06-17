@@ -45,6 +45,7 @@ import ui.widgets.layout_constants as lc
 from ui.widgets.collapsible_section import CollapsibleSection, AdvancedOptionsBlock
 from ui.widgets.opacity_slider import (
     DEFAULT_ELL_FILL_OPACITY,
+    DEFAULT_GRID_OPACITY,
     OpacitySliderRow,
     opacity_to_slider,
 )
@@ -135,11 +136,16 @@ class ToggleSwitch(QWidget):
     체크박스 대신 사용할 커스텀 ON/OFF 토글 스위치 위젯
     """
 
+    TRACK_W = 36
+    TRACK_H = 18
+    HANDLE_D = 14
+    PAD = 2
+
     toggled = Signal(bool)
 
     def __init__(self, checked=False, parent=None):
         super().__init__(parent)
-        self.setFixedSize(40, 22)
+        self.setFixedSize(self.TRACK_W, self.TRACK_H)
         self._checked = checked
         self._handle_x = float(self._target_handle_x())
         self._handle_anim = QPropertyAnimation(self, b"handle_x", self)
@@ -148,7 +154,9 @@ class ToggleSwitch(QWidget):
         self.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
 
     def _target_handle_x(self) -> float:
-        return float(self.width() - 20 if self._checked else 2)
+        if self._checked:
+            return float(self.width() - self.HANDLE_D - self.PAD)
+        return float(self.PAD)
 
     def get_handle_x(self) -> float:
         return self._handle_x
@@ -160,7 +168,9 @@ class ToggleSwitch(QWidget):
             return
         self._handle_x = value
         # 핸들 영역만 갱신 (전체 위젯 리페인트 방지)
-        self.update(QRect(min(old, new), 0, abs(new - old) + 20, self.height()))
+        self.update(
+            QRect(min(old, new), 0, abs(new - old) + self.HANDLE_D, self.height())
+        )
 
     handle_x = Property(float, get_handle_x, set_handle_x)
 
@@ -201,14 +211,20 @@ class ToggleSwitch(QWidget):
 
         bg_color = QColor("#67C23A") if self._checked else QColor("#DCDFE6")
         path = QPainterPath()
-        path.addRoundedRect(QRectF(0, 0, self.width(), self.height()), 11, 11)
+        radius = self.height() / 2.0
+        path.addRoundedRect(QRectF(0, 0, self.width(), self.height()), radius, radius)
         painter.fillPath(path, bg_color)
 
         handle_color = QColor("#FFFFFF")
         painter.setBrush(handle_color)
         painter.setPen(Qt.PenStyle.NoPen)
 
-        painter.drawEllipse(int(self._handle_x), 2, 18, 18)
+        painter.drawEllipse(
+            int(self._handle_x),
+            self.PAD,
+            self.HANDLE_D,
+            self.HANDLE_D,
+        )
         painter.end()
 
 
@@ -380,7 +396,10 @@ class DesignSettingsPanel(QWidget):
 
     def _create_toggle_row(self, label_text, default_checked=True):
         row = QHBoxLayout()
+        row.setContentsMargins(0, 0, 0, 0)
+        row.setSpacing(8)
         lbl = QLabel(label_text, font=QFont(self.ui_font_name, 9))
+        lbl.setContentsMargins(0, 0, 0, 0)
         switch = ToggleSwitch(checked=default_checked)
         row.addWidget(lbl)
         row.addStretch()
@@ -473,7 +492,7 @@ class DesignSettingsPanel(QWidget):
         font_style_block.addWidget(wrap_segmented_buttons([btn_serif, btn_sans], self))
         style_body.addLayout(font_style_block)
 
-        dp_shape_block = _field_group("데이터 포인트", font_normal)
+        dp_shape_block = _field_group("데이터 포인트 모양", font_normal)
         self.group_raw_marker = QButtonGroup(self)
         dp_btns = []
         for i, (key, tip) in enumerate(
@@ -504,13 +523,13 @@ class DesignSettingsPanel(QWidget):
         self._add_separator(layout)
 
         # ==========================================
-        # 2. 라벨과 중심점
+        # 2. 모음 라벨
         # ==========================================
         sec_label = CollapsibleSection(
-            "라벨과 중심점",
+            "모음 라벨",
             font_bold,
             panel_id="design",
-            settings_key="label_centroid",
+            settings_key="label_vowel",
             default_collapsed=False,
         )
         label_body = sec_label.body_layout()
@@ -530,8 +549,11 @@ class DesignSettingsPanel(QWidget):
         label_body.addWidget(self.btn_label_move)
 
         color_layout = _field_group("라벨 텍스트 색상", font_normal)
+        _label_defaults = get_single_design_defaults()
         self.lbl_color_picker = ColorPalette(
-            default_color=config.COLOR_PRIMARY_RED, allow_transparent=True, parent=self
+            default_color=_label_defaults["lbl_color"],
+            allow_transparent=True,
+            parent=self,
         )
         color_layout.addWidget(self.lbl_color_picker)
         label_body.addLayout(color_layout)
@@ -545,7 +567,7 @@ class DesignSettingsPanel(QWidget):
             "QComboBox { padding: 2px 4px; border: 1px solid #DCDFE6; border-radius: 3px; }"
         )
         self.combo_lbl_size.addItems(["14", "16", "18", "20", "22", "24"])
-        self.combo_lbl_size.setCurrentText("20")
+        self.combo_lbl_size.setCurrentText(str(int(_label_defaults["lbl_size"])))
         self.combo_lbl_size.setFixedWidth(55)
         self.combo_lbl_size.setMaxVisibleItems(8)
         font_style_layout.addWidget(self.combo_lbl_size)
@@ -562,7 +584,7 @@ class DesignSettingsPanel(QWidget):
         """
         self.btn_bold = QPushButton("B")
         self.btn_bold.setCheckable(True)
-        self.btn_bold.setChecked(True)
+        self.btn_bold.setChecked(_label_defaults["lbl_bold"])
         self.btn_bold.setFixedSize(26, 26)
         self.btn_bold.setFont(QFont("Arial", 10, QFont.Weight.Bold))
         self.btn_bold.setStyleSheet(toolbar_style)
@@ -589,6 +611,33 @@ class DesignSettingsPanel(QWidget):
         font_block.addWidget(font_toolbar)
         label_body.addLayout(font_block)
 
+        label_advanced = AdvancedOptionsBlock(
+            panel_id="design",
+            settings_key="label_slash",
+            default_collapsed=True,
+            ui_font_name=self.ui_font_name,
+        )
+        row_slash, self.sw_label_slash_wrap = self._create_toggle_row(
+            "// 기호 씌우기", default_checked=False
+        )
+        self.sw_label_slash_wrap.setToolTip("ON이면 라벨을 /a/ 형태로 표시합니다.")
+        label_advanced.body_layout().addLayout(row_slash)
+        label_body.addWidget(label_advanced)
+
+        layout.addWidget(sec_label)
+        self._add_separator(layout)
+
+        # ==========================================
+        # 3. 중심점
+        # ==========================================
+        sec_centroid = CollapsibleSection(
+            "중심점",
+            font_bold,
+            panel_id="design",
+            settings_key="centroid",
+            default_collapsed=False,
+        )
+        centroid_body = sec_centroid.body_layout()
         centroid_marker_layout = _field_group("모음 중심점 모양", font_normal)
         self.group_centroid_marker = QButtonGroup(self)
         centroid_btns = []
@@ -609,26 +658,13 @@ class DesignSettingsPanel(QWidget):
             centroid_btns.append(btn)
         centroid_marker_layout.addWidget(_wrap_marker_shape_bar(centroid_btns, self))
         self.group_centroid_marker.button(0).setChecked(True)
-        label_body.addLayout(centroid_marker_layout)
+        centroid_body.addLayout(centroid_marker_layout)
 
-        label_advanced = AdvancedOptionsBlock(
-            panel_id="design",
-            settings_key="label_slash",
-            default_collapsed=True,
-            ui_font_name=self.ui_font_name,
-        )
-        row_slash, self.sw_label_slash_wrap = self._create_toggle_row(
-            "// 기호 씌우기", default_checked=False
-        )
-        self.sw_label_slash_wrap.setToolTip("ON이면 라벨을 /a/ 형태로 표시합니다.")
-        label_advanced.body_layout().addLayout(row_slash)
-        label_body.addWidget(label_advanced)
-
-        layout.addWidget(sec_label)
+        layout.addWidget(sec_centroid)
         self._add_separator(layout)
 
         # ==========================================
-        # 3. 신뢰 타원 (Confidence Ellipse)
+        # 4. 신뢰 타원 (Confidence Ellipse)
         # ==========================================
         sec_ellipse = CollapsibleSection(
             "신뢰 타원",
@@ -698,7 +734,7 @@ class DesignSettingsPanel(QWidget):
             "사방 테두리", default_checked=self._is_normalized
         )
         row6, self.sw_show_grid = self._create_toggle_row(
-            "배경 실선(Grid)", default_checked=self._is_normalized
+            "그리드", default_checked=self._is_normalized
         )
         row_y_rot, self.sw_y_label_rotation = self._create_toggle_row(
             "Y축 라벨 눕히기", default_checked=self._is_normalized
@@ -708,6 +744,14 @@ class DesignSettingsPanel(QWidget):
         )
         graph_body.addLayout(row5)
         graph_body.addLayout(row6)
+        self.grid_opacity_row = OpacitySliderRow(
+            "그리드 불투명도",
+            font_normal,
+            default_percent=opacity_to_slider(DEFAULT_GRID_OPACITY),
+            enabled=self._is_normalized,
+            parent=self,
+        )
+        graph_body.addWidget(self.grid_opacity_row)
         graph_body.addLayout(row_y_rot)
 
         graph_advanced = AdvancedOptionsBlock(
@@ -827,6 +871,13 @@ class DesignSettingsPanel(QWidget):
         self.ell_fill_picker.color_changed.connect(self._on_setting_changed)
         self.ell_fill_opacity_row.slider.valueChanged.connect(self._on_setting_changed)
 
+        self.sw_show_grid.toggled.connect(self._sync_grid_opacity_enabled)
+        self.grid_opacity_row.slider.valueChanged.connect(self._on_setting_changed)
+        self._sync_grid_opacity_enabled()
+
+    def _sync_grid_opacity_enabled(self, *_args):
+        self.grid_opacity_row.set_enabled(self.sw_show_grid.isChecked())
+
     def _sync_ell_fill_opacity_enabled(self, *_args):
         self.ell_fill_opacity_row.set_enabled(
             _ell_fill_has_color(self.ell_fill_picker.current_color)
@@ -869,11 +920,13 @@ class DesignSettingsPanel(QWidget):
         self.sw_y_label_rotation.setChecked(bool(defaults["y_label_rotation"]))
         self.sw_box_spines.setChecked(bool(defaults["box_spines"]))
         self.sw_show_grid.setChecked(bool(defaults["show_grid"]))
+        self.grid_opacity_row.set_opacity(float(defaults["grid_opacity"]))
         if self._is_normalized:
             self.sw_y_label_rotation.setChecked(True)
             self.sw_box_spines.setChecked(True)
             self.sw_show_grid.setChecked(True)
             self.sw_axis_position_swap.setChecked(True)
+        self._sync_grid_opacity_enabled()
         self.sw_show_minor_ticks.setChecked(bool(defaults["show_minor_ticks"]))
 
         # 초기화 시 설정 유지도 OFF (로그 없이)
@@ -918,6 +971,7 @@ class DesignSettingsPanel(QWidget):
             "y_label_rotation": self.sw_y_label_rotation.isChecked(),
             "box_spines": self.sw_box_spines.isChecked(),
             "show_grid": self.sw_show_grid.isChecked(),
+            "grid_opacity": self.grid_opacity_row.get_opacity(),
             "show_minor_ticks": self.sw_show_minor_ticks.isChecked(),
             "label_slash_wrap": self.sw_label_slash_wrap.isChecked(),
             "is_locked": self.btn_lock.isChecked(),
@@ -972,7 +1026,10 @@ class CompareDesignSettingsPanel(QWidget):
 
     def _create_toggle_row(self, label_text, default_checked=True):
         row = QHBoxLayout()
+        row.setContentsMargins(0, 0, 0, 0)
+        row.setSpacing(8)
         lbl = QLabel(label_text, font=QFont(self.ui_font_name, 9))
+        lbl.setContentsMargins(0, 0, 0, 0)
         switch = ToggleSwitch(checked=default_checked)
         row.addWidget(lbl)
         row.addStretch()
@@ -1047,9 +1104,9 @@ class CompareDesignSettingsPanel(QWidget):
         )
         layout.addLayout(legend_row)
 
-        # 1. 라벨과 중심점 설정
+        # 1. 모음 라벨
         sec_label = CollapsibleSection(
-            "라벨과 중심점",
+            "모음 라벨",
             font_bold,
             panel_id="compare_design",
             settings_key=f"label_{series_key}",
@@ -1090,7 +1147,7 @@ class CompareDesignSettingsPanel(QWidget):
             "QComboBox { padding: 2px 4px; border: 1px solid #DCDFE6; border-radius: 3px; }"
         )
         combo_lbl_size.addItems(["12", "14", "16", "18", "20", "22", "24"])
-        combo_lbl_size.setCurrentText("20")
+        combo_lbl_size.setCurrentText("18")
         combo_lbl_size.setFixedWidth(55)
         combo_lbl_size.setMaxVisibleItems(8)
         font_style_layout.addWidget(combo_lbl_size)
@@ -1104,7 +1161,7 @@ class CompareDesignSettingsPanel(QWidget):
         """
         btn_bold = QPushButton("B")
         btn_bold.setCheckable(True)
-        btn_bold.setChecked(True)
+        btn_bold.setChecked(False)
         btn_bold.setFixedSize(26, 26)
         btn_bold.setFont(QFont("Arial", 10, QFont.Weight.Bold))
         btn_bold.setStyleSheet(toolbar_style)
@@ -1131,6 +1188,19 @@ class CompareDesignSettingsPanel(QWidget):
         font_block.addWidget(font_toolbar)
         label_body.addLayout(font_block)
 
+        layout.addWidget(sec_label)
+        self._add_separator(layout)
+
+        # 2. 중심점
+        sec_centroid = CollapsibleSection(
+            "중심점",
+            font_bold,
+            panel_id="compare_design",
+            settings_key=f"centroid_{series_key}",
+            default_collapsed=False,
+        )
+        centroid_body = sec_centroid.body_layout()
+
         centroid_marker_layout = _field_group("모음 중심점 모양", font_normal)
         group_centroid_marker = QButtonGroup(self)
         centroid_btns = []
@@ -1152,19 +1222,19 @@ class CompareDesignSettingsPanel(QWidget):
             centroid_btns.append(btn)
         centroid_marker_layout.addWidget(_wrap_marker_shape_bar(centroid_btns, self))
         group_centroid_marker.button(0).setChecked(True)
-        label_body.addLayout(centroid_marker_layout)
+        centroid_body.addLayout(centroid_marker_layout)
 
         raw_color_layout = _field_group("데이터 포인트 색상", font_normal)
         raw_color_picker = ColorPalette(
             default_color="#606060", allow_transparent=False, parent=self
         )
         raw_color_layout.addWidget(raw_color_picker)
-        label_body.addLayout(raw_color_layout)
+        centroid_body.addLayout(raw_color_layout)
 
-        layout.addWidget(sec_label)
+        layout.addWidget(sec_centroid)
         self._add_separator(layout)
 
-        # 2. 신뢰 타원 설정
+        # 3. 신뢰 타원 설정
         sec_ellipse = CollapsibleSection(
             "신뢰 타원",
             font_bold,
@@ -1333,7 +1403,7 @@ class CompareDesignSettingsPanel(QWidget):
         font_style_block.addWidget(wrap_segmented_buttons([btn_serif, btn_sans], self))
         style_body.addLayout(font_style_block)
 
-        dp_shape_block = _field_group("데이터 포인트", font_caption)
+        dp_shape_block = _field_group("데이터 포인트 모양", font_caption)
         self.group_raw_marker_common = QButtonGroup(self)
         dp_btns = []
         for i, (key, tip) in enumerate(
@@ -1357,7 +1427,7 @@ class CompareDesignSettingsPanel(QWidget):
         layout.addWidget(sec_style)
         self._add_separator(layout)
 
-    def _setup_compare_graph_background_section(self, layout, font_bold):
+    def _setup_compare_graph_background_section(self, layout, font_bold, font_normal):
         """CompareDesignSettingsPanel: 그래프 배경 구역."""
         sec_graph = CollapsibleSection(
             "그래프 배경",
@@ -1372,7 +1442,7 @@ class CompareDesignSettingsPanel(QWidget):
             "사방 테두리", default_checked=self._is_normalized
         )
         row4, self.sw_show_grid = self._create_toggle_row(
-            "배경 실선(Grid)", default_checked=self._is_normalized
+            "그리드", default_checked=self._is_normalized
         )
         row_y_rot, self.sw_y_label_rotation = self._create_toggle_row(
             "Y축 라벨 눕히기", default_checked=False
@@ -1382,6 +1452,14 @@ class CompareDesignSettingsPanel(QWidget):
         )
         graph_body.addLayout(row3)
         graph_body.addLayout(row4)
+        self.grid_opacity_row = OpacitySliderRow(
+            "그리드 불투명도",
+            font_normal,
+            default_percent=opacity_to_slider(DEFAULT_GRID_OPACITY),
+            enabled=self._is_normalized,
+            parent=self,
+        )
+        graph_body.addWidget(self.grid_opacity_row)
         graph_body.addLayout(row_y_rot)
 
         graph_advanced = AdvancedOptionsBlock(
@@ -1461,9 +1539,10 @@ class CompareDesignSettingsPanel(QWidget):
         layout.setContentsMargins(*lc.MARGIN_DOCK_CONTENTS)
         layout.setSpacing(lc.SPACING_DOCK_SECTIONS_PX)
         font_bold = QFont(self.ui_font_name, config.FONT_SIZE_NORMAL, QFont.Weight.Bold)
+        font_normal = QFont(self.ui_font_name, config.FONT_SIZE_NORMAL - 1)
         self._setup_compare_data_section(layout, font_bold)
         self._setup_compare_style_section(layout, font_bold)
-        self._setup_compare_graph_background_section(layout, font_bold)
+        self._setup_compare_graph_background_section(layout, font_bold, font_normal)
 
         # ------------------------------------------------
         # [ 개별 설정 구역 (서브 탭) ]
@@ -1575,6 +1654,11 @@ class CompareDesignSettingsPanel(QWidget):
                 self._on_setting_changed
             )
             ctrl["raw_color_picker"].color_changed.connect(self._on_setting_changed)
+
+        self.sw_show_grid.toggled.connect(self._sync_grid_opacity_enabled)
+        self.grid_opacity_row.slider.valueChanged.connect(self._on_setting_changed)
+        self._sync_grid_opacity_enabled()
+
         for ctrl in self.series_controls.values():
             ctrl["ell_line_picker"].color_changed.connect(
                 self._update_compare_tab_text_colors
@@ -1584,6 +1668,9 @@ class CompareDesignSettingsPanel(QWidget):
         ctrl["ell_fill_opacity_row"].set_enabled(
             _ell_fill_has_color(ctrl["ell_fill_picker"].current_color)
         )
+
+    def _sync_grid_opacity_enabled(self, *_args):
+        self.grid_opacity_row.set_enabled(self.sw_show_grid.isChecked())
 
     def _update_compare_tab_text_colors(self):
         """파일 탭 파일명 텍스트 색을 각 시리즈의 신뢰타원 선 색과 맞춤."""
@@ -1621,7 +1708,7 @@ class CompareDesignSettingsPanel(QWidget):
         ctrl["combo_lbl_size"].setCurrentText(
             str(int(defaults.get("lbl_size", single_defaults["lbl_size"])))
         )
-        ctrl["btn_bold"].setChecked(bool(defaults.get("lbl_bold", True)))
+        ctrl["btn_bold"].setChecked(bool(defaults.get("lbl_bold", False)))
         ctrl["btn_italic"].setChecked(bool(defaults.get("lbl_italic", False)))
 
         marker = defaults.get("centroid_marker", "o")
@@ -1682,6 +1769,10 @@ class CompareDesignSettingsPanel(QWidget):
         self.sw_show_minor_ticks.setChecked(
             bool(common_defaults.get("show_minor_ticks", True))
         )
+        self.grid_opacity_row.set_opacity(
+            float(common_defaults.get("grid_opacity", DEFAULT_GRID_OPACITY))
+        )
+        self._sync_grid_opacity_enabled()
         self.sw_label_slash_wrap_cmp.setChecked(
             bool(common_defaults.get("label_slash_wrap", False))
         )
@@ -1750,6 +1841,7 @@ class CompareDesignSettingsPanel(QWidget):
                 "y_label_rotation": self.sw_y_label_rotation.isChecked(),
                 "box_spines": self.sw_box_spines.isChecked(),
                 "show_grid": self.sw_show_grid.isChecked(),
+                "grid_opacity": self.grid_opacity_row.get_opacity(),
                 "show_minor_ticks": self.sw_show_minor_ticks.isChecked(),
                 "font_style": font_style,
             },

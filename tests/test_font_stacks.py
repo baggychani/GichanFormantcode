@@ -1,5 +1,5 @@
 # tests/test_font_stacks.py
-"""font_stacks: 포스터 STIX 우선 / legacy 롤백."""
+"""font_stacks: assets/fonts 번들 패밀리만 사용."""
 
 import sys
 import os
@@ -13,22 +13,19 @@ from utils import font_stacks as fs
 
 
 class TestFontStacks(unittest.TestCase):
-    def test_legacy_serif_axis_unchanged_when_poster_off(self):
+    def test_serif_axis_uses_bundled_stack(self):
         config.USE_POSTER_FONT_STACK = False
         self.assertEqual(fs.axis_font_list("serif"), fs.FONT_LEGACY_SERIF_AXIS)
 
-    def test_poster_serif_axis_stix_first(self):
+    def test_poster_flag_same_as_legacy_serif_axis(self):
         config.USE_POSTER_FONT_STACK = True
-        stack = fs.axis_font_list("serif")
-        self.assertEqual(stack[0], "STIX Two Text")
-        self.assertIn("Noto Serif KR", stack)
-        self.assertIn("Charis SIL", stack)
+        self.assertEqual(fs.axis_font_list("serif"), fs.FONT_LEGACY_SERIF_AXIS)
+        self.assertNotIn("STIX Two Text", fs.axis_font_list("serif"))
 
-    def test_poster_ipa_label_stix_before_charis(self):
+    def test_ipa_label_charis_only(self):
         config.USE_POSTER_FONT_STACK = True
         families, serif_medium = fs.label_font_family("/o/", "serif")
-        self.assertEqual(families[0], "STIX Two Text")
-        self.assertIn("Charis SIL", families)
+        self.assertEqual(families, ["Charis SIL"])
         self.assertFalse(serif_medium)
 
     def test_legacy_ipa_label_charis_only(self):

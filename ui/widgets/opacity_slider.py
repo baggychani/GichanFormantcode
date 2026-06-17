@@ -5,6 +5,7 @@ from PySide6.QtGui import QFont, QMouseEvent, QPainter, QColor
 from PySide6.QtWidgets import QHBoxLayout, QLabel, QVBoxLayout, QWidget
 
 DEFAULT_ELL_FILL_OPACITY = 0.15
+DEFAULT_GRID_OPACITY = 0.3
 DEFAULT_LEGEND_FILL_OPACITY = 0.92
 
 _HANDLE_R = 7

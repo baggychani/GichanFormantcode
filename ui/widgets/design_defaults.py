@@ -2,8 +2,6 @@ from __future__ import annotations
 
 from copy import deepcopy
 
-import config
-
 # design_panel / layer_dock 공통 매핑
 MARKER_IDS = {"o": 0, "s": 1, "^": 2, "D": 3, "wo": 4, "ws": 5, "w^": 6, "wD": 7}
 MARKER_VALS = ["o", "s", "^", "D", "wo", "ws", "w^", "wD"]
@@ -32,9 +30,9 @@ SINGLE_DESIGN_DEFAULTS = {
     "raw_marker": "o",
     "raw_color": "#606060",
     "centroid_marker": "o",
-    "lbl_color": config.COLOR_PRIMARY_RED,
-    "lbl_size": 20,
-    "lbl_bold": True,
+    "lbl_color": "#000000",
+    "lbl_size": 18,
+    "lbl_bold": False,
     "lbl_italic": False,
     "ell_thick": 1.0,
     "ell_style": "--",
@@ -43,6 +41,7 @@ SINGLE_DESIGN_DEFAULTS = {
     "ell_fill_opacity": 0.15,
     "box_spines": False,
     "show_grid": False,
+    "grid_opacity": 0.3,
     "y_label_rotation": False,
     "axis_position_swap": False,
     "show_axis_units": False,

@@ -92,6 +92,7 @@ from ui.widgets.design_defaults import (
     THICK_LABELS,
     THICK_VALS,
     get_single_design_defaults,
+    SINGLE_DESIGN_DEFAULTS,
 )
 
 
@@ -244,7 +245,7 @@ class LayerDockWidget(QWidget):
 
         color_layout = _field_group("라벨 텍스트 색상", font_normal)
         self.lbl_color_picker = ColorPalette(
-            default_color=config.COLOR_PRIMARY_RED,
+            default_color=SINGLE_DESIGN_DEFAULTS["lbl_color"],
             allow_transparent=True,
             parent=self.vowel_design_container,
         )
@@ -274,7 +275,7 @@ class LayerDockWidget(QWidget):
         """
         self.btn_lbl_bold = QPushButton("B")
         self.btn_lbl_bold.setCheckable(True)
-        self.btn_lbl_bold.setChecked(True)
+        self.btn_lbl_bold.setChecked(SINGLE_DESIGN_DEFAULTS["lbl_bold"])
         self.btn_lbl_bold.setFixedSize(26, 26)
         self.btn_lbl_bold.setFont(QFont("Arial", 10, QFont.Weight.Bold))
         self.btn_lbl_bold.setStyleSheet(toolbar_style)
@@ -2656,12 +2657,12 @@ class LayerDockWidget(QWidget):
                 v = selected_vowels[0]
                 o = overrides.get(v, {})
                 self.lbl_color_picker.set_color(
-                    o.get("lbl_color", ds.get("lbl_color", config.COLOR_PRIMARY_RED))
+                    o.get("lbl_color", ds.get("lbl_color", SINGLE_DESIGN_DEFAULTS["lbl_color"]))
                 )
                 lbl_size = o.get("lbl_size", ds.get("lbl_size", 16))
                 self.combo_lbl_size.setCurrentText(str(int(lbl_size)))
                 self.btn_lbl_bold.setChecked(
-                    bool(o.get("lbl_bold", ds.get("lbl_bold", True)))
+                    bool(o.get("lbl_bold", ds.get("lbl_bold", SINGLE_DESIGN_DEFAULTS["lbl_bold"])))
                 )
                 self.btn_lbl_italic.setChecked(
                     bool(o.get("lbl_italic", ds.get("lbl_italic", False)))
@@ -2709,13 +2710,13 @@ class LayerDockWidget(QWidget):
                     "lbl_color",
                     overrides,
                     ds,
-                    config.COLOR_PRIMARY_RED,
+                    SINGLE_DESIGN_DEFAULTS["lbl_color"],
                 )
                 common_lbl_size = common_override_value(
                     selected_vowels, "lbl_size", overrides, ds, 16
                 )
                 common_lbl_bold = common_override_value(
-                    selected_vowels, "lbl_bold", overrides, ds, True
+                    selected_vowels, "lbl_bold", overrides, ds, SINGLE_DESIGN_DEFAULTS["lbl_bold"]
                 )
                 common_lbl_italic = common_override_value(
                     selected_vowels, "lbl_italic", overrides, ds, False
@@ -2749,7 +2750,7 @@ class LayerDockWidget(QWidget):
                 self.lbl_color_picker.set_color(
                     common_lbl_color
                     if common_lbl_color is not None
-                    else ds.get("lbl_color", config.COLOR_PRIMARY_RED)
+                    else ds.get("lbl_color", SINGLE_DESIGN_DEFAULTS["lbl_color"])
                 )
                 self.lbl_color_picker.setToolTip(
                     "" if common_lbl_color is not None else mixed_tip
@@ -2763,7 +2764,11 @@ class LayerDockWidget(QWidget):
                     self.combo_lbl_size.setToolTip("")
 
                 self.btn_lbl_bold.setChecked(
-                    bool(common_lbl_bold if common_lbl_bold is not None else True)
+                    bool(
+                        common_lbl_bold
+                        if common_lbl_bold is not None
+                        else SINGLE_DESIGN_DEFAULTS["lbl_bold"]
+                    )
                 )
                 self.btn_lbl_bold.setToolTip(
                     "" if common_lbl_bold is not None else mixed_tip
@@ -2839,10 +2844,12 @@ class LayerDockWidget(QWidget):
                 )
             else:
                 self.lbl_color_picker.set_color(
-                    ds.get("lbl_color", config.COLOR_PRIMARY_RED)
+                    ds.get("lbl_color", SINGLE_DESIGN_DEFAULTS["lbl_color"])
                 )
                 self.combo_lbl_size.setCurrentText(str(int(ds.get("lbl_size", 16))))
-                self.btn_lbl_bold.setChecked(bool(ds.get("lbl_bold", True)))
+                self.btn_lbl_bold.setChecked(
+                    bool(ds.get("lbl_bold", SINGLE_DESIGN_DEFAULTS["lbl_bold"]))
+                )
                 self.btn_lbl_italic.setChecked(bool(ds.get("lbl_italic", False)))
                 self.group_centroid_marker.button(0).setChecked(True)
                 self.group_ell_thick.button(1).setChecked(True)

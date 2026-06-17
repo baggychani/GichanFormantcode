@@ -22,7 +22,7 @@ from core.compare_settings import (
     get_series_design_cfg,
     normalize_compare_design_settings,
 )
-from ui.widgets.design_defaults import get_single_design_defaults
+from ui.widgets.design_defaults import get_single_design_defaults, SINGLE_DESIGN_DEFAULTS
 from utils.math_utils import (
     hz_to_bark,
     hz_to_log,
@@ -100,7 +100,7 @@ class PlotEngine:
         return ell_style if ell_style in ("-", "--", ":") else "--"
 
     @staticmethod
-    def _resolve_centroid_marker(marker, default_face="black", base_size=70):
+    def _resolve_centroid_marker(marker, default_face="black", base_size=62):
         """centroid_marker를 (mpl_marker, facecolor, edgecolor, linewidth, marker_size)로 반환. 흰색 테두리 도형은 면적 30% 축소."""
         if marker in ("wo", "ws", "w^", "wD"):
             # 외곽선 때문에 커지는 현상 방지: s값을 약 30% 줄임
@@ -112,6 +112,18 @@ class PlotEngine:
     def _get_axis_font_list(font_style):
         """축/틱 라벨용 폰트 패밀리 리스트. rcParams를 건드리지 않고 객체에 주입할 때 사용."""
         return axis_font_list(font_style)
+
+    @staticmethod
+    def _apply_grid_style(ax, show_grid, grid_opacity=None):
+        """그리드는 항상 데이터·라벨 뒤(zorder 0)에 그린다."""
+        if not show_grid:
+            ax.grid(False)
+            return
+        alpha = 0.3 if grid_opacity is None else max(0.0, min(1.0, float(grid_opacity)))
+        ax.set_axisbelow(True)
+        ax.grid(True, linestyle="-", alpha=alpha, color="#AAAAAA", clip_on=False)
+        for line in ax.get_xgridlines() + ax.get_ygridlines():
+            line.set_zorder(0)
 
     @staticmethod
     def _is_korean(text):
@@ -261,7 +273,9 @@ class PlotEngine:
         show_raw = design_settings.get("show_raw", True)
         show_centroid = design_settings.get("show_centroid", True)
         # 기본값(광역); 루프 내에서 layer_overrides로 덮어씀
-        lbl_color = design_settings.get("lbl_color", "#FF0000")
+        lbl_color = design_settings.get(
+            "lbl_color", SINGLE_DESIGN_DEFAULTS["lbl_color"]
+        )
         lbl_size = design_settings.get("lbl_size", 16)
 
         ell_thick = design_settings.get("ell_thick", 1.0)
@@ -273,6 +287,7 @@ class PlotEngine:
 
         box_spines = design_settings.get("box_spines", False)
         show_grid = design_settings.get("show_grid", False)
+        grid_opacity = design_settings.get("grid_opacity")
         axis_position_swap = design_settings.get("axis_position_swap", False)
         use_top_right = (origin == "top_right") != axis_position_swap
         if use_top_right:
@@ -316,7 +331,11 @@ class PlotEngine:
             eff = {**design_settings, **over}
             v_lbl_color = eff.get("lbl_color", lbl_color)
             v_lbl_size = int(eff.get("lbl_size", lbl_size))
-            v_lbl_bold = "bold" if eff.get("lbl_bold", True) else "normal"
+            v_lbl_bold = (
+                "bold"
+                if eff.get("lbl_bold", SINGLE_DESIGN_DEFAULTS["lbl_bold"])
+                else "normal"
+            )
             v_lbl_italic = "italic" if eff.get("lbl_italic", False) else "normal"
             v_ell_thick = float(eff.get("ell_thick", ell_thick))
             v_ell_style = eff.get("ell_style", ell_style)
@@ -603,10 +622,7 @@ class PlotEngine:
             for spine in ax.spines.values():
                 spine.set_visible(False)
 
-        if show_grid:
-            ax.grid(True, linestyle="-", alpha=0.3, color="#AAAAAA", clip_on=False)
-        else:
-            ax.grid(False)
+        self._apply_grid_style(ax, show_grid, grid_opacity)
 
         # 축·눈금 위치만 반대(원점/방향은 origin으로만 결정)
         if use_top_right:
@@ -776,6 +792,7 @@ class PlotEngine:
         show_centroid = common.get("show_centroid", True)
         box_spines = common.get("box_spines", False)
         show_grid = common.get("show_grid", False)
+        grid_opacity = common.get("grid_opacity")
         axis_position_swap = common.get("axis_position_swap", False)
         use_top_right = (origin == "top_right") != axis_position_swap
         if use_top_right:
@@ -879,7 +896,11 @@ class PlotEngine:
 
                 lbl_color = cfg_v.get("lbl_color", default_color)
                 lbl_size = cfg_v.get("lbl_size", cfg.get("lbl_size", 16))
-                lbl_bold = "bold" if cfg_v.get("lbl_bold", True) else "normal"
+                lbl_bold = (
+                    "bold"
+                    if cfg_v.get("lbl_bold", SINGLE_DESIGN_DEFAULTS["lbl_bold"])
+                    else "normal"
+                )
                 lbl_italic = "italic" if cfg_v.get("lbl_italic", False) else "normal"
                 hide_text = lbl_color == "transparent"
                 ell_thick = cfg_v.get("ell_thick", cfg.get("ell_thick", 1.0))
@@ -1176,10 +1197,7 @@ class PlotEngine:
             for spine in ax.spines.values():
                 spine.set_visible(False)
 
-        if show_grid:
-            ax.grid(True, linestyle="-", alpha=0.3, color="#AAAAAA", clip_on=False)
-        else:
-            ax.grid(False)
+        self._apply_grid_style(ax, show_grid, grid_opacity)
 
         # 축·눈금 위치만 반대(원점/방향은 origin으로만 결정)
         if use_top_right:
@@ -1398,7 +1416,9 @@ class PlotEngine:
 
         show_raw = design_settings.get("show_raw", True)
         show_centroid = design_settings.get("show_centroid", True)
-        lbl_color = design_settings.get("lbl_color", "#FF0000")
+        lbl_color = design_settings.get(
+            "lbl_color", SINGLE_DESIGN_DEFAULTS["lbl_color"]
+        )
         lbl_size = design_settings.get("lbl_size", 16)
         ell_thick = design_settings.get("ell_thick", 1.0)
         ell_style = design_settings.get("ell_style", "--")
@@ -1408,6 +1428,7 @@ class PlotEngine:
         centroid_marker = design_settings.get("centroid_marker", "o")
         box_spines = design_settings.get("box_spines", False)
         show_grid = design_settings.get("show_grid", False)
+        grid_opacity = design_settings.get("grid_opacity")
         axis_font = self._get_axis_font_list(design_settings.get("font_style", "serif"))
 
         r = self.NORM_RANGES.get(norm_type, self.NORM_RANGES["Lobanov"])
@@ -1481,10 +1502,7 @@ class PlotEngine:
         else:
             for spine in ax.spines.values():
                 spine.set_visible(False)
-        if show_grid:
-            ax.grid(True, linestyle="-", alpha=0.3, color="#AAAAAA", clip_on=False)
-        else:
-            ax.grid(False)
+        self._apply_grid_style(ax, show_grid, grid_opacity)
 
         self._set_ticks(
             ax,
@@ -1531,7 +1549,11 @@ class PlotEngine:
             eff = {**design_settings, **over}
             v_lbl_color = eff.get("lbl_color", lbl_color)
             v_lbl_size = int(eff.get("lbl_size", lbl_size))
-            v_lbl_bold = "bold" if eff.get("lbl_bold", True) else "normal"
+            v_lbl_bold = (
+                "bold"
+                if eff.get("lbl_bold", SINGLE_DESIGN_DEFAULTS["lbl_bold"])
+                else "normal"
+            )
             v_lbl_italic = "italic" if eff.get("lbl_italic", False) else "normal"
             v_ell_thick = float(eff.get("ell_thick", ell_thick))
             v_ell_style = eff.get("ell_style", ell_style)
@@ -1802,6 +1824,7 @@ class PlotEngine:
         show_centroid = common.get("show_centroid", True)
         box_spines = common.get("box_spines", False)
         show_grid = common.get("show_grid", False)
+        grid_opacity = common.get("grid_opacity")
         sigma = float(sigma)
 
         r = self.NORM_RANGES.get(norm_type, self.NORM_RANGES["Lobanov"])
@@ -1874,10 +1897,7 @@ class PlotEngine:
         else:
             for spine in ax.spines.values():
                 spine.set_visible(False)
-        if show_grid:
-            ax.grid(True, linestyle="-", alpha=0.3, color="#AAAAAA", clip_on=False)
-        else:
-            ax.grid(False)
+        self._apply_grid_style(ax, show_grid, grid_opacity)
 
         self._set_ticks(
             ax,
@@ -1950,7 +1970,11 @@ class PlotEngine:
                 ell_fill_opacity = cfg_v.get("ell_fill_opacity", None)
                 centroid_marker = cfg_v.get("centroid_marker", "o")
                 lbl_size = cfg_v.get("lbl_size", 16)
-                lbl_bold = "bold" if cfg_v.get("lbl_bold", True) else "normal"
+                lbl_bold = (
+                    "bold"
+                    if cfg_v.get("lbl_bold", SINGLE_DESIGN_DEFAULTS["lbl_bold"])
+                    else "normal"
+                )
                 lbl_italic = "italic" if cfg_v.get("lbl_italic", False) else "normal"
                 raw_color = self._resolve_plot_color(
                     cfg_v.get("raw_color"),

@@ -243,7 +243,7 @@ class MarkerShapeButton(QPushButton):
         super().__init__("", parent)
         self.marker_char = marker_char
         self.setToolTip(tooltip)
-        self.setFixedSize(28, 28)
+        self.setFixedSize(26, 26)
         self.setCheckable(True)
         self.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
         self.setStyleSheet("""
@@ -252,11 +252,11 @@ class MarkerShapeButton(QPushButton):
             QPushButton:hover:!checked { background-color: #F5F7FA; }
         """)
         self.setIcon(QIcon(self._draw_icon(marker_char)))
-        self.setIconSize(QPixmap(24, 24).size())
+        self.setIconSize(QPixmap(22, 22).size())
 
     def _draw_icon(self, marker):
         dpr = self.devicePixelRatio()
-        w_px, h_px = int(24 * dpr), int(24 * dpr)
+        w_px, h_px = int(22 * dpr), int(22 * dpr)
         pixmap = QPixmap(w_px, h_px)
         pixmap.setDevicePixelRatio(dpr)
         pixmap.fill(Qt.GlobalColor.transparent)
@@ -264,7 +264,7 @@ class MarkerShapeButton(QPushButton):
             painter = QPainter(pixmap)
             try:
                 painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-                cx, cy = 12.0, 12.0
+                cx, cy = 11.0, 11.0
 
                 white_fill = marker.startswith("w") and len(marker) == 2
                 base = marker[1] if white_fill else marker
@@ -272,7 +272,7 @@ class MarkerShapeButton(QPushButton):
                 # 흰색 도형 테두리를 1.0px로 줄이고 inset 보정
                 pen_width = 1.0
                 inset = (pen_width / 2.0) if white_fill else 0.0
-                r = 6.0 - inset
+                r = 5.0 - inset
                 if white_fill:
                     painter.setPen(QPen(QColor("#000000"), pen_width))
                     painter.setBrush(QBrush(QColor("#FFFFFF")))

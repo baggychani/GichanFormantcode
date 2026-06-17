@@ -352,11 +352,10 @@ LOG_MSG = {
 }
 
 # =============================================================================
-# 8b. 플롯 폰트 (포스터 STIX 우선 / 롤백)
+# 8b. 플롯 폰트 (assets/fonts 번들만 사용)
 # =============================================================================
-# True: poster/poster.css 와 동일 계열 — IPA·축·라틴에 STIX Two Text 우선.
-# False: 기존 Noto Serif KR + Charis SIL 우선 (이전 동작).
-# 기존 스택 정의는 utils/font_stacks.py FONT_LEGACY_* 에 그대로 둠.
+# USE_POSTER_FONT_STACK: 하위 호환. True/False 모두 utils/font_stacks.py 의
+# 번들 폰트(Noto·Charis·Andika) + DejaVu fallback 만 사용한다.
 USE_POSTER_FONT_STACK = True
 
 # =============================================================================

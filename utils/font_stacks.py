@@ -1,6 +1,7 @@
-"""플롯·라벨 폰트 패밀리 스택 (포스터 STIX 우선, legacy fallback).
+"""플롯·라벨 폰트 패밀리 스택.
 
-롤백: config.USE_POSTER_FONT_STACK = False
+assets/fonts 에 번들·등록된 패밀리와 Matplotlib DejaVu fallback 만 사용한다.
+STIX·Latin Modern 등 미번들 폰트는 넣지 않아 findfont 경고를 원천 차단한다.
 """
 
 from __future__ import annotations
@@ -15,42 +16,16 @@ FONT_LEGACY_SANS_AXIS = ["Noto Sans KR", "Andika", "DejaVu Sans"]
 FONT_LEGACY_SANS_KO = ["Noto Sans KR"]
 FONT_LEGACY_SANS_IPA = ["Andika"]
 
-# --- Poster (poster/poster.css 표·IPA, plot_style.yaml STIX 계열) ---
-FONT_POSTER_SERIF_LATIN = [
-    "STIX Two Text",
-    "STIXGeneral",
-    "Latin Modern Roman",
-    "Times New Roman",
-]
-FONT_POSTER_SANS_KO = ["Noto Sans KR", "Malgun Gothic"]
-
-
-def _merge_unique(*groups: list[str]) -> list[str]:
-    seen: set[str] = set()
-    out: list[str] = []
-    for group in groups:
-        for name in group:
-            if name not in seen:
-                seen.add(name)
-                out.append(name)
-    return out
-
 
 def use_poster_font_stack() -> bool:
+    """하위 호환 플래그. 번들-only 정책 이후 True/False 동일 스택."""
     return bool(getattr(config, "USE_POSTER_FONT_STACK", False))
 
 
 def axis_font_list(font_style: str) -> list[str]:
     """축·눈금 라벨용 패밀리 리스트."""
     if font_style == "serif":
-        if use_poster_font_stack():
-            return _merge_unique(
-                FONT_POSTER_SERIF_LATIN,
-                FONT_LEGACY_SERIF_AXIS,
-            )
         return list(FONT_LEGACY_SERIF_AXIS)
-    if use_poster_font_stack():
-        return _merge_unique(FONT_POSTER_SANS_KO, FONT_LEGACY_SANS_AXIS)
     return list(FONT_LEGACY_SANS_AXIS)
 
 
@@ -63,38 +38,10 @@ def label_font_family(label_text: str, font_style: str) -> tuple[list[str], bool
 
     if is_korean:
         if is_serif:
-            if use_poster_font_stack():
-                families = _merge_unique(
-                    FONT_LEGACY_SERIF_KO,
-                    FONT_POSTER_SANS_KO,
-                )
-            else:
-                families = list(FONT_LEGACY_SERIF_KO)
-        else:
-            if use_poster_font_stack():
-                families = _merge_unique(
-                    FONT_POSTER_SANS_KO,
-                    FONT_LEGACY_SANS_KO,
-                )
-            else:
-                families = list(FONT_LEGACY_SANS_KO)
-        return (families, is_serif)
+            return (list(FONT_LEGACY_SERIF_KO), True)
+        return (list(FONT_LEGACY_SANS_KO), False)
 
     if is_serif:
-        if use_poster_font_stack():
-            families = _merge_unique(
-                FONT_POSTER_SERIF_LATIN,
-                FONT_LEGACY_SERIF_IPA,
-                FONT_LEGACY_SERIF_AXIS,
-            )
-        else:
-            families = list(FONT_LEGACY_SERIF_IPA)
-    else:
-        if use_poster_font_stack():
-            families = _merge_unique(
-                FONT_POSTER_SERIF_LATIN,
-                FONT_LEGACY_SANS_IPA,
-            )
-        else:
-            families = list(FONT_LEGACY_SANS_IPA)
-    return (families, False)
+        return (list(FONT_LEGACY_SERIF_IPA), False)
+
+    return (list(FONT_LEGACY_SANS_IPA), False)

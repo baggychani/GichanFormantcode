@@ -16,9 +16,9 @@ from core.compare_series import (
 def _default_series_cfg(series_id: int) -> dict[str, Any]:
     color = default_series_color(series_id)
     return {
-        "lbl_color": color,
-        "lbl_size": 16,
-        "lbl_bold": True,
+        "lbl_color": "#000000",
+        "lbl_size": 18,
+        "lbl_bold": False,
         "lbl_italic": False,
         "ell_thick": 1.0,
         "ell_style": default_series_ell_style(series_id),
@@ -60,6 +60,7 @@ def default_compare_design_settings(series_count: int = 2) -> dict[str, Any]:
             "show_centroid": True,
             "box_spines": False,
             "show_grid": False,
+            "grid_opacity": 0.3,
             "y_label_rotation": False,
             "show_minor_ticks": True,
             "font_style": "serif",
