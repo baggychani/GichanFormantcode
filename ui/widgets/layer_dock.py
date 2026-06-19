@@ -2657,12 +2657,20 @@ class LayerDockWidget(QWidget):
                 v = selected_vowels[0]
                 o = overrides.get(v, {})
                 self.lbl_color_picker.set_color(
-                    o.get("lbl_color", ds.get("lbl_color", SINGLE_DESIGN_DEFAULTS["lbl_color"]))
+                    o.get(
+                        "lbl_color",
+                        ds.get("lbl_color", SINGLE_DESIGN_DEFAULTS["lbl_color"]),
+                    )
                 )
                 lbl_size = o.get("lbl_size", ds.get("lbl_size", 16))
                 self.combo_lbl_size.setCurrentText(str(int(lbl_size)))
                 self.btn_lbl_bold.setChecked(
-                    bool(o.get("lbl_bold", ds.get("lbl_bold", SINGLE_DESIGN_DEFAULTS["lbl_bold"])))
+                    bool(
+                        o.get(
+                            "lbl_bold",
+                            ds.get("lbl_bold", SINGLE_DESIGN_DEFAULTS["lbl_bold"]),
+                        )
+                    )
                 )
                 self.btn_lbl_italic.setChecked(
                     bool(o.get("lbl_italic", ds.get("lbl_italic", False)))
@@ -2716,7 +2724,11 @@ class LayerDockWidget(QWidget):
                     selected_vowels, "lbl_size", overrides, ds, 16
                 )
                 common_lbl_bold = common_override_value(
-                    selected_vowels, "lbl_bold", overrides, ds, SINGLE_DESIGN_DEFAULTS["lbl_bold"]
+                    selected_vowels,
+                    "lbl_bold",
+                    overrides,
+                    ds,
+                    SINGLE_DESIGN_DEFAULTS["lbl_bold"],
                 )
                 common_lbl_italic = common_override_value(
                     selected_vowels, "lbl_italic", overrides, ds, False
