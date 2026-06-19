@@ -25,13 +25,27 @@ class TestMainController(unittest.TestCase):
 
     def test_add_remove_files(self):
         """파일 추가 및 삭제 로직 검증."""
-        # DataProcessor.load_files 모킹
-        with patch("core.controller.DataProcessor") as mock_proc_cls:
-            mock_proc = mock_proc_cls.return_value
-            mock_proc.load_files.return_value = (True, False, [])
-            mock_proc.get_data.return_value = pd.DataFrame(
+        loaded_item = {
+            "name": "test1.csv",
+            "df": pd.DataFrame(
                 {"F1": [500, 600], "F2": [1500, 1600], "Label": ["i", "e"]}
-            )
+            ),
+            "df_original": pd.DataFrame(
+                {"F1": [500, 600], "F2": [1500, 1600], "Label": ["i", "e"]}
+            ),
+            "has_f3": False,
+            "is_pre_lobanov": False,
+        }
+        # 파일 로드 세부 구현은 data_loading_service에서 검증하고,
+        # Controller는 load result를 plot_data_list에 반영하는지만 확인한다.
+        with patch("core.controller.load_plot_item_from_file") as mock_load:
+            mock_load.return_value = {
+                "success": True,
+                "name": "test1.csv",
+                "item": loaded_item,
+                "errors": [],
+                "row_dropped": [],
+            }
 
             # 파일 추가
             test_files = [os.path.abspath("test1.csv")]
@@ -50,8 +64,8 @@ class TestMainController(unittest.TestCase):
         """컨트롤러의 정규화 래퍼 함수 검증."""
         df = pd.DataFrame({"F1": [500, 600], "F2": [1500, 1600], "Label": ["i", "e"]})
 
-        # Lobanov 정규화 호출 확인
-        with patch("core.controller.lobanov_normalization") as mock_norm:
+        # Controller는 normalization service로 위임한다.
+        with patch("core.controller.apply_normalization") as mock_norm:
             self.controller._apply_normalization(df, "Lobanov")
             mock_norm.assert_called_once()
 

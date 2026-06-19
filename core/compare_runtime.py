@@ -119,6 +119,7 @@ def build_compare_series_inputs(
             CompareSeriesInput(
                 df=df,
                 display_name=name,
+                series_id=series_id,
                 filter_state=_read_filter_state(popup_window, series_id),
                 design_cfg=get_series_design_cfg(normalized_design, series_id),
                 layer_overrides=_read_layer_overrides(popup_window, series_id),

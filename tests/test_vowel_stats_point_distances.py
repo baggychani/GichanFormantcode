@@ -3,6 +3,7 @@ import math
 import pandas as pd
 
 from utils.vowel_stats import (
+    calculate_pairwise_mahalanobis_distances,
     calculate_point_distances_from_centroid,
     calculate_point_distances_from_centroid_bark,
 )
@@ -53,3 +54,20 @@ def test_centroid_pair_hz_matches_pythagorean_formula():
     x_u, y_u = stats["u"]
     expected = math.sqrt((x_o - x_u) ** 2 + (y_o - y_u) ** 2)
     assert abs(expected - math.sqrt(200**2 + 50**2)) < 1e-6
+
+
+def test_pairwise_mahalanobis_distances_between_vowel_centroids():
+    df = _sample_df()
+    result = calculate_pairwise_mahalanobis_distances(df)
+
+    assert ("o", "u") in result
+    assert result[("o", "u")]["distance"] > 0
+    assert result[("o", "u")]["n_a"] == 3
+    assert result[("o", "u")]["n_b"] == 3
+
+
+def test_pairwise_mahalanobis_distances_respects_min_group_size():
+    df = _sample_df()
+    result = calculate_pairwise_mahalanobis_distances(df, min_group_size=4)
+
+    assert result == {}

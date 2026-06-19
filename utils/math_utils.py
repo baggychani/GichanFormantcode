@@ -107,7 +107,9 @@ def filter_for_plot_type(df, plot_type):
     """
     if df is None or df.empty:
         return df
-    if plot_type in F3_REQUIRED_PLOT_TYPES and "F3" in df.columns:
+    if plot_type in F3_REQUIRED_PLOT_TYPES:
+        if "F3" not in df.columns:
+            return df.iloc[0:0].copy()
         return df.dropna(subset=["F3"])
     return df
 

@@ -64,6 +64,13 @@ def test_compare_session_from_data_indices():
     assert session.legacy_key(1) == "red"
 
 
+def test_compare_session_supports_three_plus_indices():
+    session = CompareSession.from_data_indices(3, 7, 11, 13)
+    assert session.count == 4
+    assert session.data_index(2) == 11
+    assert session.legacy_key(2) == "series_2"
+
+
 def test_compare_session_requires_at_least_two_indices():
     with pytest.raises(ValueError):
         CompareSession.from_data_indices(1)
@@ -116,6 +123,24 @@ def test_default_compare_design_settings_shape():
     assert "red" in defaults
     assert defaults["series"]["0"]["ell_style"] == "-"
     assert defaults["series"]["1"]["ell_style"] == "--"
+
+
+def test_default_compare_design_settings_supports_n_series():
+    defaults = default_compare_design_settings(series_count=3)
+    assert defaults["series_2"]["ell_style"] == "-."
+    assert defaults["series"]["2"]["ell_style"] == "-."
+    assert get_series_design_cfg(defaults, 2)["ell_style"] == "-."
+
+
+def test_get_series_design_cfg_falls_back_for_missing_series_n():
+    settings = normalize_compare_design_settings(
+        {
+            "common": {},
+            "blue": {"ell_style": "-"},
+            "red": {"ell_style": "--"},
+        }
+    )
+    assert get_series_design_cfg(settings, 2)["ell_style"] == "-."
 
 
 def test_build_compare_dataset_specs():
@@ -230,6 +255,34 @@ def test_draw_compare_plot_supports_three_series():
     assert 1 in result.label_data
     assert 2 in result.label_data
     assert len(result.label_data[2]) >= 1
+
+
+def test_draw_compare_plot_preserves_series_id_when_first_series_filtered_out():
+    from matplotlib.figure import Figure
+
+    from engine.plot_engine import PlotEngine
+
+    engine = PlotEngine()
+    fig = Figure(figsize=(4, 4))
+    df_without_f3 = _dummy_df()
+    df_with_f3 = _dummy_df().assign(F3=[2500.0, 2520.0, 2510.0])
+    result = engine.draw_compare_plot(
+        fig,
+        [
+            CompareSeriesInput(df=df_without_f3, display_name="A", series_id=0),
+            CompareSeriesInput(df=df_with_f3, display_name="B", series_id=1),
+            CompareSeriesInput(df=df_with_f3, display_name="C", series_id=2),
+        ],
+        {
+            "type": "f1_f3",
+            "origin": "bottom_left",
+            "f1_scale": "linear",
+            "f2_scale": "linear",
+        },
+    )
+    assert 0 not in result.label_data
+    assert 1 in result.label_data
+    assert 2 in result.label_data
 
 
 class _PopupStub:
@@ -483,3 +536,35 @@ def test_merged_label_move_context_legacy_blue_red():
     assert label_data[0]["series"] == 0
     assert label_data[1]["series"] == 1
     assert artists == ["A", "U"]
+
+
+def test_clear_compare_label_offsets_removes_series_n_keys():
+    from core.controller import MainController
+
+    controller = MainController.__new__(MainController)
+    plot_key = compare_plot_key((0, 1, 2), "f1_f2")
+    controller.custom_label_offsets = {
+        compare_label_offset_key(plot_key, 0): {"a": (1, 1)},
+        compare_label_offset_key(plot_key, 1): {"a": (2, 2)},
+        compare_label_offset_key(plot_key, 2): {"a": (3, 3)},
+    }
+
+    class _Popup:
+        compare_session = CompareSession.from_data_indices(0, 1, 2)
+
+    controller._clear_compare_label_offsets_for_plot_key(plot_key, _Popup())
+    assert controller.custom_label_offsets == {}
+
+
+def test_compare_service_clears_offsets_without_session_by_prefix():
+    from core.compare_service import clear_compare_label_offsets
+
+    plot_key = compare_plot_key((0, 1, 2), "f1_f2")
+    offsets = {
+        compare_label_offset_key(plot_key, 0): {"a": (1, 1)},
+        compare_label_offset_key(plot_key, 2): {"a": (3, 3)},
+        (99, "f1_f2", "blue"): {"a": (9, 9)},
+    }
+
+    clear_compare_label_offsets(offsets, plot_key)
+    assert offsets == {(99, "f1_f2", "blue"): {"a": (9, 9)}}

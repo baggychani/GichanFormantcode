@@ -1024,6 +1024,19 @@ class PlotPopup(BasePlotWindow):
         btn_batch.clicked.connect(self.on_batch_save)
         export_group.addWidget(btn_batch)
 
+        btn_project_save = QPushButton("프로젝트 저장")
+        btn_project_save.setFixedHeight(34)
+        btn_project_save.setFont(font_normal)
+        btn_project_save.setFocusPolicy(Qt.FocusPolicy.NoFocus)
+        btn_project_save.setStyleSheet("""
+            QPushButton { background-color: white; border: 1px solid #C0C4CC; border-radius: 4px; }
+            QPushButton:hover { background-color: #F5F7FA; border: 1px solid #909399; }
+        """)
+        btn_project_save.clicked.connect(
+            lambda: self.controller.prompt_save_project(self)
+        )
+        export_group.addWidget(btn_project_save)
+
         layout.addLayout(export_group)
         self._apply_normalization_axis_ui()
 

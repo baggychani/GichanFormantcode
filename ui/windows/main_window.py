@@ -116,17 +116,14 @@ class MainUI(QMainWindow):
         _report("Loading UI Resources...")
         self._apply_window_icon()
 
-        # 창 크기 고정 (config.WINDOW_SIZE_MAIN: "WxH")
+        # 메인 창은 프로젝트 버튼/향후 패널 확장에 대비해 리사이즈를 허용한다.
+        # Plot 창은 별도 파일에서 고정 크기를 유지한다.
         win_w, win_h = map(int, config.WINDOW_SIZE_MAIN.split("x"))
-        self.setFixedSize(win_w, win_h)
+        self.resize(win_w, win_h)
+        self.setMinimumSize(980, 640)
 
         # 제목 표시줄의 최대화(ㅁ) 버튼 비활성화 (최소화, 닫기 버튼만 유지)
-        self.setWindowFlags(
-            Qt.WindowType.Window
-            | Qt.WindowType.WindowMinimizeButtonHint
-            | Qt.WindowType.WindowCloseButtonHint
-            | Qt.WindowType.WindowSystemMenuHint
-        )
+        self.setWindowFlags(Qt.WindowType.Window)
 
         _report("Setting up Typography...")
         self.ui_font_name = (
@@ -330,6 +327,15 @@ class MainUI(QMainWindow):
         ctrl_h.addWidget(self.btn_reset)
         ctrl_h.addWidget(self.btn_guide)
         data_vbox.addLayout(ctrl_h)
+
+        project_h = QHBoxLayout()
+        self.btn_project_open = QPushButton("프로젝트 열기")
+        self.btn_project_save = QPushButton("프로젝트 저장")
+        self.btn_project_open.clicked.connect(self.controller.prompt_open_project)
+        self.btn_project_save.clicked.connect(self.controller.prompt_save_project)
+        project_h.addWidget(self.btn_project_open)
+        project_h.addWidget(self.btn_project_save)
+        data_vbox.addLayout(project_h)
         data_vbox.addSpacing(4)
         data_group.setSizePolicy(
             QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Maximum
@@ -716,6 +722,44 @@ class MainUI(QMainWindow):
                 )
             callback(files)
 
+    def request_project_open(self, callback):
+        """프로젝트 파일(.gfproj)을 선택하고 콜백으로 경로를 전달한다."""
+        initial_dir = ""
+        if hasattr(self, "controller") and self.controller is not None:
+            initial_dir = getattr(self.controller, "get_initial_open_dir", lambda: "")()
+        path, _ = QFileDialog.getOpenFileName(
+            self,
+            "프로젝트 열기",
+            initial_dir,
+            "GichanFormant Project (*.gfproj);;All Files (*.*)",
+        )
+        if path:
+            if hasattr(self, "controller") and self.controller is not None:
+                getattr(self.controller, "set_last_open_dir", lambda x: None)(
+                    os.path.dirname(os.path.abspath(path))
+                )
+            callback(path)
+
+    def request_project_save(self, callback):
+        """프로젝트 저장 경로를 선택하고 콜백으로 경로를 전달한다."""
+        initial_dir = ""
+        if hasattr(self, "controller") and self.controller is not None:
+            initial_dir = getattr(
+                self.controller, "get_default_batch_save_dir", lambda: ""
+            )()
+        path, _ = QFileDialog.getSaveFileName(
+            self,
+            "프로젝트 저장",
+            initial_dir,
+            "GichanFormant Project (*.gfproj);;All Files (*.*)",
+        )
+        if path:
+            if hasattr(self, "controller") and self.controller is not None:
+                getattr(self.controller, "set_last_save_dir", lambda x: None)(
+                    os.path.dirname(os.path.abspath(path))
+                )
+            callback(path)
+
     def _request_delete(self, index):
         if index < 0 or index >= self.controller.get_plot_data_count():
             return
@@ -902,6 +946,67 @@ class MainUI(QMainWindow):
             return None
         val = self.cb_normalization.currentData()
         return val if val else None
+
+    def apply_project_analysis_state(self, analysis: dict):
+        """프로젝트 파일에서 복원한 메인 분석 설정을 UI에 반영한다."""
+        if not analysis:
+            return
+
+        def _check_button(group, value):
+            if group is None:
+                return
+            for button in group.buttons():
+                if button.property("val") == value:
+                    button.setChecked(True)
+                    return
+
+        use_bark = bool(analysis.get("use_bark_units", False))
+        self.chk_bark_units.blockSignals(True)
+        self.chk_bark_units.setChecked(use_bark)
+        self.chk_bark_units.blockSignals(False)
+
+        self.plot_type_group.blockSignals(True)
+        _check_button(self.plot_type_group, analysis.get("type", "f1_f2"))
+        self.plot_type_group.blockSignals(False)
+
+        self.f1_scale_group.blockSignals(True)
+        self.f2_scale_group.blockSignals(True)
+        _check_button(self.f1_scale_group, analysis.get("f1_scale", "linear"))
+        _check_button(self.f2_scale_group, analysis.get("f2_scale", "linear"))
+        self.f1_scale_group.blockSignals(False)
+        self.f2_scale_group.blockSignals(False)
+
+        self.origin_group.blockSignals(True)
+        _check_button(self.origin_group, analysis.get("origin", "top_right"))
+        self.origin_group.blockSignals(False)
+
+        if hasattr(self, "outlier_group"):
+            self.outlier_group.blockSignals(True)
+            outlier_mode = analysis.get("outlier_mode")
+            for button in self.outlier_group.buttons():
+                button.setChecked(button.property("val") == outlier_mode)
+            self.outlier_group.blockSignals(False)
+        if hasattr(self, "outlier_scope_group"):
+            self.outlier_scope_group.blockSignals(True)
+            outlier_scope = analysis.get("outlier_scope") or "combined"
+            _check_button(self.outlier_scope_group, outlier_scope)
+            self.outlier_scope_group.blockSignals(False)
+        self._update_outlier_scope_ui()
+
+        if hasattr(self, "cb_normalization"):
+            norm = analysis.get("normalization")
+            self.cb_normalization.blockSignals(True)
+            for i in range(self.cb_normalization.count()):
+                if self.cb_normalization.itemData(i) == (norm or ""):
+                    self.cb_normalization.setCurrentIndex(i)
+                    break
+            self.cb_normalization.blockSignals(False)
+
+        checked = self.plot_type_group.checkedButton()
+        if checked is not None:
+            self._on_plot_type_changed(checked)
+        self._set_norm_mode_active(bool(self.get_normalization()))
+        self._draw_preview()
 
     def sync_pre_lobanov_normalization(self, active: bool):
         """Lobanov 헤더 파일만 로드된 경우 정규화 콤보를 Lobanov로 고정."""

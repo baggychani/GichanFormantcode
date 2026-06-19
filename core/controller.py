@@ -15,6 +15,7 @@ from core.compare_series import (
     compare_default_save_basename,
     compare_label_offset_key,
 )
+from core.compare_service import clear_compare_label_offsets
 from core.compare_runtime import (
     apply_compare_render_to_popup,
     build_compare_series_inputs,
@@ -23,6 +24,13 @@ from core.compare_runtime import (
     merged_label_move_context,
     resolve_compare_session,
 )
+from core.data_loading_service import load_plot_item_from_file, make_plot_item
+from core.export_service import (
+    export_combined_txt_file,
+    save_figure_file,
+    save_dir_from_path,
+)
+from core.project_service import load_project, save_project
 from utils import app_logger
 from ui.windows.main_window import MainUI
 from ui.dialogs.file_guide import DataGuidePopup
@@ -42,15 +50,9 @@ from tools.label_move import LabelMoveTool
 from utils.math_utils import (
     remove_outliers_tukey_iqr,
     remove_outliers_mahalanobis_scoped,
-    lobanov_normalization,
-    gerstman_normalization,
-    watt_fabricius_normalization,
-    bigham_normalization,
-    nearey1_normalization,
-    to_phonetic_vowel,
 )
+from core.normalization_service import apply_normalization, normalize_dataframe
 from model.combined_dataset import build_combined_entry, build_compare_group_entry
-from model.formant_txt_export import formant_dataframe_to_txt
 from .workers import BatchSaveWorker
 from utils import path_prefs
 
@@ -385,45 +387,12 @@ class MainController:
                     app_logger.error(config.LOG_MSG["PLOT_REFRESH_ERROR"].format(e=e))
 
     def _apply_normalization(self, df, norm_name, *, is_pre_lobanov: bool = False):
-        """Raw Hz DataFrame에 정규화 적용.
-
-        is_pre_lobanov: 파일 첫 줄 Lobanov 헤더로 이미 z-score인 데이터 — Lobanov 선택 시 재적용 생략.
-
-        W&F(2mW/F)는 코너 모음 'i', 'a' 식별을 위해 라벨을 음성학 코드(Vowel)로 매핑한 뒤 호출합니다.
-        한글 라벨(ㅏ, ㅣ 등)도 매핑되어 W&F가 무동작이 되는 사일런트 실패를 방지합니다.
-        매핑 후에도 'i' 또는 'a' 토큰이 없으면 경고 로그를 남깁니다(W&F는 적용 불가).
-        """
-        if not norm_name or df.empty:
-            return df.copy()
-        if is_pre_lobanov and norm_name == "Lobanov":
-            return df.copy()
-        df = df.copy()
-        label_col = "Label" if "Label" in df.columns else "label"
-        if norm_name == "Lobanov":
-            return lobanov_normalization(df)
-        if norm_name == "Gerstman":
-            return gerstman_normalization(df)
-        if norm_name == "2mW/F":
-            df["Vowel"] = df[label_col].apply(to_phonetic_vowel)
-            if not (df["Vowel"] == "i").any() or not (df["Vowel"] == "a").any():
-                unique_vowels = sorted(
-                    {v for v in df["Vowel"].astype(str).unique() if v}
-                )
-                app_logger.warning(
-                    "[2mW/F] 코너 모음 'i' 또는 'a' 토큰이 없어 정규화가 적용되지 않았습니다. "
-                    f"(현재 라벨: {unique_vowels[:10]}{' …' if len(unique_vowels) > 10 else ''})"
-                )
-            return watt_fabricius_normalization(df, variant="2m")
-        if norm_name == "Bigham":
-            return bigham_normalization(df)
-        if norm_name == "Nearey1":
-            return nearey1_normalization(df)
-        return df
+        """Compatibility wrapper for normalization service."""
+        return apply_normalization(df, norm_name, is_pre_lobanov=is_pre_lobanov)
 
     def _normalize_dataframe(self, df, norm_name, data_item=None):
-        """plot_data_list 항목의 is_pre_lobanov 플래그를 반영해 정규화."""
-        pre = bool(data_item and data_item.get("is_pre_lobanov"))
-        return self._apply_normalization(df, norm_name, is_pre_lobanov=pre)
+        """Compatibility wrapper that respects the item pre-Lobanov flag."""
+        return normalize_dataframe(df, norm_name, data_item)
 
     def _real_plot_items(self):
         return [it for it in self.plot_data_list if not it.get("is_combined")]
@@ -459,8 +428,7 @@ class MainController:
             self.custom_label_offsets.pop(key, None)
         key_cmp = getattr(popup_window, "_plot_key_compare", None)
         if key_cmp:
-            self.custom_label_offsets.pop((*key_cmp, "blue"), None)
-            self.custom_label_offsets.pop((*key_cmp, "red"), None)
+            self._clear_compare_label_offsets_for_plot_key(key_cmp, popup_window)
 
     def remove_popup(self, popup):
         """팝업이 닫힐 때 View에서 호출. 리스트 및 라벨 오프셋에서 제거."""
@@ -473,10 +441,17 @@ class MainController:
             self.custom_label_offsets.pop(key, None)
         key_cmp = getattr(popup, "_plot_key_compare", None)
         if key_cmp:
-            self.custom_label_offsets.pop((*key_cmp, "blue"), None)
-            self.custom_label_offsets.pop((*key_cmp, "red"), None)
+            self._clear_compare_label_offsets_for_plot_key(key_cmp, popup)
         if popup in self.open_popups:
             self.open_popups.remove(popup)
+
+    def _clear_compare_label_offsets_for_plot_key(self, plot_key, popup_window=None):
+        """Compare plot key에 연결된 모든 series 라벨 오프셋을 제거한다."""
+        clear_compare_label_offsets(
+            self.custom_label_offsets,
+            plot_key,
+            session=getattr(popup_window, "compare_session", None),
+        )
 
     def _get_x_axis_label(self, plot_type):
         """플롯 타입에 맞는 X축 라벨 문자열 반환."""
@@ -548,6 +523,145 @@ class MainController:
         if hasattr(self.ui, "request_file_open"):
             self.ui.request_file_open(self._process_new_files)
 
+    def _active_single_plot_popup(self):
+        for popup in reversed(self.open_popups):
+            if getattr(popup, "plot_data_snapshot", None) is not None and not hasattr(
+                popup, "compare_session"
+            ):
+                return popup
+        return None
+
+    def prompt_save_project(self, popup_window=None):
+        """프로젝트 저장 다이얼로그를 열고 현재 세션을 .gfproj로 저장한다."""
+        if not self.plot_data_list:
+            self.ui.show_warning("데이터 없음", "저장할 프로젝트 데이터가 없습니다.")
+            return
+        source_popup = popup_window or self._active_single_plot_popup()
+        if hasattr(self.ui, "request_project_save"):
+            self.ui.request_project_save(
+                lambda path: self.save_project_file(path, source_popup)
+            )
+
+    def prompt_open_project(self):
+        """프로젝트 열기 다이얼로그를 열고 .gfproj를 복원한다."""
+        if hasattr(self.ui, "request_project_open"):
+            self.ui.request_project_open(self.load_project_file)
+
+    def save_project_file(self, path, popup_window=None):
+        try:
+            save_project(path, self, popup_window)
+            app_logger.info(f"[Project] 프로젝트 저장 완료: {path}")
+        except Exception as e:
+            traceback.print_exc()
+            self.ui.show_critical("프로젝트 저장 실패", str(e))
+            app_logger.error(f"[Project] save failed: {e}")
+
+    def load_project_file(self, path):
+        try:
+            project = load_project(path)
+            self._apply_loaded_project(project)
+            self.set_last_open_dir(os.path.dirname(os.path.abspath(path)))
+            app_logger.info(f"[Project] 프로젝트 불러오기 완료: {path}")
+        except Exception as e:
+            traceback.print_exc()
+            self.ui.show_critical("프로젝트 열기 실패", str(e))
+            app_logger.error(f"[Project] load failed: {e}")
+
+    def _load_project_source_item(self, source, snapshots):
+        source_id = str(source.get("id", ""))
+        path = source.get("path") or ""
+        name = source.get("name") or os.path.basename(path) or f"source_{source_id}"
+        snapshot_df = snapshots.get(source_id)
+
+        if path and os.path.exists(path):
+            loaded = load_plot_item_from_file(path)
+            if loaded["success"]:
+                return path, loaded["item"]
+
+        if snapshot_df is None:
+            raise ValueError(f"프로젝트 데이터 스냅샷을 찾을 수 없습니다: {name}")
+        return path, make_plot_item(
+            name=name,
+            df=snapshot_df,
+            is_pre_lobanov=bool(source.get("is_pre_lobanov", False)),
+        )
+
+    def _apply_loaded_project(self, project):
+        self._cleanup_popups()
+        self.filepaths = []
+        self.plot_data_list = []
+        self.current_idx = int((project.get("analysis") or {}).get("current_idx", 0))
+        self.custom_label_offsets = dict(project.get("label_offsets", {}) or {})
+        self.data_processor = DataProcessor()
+
+        snapshots = project.get("snapshots", {}) or {}
+        for source in project.get("sources", []) or []:
+            path, item = self._load_project_source_item(source, snapshots)
+            self.filepaths.append(path)
+            self.plot_data_list.append(item)
+
+        self._rebuild_combined_entry()
+        self.current_idx = max(0, min(self.current_idx, len(self.plot_data_list) - 1))
+
+        self.ui.update_file_status(len(self.filepaths))
+        real_items = [it for it in self.plot_data_list if not it.get("is_combined")]
+        self.ui.toggle_f3_options(all(it.get("has_f3") for it in real_items))
+        if hasattr(self.ui, "apply_project_analysis_state"):
+            self.ui.apply_project_analysis_state(project.get("analysis") or {})
+        self._sync_pre_lobanov_ui()
+
+        if self.ui.get_outlier_mode() is not None:
+            self.on_outlier_mode_changed()
+        else:
+            self.update_live_preview()
+
+        single_state = project.get("single_plot")
+        if isinstance(single_state, dict) and self.plot_data_list:
+            self._restore_single_plot_from_project(single_state)
+
+    def _restore_single_plot_from_project(self, single_state):
+        self.current_idx = max(
+            0,
+            min(int(single_state.get("current_idx", 0)), len(self.plot_data_list) - 1),
+        )
+        self.open_single_plot()
+        popup = self._active_single_plot_popup()
+        if popup is None:
+            return
+
+        popup.current_idx = self.current_idx
+        popup.fixed_plot_params = dict(
+            single_state.get("fixed_plot_params") or popup.fixed_plot_params or {}
+        )
+        popup.design_settings = dict(single_state.get("design_settings") or {})
+        popup.vowel_filter_state_by_file = dict(
+            single_state.get("vowel_filter_state_by_file") or {}
+        )
+        popup.layer_design_overrides_by_file = dict(
+            single_state.get("layer_design_overrides_by_file") or {}
+        )
+        popup.layer_locked_vowels_by_file = {
+            int(k): set(v)
+            for k, v in (single_state.get("layer_locked_vowels_by_file") or {}).items()
+        }
+        popup.layer_order = list(single_state.get("layer_order") or [])
+        popup._draw_objects_by_file = dict(
+            single_state.get("draw_objects_by_file") or {}
+        )
+
+        ranges = single_state.get("ranges") or {}
+        if ranges:
+            self._apply_ranges_to_widgets(popup.range_widgets, ranges)
+        sigma = single_state.get("sigma")
+        if sigma is not None and hasattr(popup, "cb_sigma"):
+            popup.cb_sigma.setCurrentText(str(sigma))
+
+        if hasattr(popup, "_on_navigate_update"):
+            popup._on_navigate_update()
+        self.refresh_plot(
+            popup.figure, popup.canvas, popup.range_widgets, popup.lbl_info, popup
+        )
+
     def add_files(self, filepaths):
         """
         새로운 데이터 파일들을 로드하고 내부 메모리(plot_data_list)에 추가합니다.
@@ -586,38 +700,14 @@ class MainController:
         )
 
         for f in new_files:
-            fname = os.path.basename(f)
-            temp_processor = DataProcessor()
-            success, has_f3, errors = temp_processor.load_files([f])
-            is_pre_lobanov = bool(getattr(temp_processor, "is_pre_lobanov", False))
-
-            if success and existing_real and existing_pre is not None:
-                if is_pre_lobanov != existing_pre:
-                    success = False
-                    errors = [(f, config.PARSE_ERR_LOBANOV_MIXED)]
-
-            if success:
-                # 로드된 원본 DataFrame 복사본 (plot_data_list 항목용)
-                raw_df = temp_processor.get_data(copy=False)
+            loaded = load_plot_item_from_file(f, existing_pre_lobanov=existing_pre)
+            if loaded["success"]:
                 self.filepaths.append(f)
-                self.plot_data_list.append(
-                    {
-                        "name": fname,
-                        "df": raw_df.copy(),
-                        "df_original": raw_df.copy(),
-                        "has_f3": has_f3,
-                        "is_pre_lobanov": is_pre_lobanov,
-                    }
-                )
+                self.plot_data_list.append(loaded["item"])
                 result["success_count"] += 1
-                # 데이터 조건 위반으로 제외된 행이 있다면, 파일명 기준으로 누락 라벨 정보를 누적
-                for path, drop_report in getattr(temp_processor, "row_drops", []):
-                    if drop_report:
-                        result["row_dropped"].append(
-                            (os.path.basename(path), drop_report)
-                        )
+                result["row_dropped"].extend(loaded["row_dropped"])
             else:
-                result["failed"].append((fname, errors or []))
+                result["failed"].append((loaded["name"], loaded["errors"]))
 
         # 새로 추가된 real 항목들로 Combined를 재구성
         self._rebuild_combined_entry()
@@ -1934,22 +2024,10 @@ class MainController:
     def export_combined_txt(self, file_path, parent_window=None, parent_widget=None):
         """현재 Combined plot_data의 df를 입력 형식 .txt로 저장."""
         item, _ = self._get_plot_item_at(parent_window)
-        if not item or not item.get("is_combined"):
-            return False, "Combined 항목이 아닙니다."
-        df = item.get("df")
-        if df is None or df.empty:
-            return False, "저장할 데이터가 없습니다."
-        text = formant_dataframe_to_txt(df, include_f3=bool(item.get("has_f3", False)))
-        if not text.strip():
-            return False, "유효한 행이 없어 파일을 만들 수 없습니다."
-        try:
-            with open(file_path, "w", encoding="utf-8", newline="\n") as f:
-                f.write(text)
-            self.set_last_save_dir(os.path.dirname(file_path))
-            app_logger.info(config.LOG_MSG["COMBINED_TXT_SAVE"].format(path=file_path))
-            return True, file_path
-        except OSError as e:
-            return False, str(e)
+        ok, msg = export_combined_txt_file(item, file_path)
+        if ok:
+            self.set_last_save_dir(save_dir_from_path(file_path))
+        return ok, msg
 
     def prompt_save_combined_txt(self, parent_window=None, parent_widget=None):
         """Combined txt 저장 대화상자."""
@@ -1986,36 +2064,12 @@ class MainController:
     def save_plot_to_file(self, figure, file_path, fmt, parent_window=None):
         """실제 파일 저장만을 수행, 오류시 예외 발생."""
         try:
-            self.set_last_save_dir(os.path.dirname(file_path))
+            self.set_last_save_dir(save_dir_from_path(file_path))
         except Exception as e:
             app_logger.debug(f"[save_plot_to_file] 마지막 저장 경로 저장 실패: {e}")
         if self.ruler_tool.active:
             self.ruler_tool.clear_all()
-        if parent_window:
-            if getattr(parent_window, "_draw_tool", None) is not None:
-                try:
-                    parent_window._draw_tool.cancel()
-                except Exception as e:
-                    app_logger.debug(f"[save_plot_to_file] 그리기 도구 취소 실패: {e}")
-            if hasattr(parent_window, "begin_export_render"):
-                parent_window.begin_export_render()
-        try:
-            if parent_window and getattr(parent_window, "canvas", None) is not None:
-                try:
-                    parent_window.canvas.draw()
-                except Exception as e:
-                    app_logger.debug(
-                        f"[save_plot_to_file] 캔버스 다시 그리기 실패: {e}"
-                    )
-            figure.set_size_inches(6.5, 6.5)
-            if fmt.lower() == "png":
-                figure.savefig(file_path, format="png", dpi=300, transparent=True)
-            else:
-                figure.savefig(file_path, format=fmt, dpi=300, facecolor="white")
-            app_logger.info(config.LOG_MSG["SAVE_SINGLE_SHORT"].format(path=file_path))
-        finally:
-            if parent_window and hasattr(parent_window, "end_export_render"):
-                parent_window.end_export_render()
+        save_figure_file(figure, file_path, fmt, parent_window=parent_window)
 
     def get_default_batch_save_dir(self):
         """일괄 저장에 사용할 기본 디렉터리 반환."""

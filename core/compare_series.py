@@ -109,6 +109,7 @@ class CompareSeriesInput:
 
     df: Any
     display_name: str
+    series_id: int | None = None
     filter_state: dict | None = None
     design_cfg: dict | None = None
     layer_overrides: dict | None = None
@@ -138,7 +139,8 @@ def build_compare_dataset_specs(
     if len(series_inputs) < 2:
         raise ValueError("compare requires at least 2 series")
     specs: list[CompareDatasetSpec] = []
-    for series_id, row in enumerate(series_inputs):
+    for fallback_id, row in enumerate(series_inputs):
+        series_id = row.series_id if row.series_id is not None else fallback_id
         specs.append(
             CompareDatasetSpec(
                 series_id=series_id,

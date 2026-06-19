@@ -126,4 +126,5 @@ def get_series_design_cfg(
     """series_id 또는 legacy 키로 per-series 디자인 cfg 조회."""
     normalized = normalize_compare_design_settings(settings)
     series_id = normalize_series_ref(series_ref)
-    return dict(normalized.get(legacy_key_from_series_id(series_id), {}))
+    cfg = normalized.get(legacy_key_from_series_id(series_id))
+    return dict(cfg) if cfg else _default_series_cfg(series_id)

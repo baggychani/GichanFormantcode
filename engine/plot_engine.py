@@ -22,7 +22,10 @@ from core.compare_settings import (
     get_series_design_cfg,
     normalize_compare_design_settings,
 )
-from ui.widgets.design_defaults import get_single_design_defaults, SINGLE_DESIGN_DEFAULTS
+from ui.widgets.design_defaults import (
+    get_single_design_defaults,
+    SINGLE_DESIGN_DEFAULTS,
+)
 from utils.math_utils import (
     hz_to_bark,
     hz_to_log,
@@ -717,7 +720,7 @@ class PlotEngine:
 
     def _prepare_compare_series_inputs(self, series_inputs, plot_type):
         prepared: list[CompareSeriesInput] = []
-        for row in series_inputs:
+        for fallback_id, row in enumerate(series_inputs):
             if not self._has_compare_required_columns(row.df):
                 continue
             df_filtered = filter_for_plot_type(row.df, plot_type)
@@ -727,6 +730,9 @@ class PlotEngine:
                 CompareSeriesInput(
                     df=df_filtered,
                     display_name=row.display_name,
+                    series_id=(
+                        row.series_id if row.series_id is not None else fallback_id
+                    ),
                     filter_state=row.filter_state,
                     design_cfg=row.design_cfg,
                     layer_overrides=row.layer_overrides,
@@ -771,11 +777,13 @@ class PlotEngine:
         design_settings = normalize_compare_design_settings(design_settings)
 
         enriched_inputs: list[CompareSeriesInput] = []
-        for series_id, row in enumerate(prepared_inputs):
+        for fallback_id, row in enumerate(prepared_inputs):
+            series_id = row.series_id if row.series_id is not None else fallback_id
             enriched_inputs.append(
                 CompareSeriesInput(
                     df=row.df,
                     display_name=row.display_name,
+                    series_id=series_id,
                     filter_state=row.filter_state or {},
                     design_cfg=row.design_cfg
                     or get_series_design_cfg(design_settings, series_id),
@@ -1791,11 +1799,23 @@ class PlotEngine:
         if len(series_inputs) < 2:
             return self._empty_compare_render_result(figure)
 
-        prepared_inputs = [
-            row
-            for row in series_inputs
-            if self._has_compare_required_columns(row.df) and not row.df.empty
-        ]
+        prepared_inputs = []
+        for fallback_id, row in enumerate(series_inputs):
+            if self._has_compare_required_columns(row.df) and not row.df.empty:
+                prepared_inputs.append(
+                    CompareSeriesInput(
+                        df=row.df,
+                        display_name=row.display_name,
+                        series_id=(
+                            row.series_id if row.series_id is not None else fallback_id
+                        ),
+                        filter_state=row.filter_state,
+                        design_cfg=row.design_cfg,
+                        layer_overrides=row.layer_overrides,
+                        custom_label_offsets=row.custom_label_offsets,
+                        layer_order=list(row.layer_order or []),
+                    )
+                )
         if len(prepared_inputs) < 2:
             return self._empty_compare_render_result(figure)
 
@@ -1803,11 +1823,13 @@ class PlotEngine:
             design_settings = self._get_default_multi_design()
         design_settings = normalize_compare_design_settings(design_settings)
         enriched_inputs: list[CompareSeriesInput] = []
-        for series_id, row in enumerate(prepared_inputs):
+        for fallback_id, row in enumerate(prepared_inputs):
+            series_id = row.series_id if row.series_id is not None else fallback_id
             enriched_inputs.append(
                 CompareSeriesInput(
                     df=row.df,
                     display_name=row.display_name,
+                    series_id=series_id,
                     filter_state=row.filter_state or {},
                     design_cfg=row.design_cfg
                     or get_series_design_cfg(design_settings, series_id),

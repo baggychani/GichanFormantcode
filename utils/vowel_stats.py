@@ -134,6 +134,56 @@ def calculate_centroid_distances(
     return distances
 
 
+def calculate_pairwise_mahalanobis_distances(
+    df: pd.DataFrame,
+    x_col: str = "F2",
+    y_col: str = "F1",
+    label_col: str = "Label",
+    *,
+    min_group_size: int = 2,
+) -> Dict[Tuple[str, str], Dict[str, float]]:
+    """모음 중심 쌍별 Mahalanobis distance를 계산한다.
+
+    각 모음 쌍의 중심 차이를 두 모음 데이터의 pooled covariance로 스케일링한다.
+    공분산이 singular인 경우에도 연구 데이터에서 자주 발생하는 작은 표본 문제를
+    견딜 수 있도록 pseudo-inverse를 사용한다.
+    """
+    if df.empty or label_col not in df.columns:
+        return {}
+    if x_col not in df.columns or y_col not in df.columns:
+        return {}
+
+    result: Dict[Tuple[str, str], Dict[str, float]] = {}
+    labels = list(pd.unique(df[label_col].dropna()))
+    for i, label_a in enumerate(labels):
+        group_a = df[df[label_col] == label_a][[x_col, y_col]].dropna()
+        if len(group_a) < min_group_size:
+            continue
+        for label_b in labels[i + 1 :]:
+            group_b = df[df[label_col] == label_b][[x_col, y_col]].dropna()
+            if len(group_b) < min_group_size:
+                continue
+
+            coords_a = group_a.to_numpy(dtype=float)
+            coords_b = group_b.to_numpy(dtype=float)
+            pooled = np.vstack([coords_a, coords_b])
+            cov = np.cov(pooled.T)
+            if cov.ndim != 2 or cov.shape != (2, 2):
+                continue
+            cov_inv = np.linalg.pinv(cov)
+            diff = coords_a.mean(axis=0) - coords_b.mean(axis=0)
+            distance_sq = float(diff.T @ cov_inv @ diff)
+            distance = float(np.sqrt(max(distance_sq, 0.0)))
+            result[(str(label_a), str(label_b))] = {
+                "distance": distance,
+                "x_mean_diff": float(diff[0]),
+                "y_mean_diff": float(diff[1]),
+                "n_a": int(len(coords_a)),
+                "n_b": int(len(coords_b)),
+            }
+    return result
+
+
 def calculate_point_distances_from_centroid(
     df: pd.DataFrame, x_col: str = "F2", y_col: str = "F1", label_col: str = "Label"
 ) -> Dict[str, Dict[str, float]]:
