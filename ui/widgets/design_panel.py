@@ -60,7 +60,6 @@ from core.compare_series import (
     normalize_series_ref,
 )
 from ui.widgets.segmented_control import (
-    wrap_segmented_buttons,
     create_line_preview_button_group,
     SLIDE_ANIM_MS,
     _SLIDE_EASING,
@@ -70,6 +69,13 @@ from ui.widgets.design_defaults import (
     STYLE_VALS,
     THICK_VALS,
     get_single_design_defaults,
+)
+from ui.widgets.style_tokens import (
+    DESIGN_FONT_BUTTON_SIZE,
+    DESIGN_FONT_ICON_SIZE,
+    DESIGN_ICON_BUTTON_STYLE,
+    DESIGN_RAW_MARKER_BUTTON_SIZE,
+    DESIGN_RAW_MARKER_ICON_SIZE,
 )
 
 
@@ -87,6 +93,27 @@ def _field_group(caption: str, font: QFont) -> QVBoxLayout:
     group.setSpacing(lc.SPACING_CAPTION_TO_CONTROL_PX)
     group.addWidget(_field_caption(caption, font))
     return group
+
+
+def _icon_selector_row(
+    caption: str, font: QFont, buttons: list[QPushButton]
+) -> QHBoxLayout:
+    """좌측 캡션 + 우측 아이콘 선택기 행."""
+    row = QHBoxLayout()
+    row.setContentsMargins(0, 0, 0, 0)
+    row.setSpacing(10)
+    lbl = _field_caption(caption, font)
+    lbl.setMinimumWidth(112)
+    row.addWidget(lbl)
+    row.addStretch(1)
+    icon_wrap = QWidget()
+    icon_layout = QHBoxLayout(icon_wrap)
+    icon_layout.setContentsMargins(0, 0, 0, 0)
+    icon_layout.setSpacing(1)
+    for btn in buttons:
+        icon_layout.addWidget(btn)
+    row.addWidget(icon_wrap)
+    return row
 
 
 def _ell_fill_has_color(color) -> bool:
@@ -429,7 +456,7 @@ class DesignSettingsPanel(QWidget):
         )
         layout = QVBoxLayout(scroll_content)
         layout.setContentsMargins(12, 12, 12, 15)
-        layout.setSpacing(lc.SPACING_DOCK_SECTIONS_PX)
+        layout.setSpacing(0)
 
         font_bold = QFont(self.ui_font_name, 10, QFont.Weight.Bold)
         font_normal = QFont(self.ui_font_name, 9)
@@ -446,7 +473,7 @@ class DesignSettingsPanel(QWidget):
         )
         data_body = sec_data.body_layout()
         row1, self.sw_show_raw = self._create_toggle_row("데이터 포인트")
-        row2, self.sw_show_centroid = self._create_toggle_row("모음 중심점(Centroid)")
+        row2, self.sw_show_centroid = self._create_toggle_row("모음 중심점")
         data_body.addLayout(row1)
         data_body.addLayout(row2)
         layout.addWidget(sec_data)
@@ -463,56 +490,56 @@ class DesignSettingsPanel(QWidget):
             default_collapsed=False,
         )
         style_body = sec_style.body_layout()
-        btn_style = """
-            QPushButton { background-color: transparent; border: 1px solid transparent; border-radius: 4px; }
-            QPushButton:hover { background-color: #F5F7FA; }
-            QPushButton:checked { background-color: #E4E7ED; border: 1px solid #C0C4CC; }
-        """
-        font_style_block = _field_group("폰트 스타일", font_normal)
+        style_body.setSpacing(10)
+        font_style_buttons = []
         self.group_font_style = QButtonGroup(self)
         btn_serif = QPushButton("")
         btn_serif.setCheckable(True)
         btn_serif.setChecked(True)
-        btn_serif.setMinimumHeight(26)
+        btn_serif.setFixedSize(*DESIGN_FONT_BUTTON_SIZE)
         btn_serif.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
-        btn_serif.setStyleSheet(btn_style)
+        btn_serif.setStyleSheet(DESIGN_ICON_BUTTON_STYLE)
         btn_serif.setIcon(create_font_style_icon(is_serif=True))
-        btn_serif.setIconSize(QPixmap(34, 22).size())
+        btn_serif.setIconSize(QPixmap(*DESIGN_FONT_ICON_SIZE).size())
         btn_serif.setToolTip("명조(세리프)")
         self.group_font_style.addButton(btn_serif, 0)
+        font_style_buttons.append(btn_serif)
         btn_sans = QPushButton("")
         btn_sans.setCheckable(True)
-        btn_sans.setMinimumHeight(26)
+        btn_sans.setFixedSize(*DESIGN_FONT_BUTTON_SIZE)
         btn_sans.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
-        btn_sans.setStyleSheet(btn_style)
+        btn_sans.setStyleSheet(DESIGN_ICON_BUTTON_STYLE)
         btn_sans.setIcon(create_font_style_icon(is_serif=False))
-        btn_sans.setIconSize(QPixmap(34, 22).size())
+        btn_sans.setIconSize(QPixmap(*DESIGN_FONT_ICON_SIZE).size())
         btn_sans.setToolTip("고딕(산세리프)")
         self.group_font_style.addButton(btn_sans, 1)
-        font_style_block.addWidget(wrap_segmented_buttons([btn_serif, btn_sans], self))
-        style_body.addLayout(font_style_block)
+        font_style_buttons.append(btn_sans)
+        style_body.addLayout(
+            _icon_selector_row("폰트 스타일", font_normal, font_style_buttons)
+        )
 
-        dp_shape_block = _field_group("데이터 포인트 모양", font_normal)
-        self.group_raw_marker = QButtonGroup(self)
         dp_btns = []
+        self.group_raw_marker = QButtonGroup(self)
         for i, (key, tip) in enumerate(
             [("o", "빈 원"), ("x", "X 모양"), ("a", "라벨 문자(모음 기호)")]
         ):
             btn = QPushButton("")
             btn.setCheckable(True)
             btn.setProperty("val", key)
-            btn.setMinimumHeight(26)
+            btn.setFixedSize(*DESIGN_RAW_MARKER_BUTTON_SIZE)
             btn.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
-            btn.setStyleSheet(btn_style)
+            btn.setStyleSheet(DESIGN_ICON_BUTTON_STYLE)
             btn.setIcon(create_raw_marker_icon(key))
-            btn.setIconSize(QPixmap(24, 24).size())
+            btn.setIconSize(QPixmap(*DESIGN_RAW_MARKER_ICON_SIZE).size())
             btn.setToolTip(tip)
             if key == "o":
                 btn.setChecked(True)
             self.group_raw_marker.addButton(btn, i)
             dp_btns.append(btn)
-        dp_shape_block.addWidget(wrap_segmented_buttons(dp_btns, self))
-        style_body.addLayout(dp_shape_block)
+        style_body.addLayout(
+            _icon_selector_row("데이터 포인트 모양", font_normal, dp_btns)
+        )
+        style_body.addSpacing(4)
         raw_color_layout = _field_group("데이터 포인트 색상", font_normal)
         self.raw_color_picker = ColorPalette(
             default_color="#606060", allow_transparent=False, parent=self
@@ -681,14 +708,20 @@ class DesignSettingsPanel(QWidget):
             (2.0, Qt.PenStyle.SolidLine, "0px", "보통"),
             (3.5, Qt.PenStyle.SolidLine, "0 4px 4px 0", "두껍게"),
         ]
-        thick_frame, self.group_ell_thick = self._create_visual_button_group(thicks, 1)
+        default_thick_idx = THICK_VALS.index(get_single_design_defaults()["ell_thick"])
+        thick_frame, self.group_ell_thick = self._create_visual_button_group(
+            thicks, default_thick_idx
+        )
         # 실선/긴 점선/짧은 점선. 버튼 아이콘은 레이어 도크와 동일하게 DashLine/DotLine 사용
         styles = [
             (2.0, Qt.PenStyle.SolidLine, "4px 0 0 4px", "실선"),
             (2.0, Qt.PenStyle.DashLine, "0px", "긴 점선"),
             (2.0, Qt.PenStyle.DotLine, "0 4px 4px 0", "짧은 점선"),
         ]
-        style_frame, self.group_ell_style = self._create_visual_button_group(styles, 2)
+        default_style_idx = STYLE_VALS.index(get_single_design_defaults()["ell_style"])
+        style_frame, self.group_ell_style = self._create_visual_button_group(
+            styles, default_style_idx
+        )
         ell_type_block.addWidget(thick_frame)
         ell_type_block.addWidget(style_frame)
         ell_body.addLayout(ell_type_block)
@@ -833,10 +866,17 @@ class DesignSettingsPanel(QWidget):
         main_layout.addWidget(bottom_container)
 
     def _add_separator(self, layout):
+        container = QWidget()
+        container_layout = QVBoxLayout(container)
+        container_layout.setContentsMargins(
+            0, lc.SPACING_SEPARATOR_TOP_PX, 0, lc.SPACING_SEPARATOR_BOTTOM_PX
+        )
+        container_layout.setSpacing(0)
         line = QFrame()
         line.setFrameShape(QFrame.Shape.HLine)
         line.setStyleSheet("color: #EBEEF5;")
-        layout.addWidget(line)
+        container_layout.addWidget(line)
+        layout.addWidget(container)
 
     def _connect_signals(self):
         for sw in [
@@ -902,8 +942,12 @@ class DesignSettingsPanel(QWidget):
         self.btn_bold.setChecked(bool(defaults["lbl_bold"]))
         self.btn_italic.setChecked(bool(defaults["lbl_italic"]))
 
-        self.group_ell_thick.button(1).setChecked(True)
-        self.group_ell_style.button(2).setChecked(True)  # 짧은 점선
+        self.group_ell_thick.button(THICK_VALS.index(defaults["ell_thick"])).setChecked(
+            True
+        )
+        self.group_ell_style.button(STYLE_VALS.index(defaults["ell_style"])).setChecked(
+            True
+        )
         centroid_idx = MARKER_VALS.index(defaults["centroid_marker"])
         self.group_centroid_marker.button(centroid_idx).setChecked(True)
         self.group_font_style.button(0).setChecked(True)  # serif(명조) 기본
@@ -1053,10 +1097,17 @@ class CompareDesignSettingsPanel(QWidget):
         return default_series_ell_style(series_id)
 
     def _add_separator(self, layout):
+        container = QWidget()
+        container_layout = QVBoxLayout(container)
+        container_layout.setContentsMargins(
+            0, lc.SPACING_SEPARATOR_TOP_PX, 0, lc.SPACING_SEPARATOR_BOTTOM_PX
+        )
+        container_layout.setSpacing(0)
         line = QFrame()
         line.setFrameShape(QFrame.Shape.HLine)
         line.setStyleSheet("color: #EBEEF5;")
-        layout.addWidget(line)
+        container_layout.addWidget(line)
+        layout.addWidget(container)
 
     def _build_individual_tab(self, default_color, default_style_str, series):
         """서브 탭 내부에 들어갈 개별 디자인 요소 팩토리."""
@@ -1352,7 +1403,7 @@ class CompareDesignSettingsPanel(QWidget):
         )
         body = sec_data.body_layout()
         row1, self.sw_show_raw = self._create_toggle_row("데이터 포인트")
-        row2, self.sw_show_centroid = self._create_toggle_row("모음 중심점(Centroid)")
+        row2, self.sw_show_centroid = self._create_toggle_row("모음 중심점")
         row3, self.sw_label_slash_wrap_cmp = self._create_toggle_row(
             "라벨에 // 기호 씌우기", default_checked=False
         )
@@ -1373,57 +1424,57 @@ class CompareDesignSettingsPanel(QWidget):
             default_collapsed=False,
         )
         style_body = sec_style.body_layout()
+        style_body.setSpacing(10)
         font_caption = QFont(self.ui_font_name, config.FONT_SIZE_SMALL)
-        btn_style = """
-            QPushButton { background-color: transparent; border: 1px solid transparent; border-radius: 4px; }
-            QPushButton:hover { background-color: #F5F7FA; }
-            QPushButton:checked { background-color: #E4E7ED; border: 1px solid #C0C4CC; }
-        """
-        font_style_block = _field_group("폰트 스타일", font_caption)
+        font_style_buttons = []
         self.group_font_style_common = QButtonGroup(self)
         btn_serif = QPushButton("")
         btn_serif.setCheckable(True)
         btn_serif.setChecked(True)
-        btn_serif.setMinimumHeight(26)
+        btn_serif.setFixedSize(*DESIGN_FONT_BUTTON_SIZE)
         btn_serif.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
-        btn_serif.setStyleSheet(btn_style)
+        btn_serif.setStyleSheet(DESIGN_ICON_BUTTON_STYLE)
         btn_serif.setIcon(create_font_style_icon(is_serif=True))
-        btn_serif.setIconSize(QPixmap(40, 26).size())
+        btn_serif.setIconSize(QPixmap(*DESIGN_FONT_ICON_SIZE).size())
         btn_serif.setToolTip("명조(세리프)")
         self.group_font_style_common.addButton(btn_serif, 0)
+        font_style_buttons.append(btn_serif)
         btn_sans = QPushButton("")
         btn_sans.setCheckable(True)
-        btn_sans.setMinimumHeight(26)
+        btn_sans.setFixedSize(*DESIGN_FONT_BUTTON_SIZE)
         btn_sans.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
-        btn_sans.setStyleSheet(btn_style)
+        btn_sans.setStyleSheet(DESIGN_ICON_BUTTON_STYLE)
         btn_sans.setIcon(create_font_style_icon(is_serif=False))
-        btn_sans.setIconSize(QPixmap(40, 26).size())
+        btn_sans.setIconSize(QPixmap(*DESIGN_FONT_ICON_SIZE).size())
         btn_sans.setToolTip("고딕(산세리프)")
         self.group_font_style_common.addButton(btn_sans, 1)
-        font_style_block.addWidget(wrap_segmented_buttons([btn_serif, btn_sans], self))
-        style_body.addLayout(font_style_block)
+        font_style_buttons.append(btn_sans)
+        style_body.addLayout(
+            _icon_selector_row("폰트 스타일", font_caption, font_style_buttons)
+        )
 
-        dp_shape_block = _field_group("데이터 포인트 모양", font_caption)
-        self.group_raw_marker_common = QButtonGroup(self)
         dp_btns = []
+        self.group_raw_marker_common = QButtonGroup(self)
         for i, (key, tip) in enumerate(
             [("o", "빈 원"), ("x", "X 모양"), ("a", "라벨 문자(모음 기호)")]
         ):
             btn = QPushButton("")
             btn.setCheckable(True)
             btn.setProperty("val", key)
-            btn.setMinimumHeight(26)
+            btn.setFixedSize(*DESIGN_RAW_MARKER_BUTTON_SIZE)
             btn.setCursor(QCursor(Qt.CursorShape.PointingHandCursor))
-            btn.setStyleSheet(btn_style)
+            btn.setStyleSheet(DESIGN_ICON_BUTTON_STYLE)
             btn.setIcon(create_raw_marker_icon(key))
-            btn.setIconSize(QPixmap(24, 24).size())
+            btn.setIconSize(QPixmap(*DESIGN_RAW_MARKER_ICON_SIZE).size())
             btn.setToolTip(tip)
             if key == "o":
                 btn.setChecked(True)
             self.group_raw_marker_common.addButton(btn, i)
             dp_btns.append(btn)
-        dp_shape_block.addWidget(wrap_segmented_buttons(dp_btns, self))
-        style_body.addLayout(dp_shape_block)
+        style_body.addLayout(
+            _icon_selector_row("데이터 포인트 모양", font_caption, dp_btns)
+        )
+        style_body.addSpacing(4)
         layout.addWidget(sec_style)
         self._add_separator(layout)
 
@@ -1537,7 +1588,7 @@ class CompareDesignSettingsPanel(QWidget):
         )
         layout = QVBoxLayout(scroll_content)
         layout.setContentsMargins(*lc.MARGIN_DOCK_CONTENTS)
-        layout.setSpacing(lc.SPACING_DOCK_SECTIONS_PX)
+        layout.setSpacing(0)
         font_bold = QFont(self.ui_font_name, config.FONT_SIZE_NORMAL, QFont.Weight.Bold)
         font_normal = QFont(self.ui_font_name, config.FONT_SIZE_NORMAL - 1)
         self._setup_compare_data_section(layout, font_bold)

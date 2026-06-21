@@ -6,6 +6,7 @@ from copy import deepcopy
 from time import perf_counter
 from ui.windows.base_plot_window import BasePlotWindow
 from ui.dialogs.batch_save_dialog import BatchSaveDialog
+from ui.dialogs.combined_txt_save_dialog import prompt_save_combined_txt
 from PySide6.QtWidgets import (
     QMainWindow,
     QWidget,
@@ -20,19 +21,9 @@ from PySide6.QtWidgets import (
     QFrame,
     QSizePolicy,
     QTabWidget,
+    QScrollArea,
 )
-from PySide6.QtCore import Qt, QObject, QEvent, QTimer
-
-
-class TabBarWheelBlocker(QObject):
-    """탭 위에서 마우스 휠로 탭이 바뀌지 않도록 휠 이벤트를 흡수합니다."""
-
-    def eventFilter(self, obj, event):
-        if event.type() == QEvent.Type.Wheel:
-            return True
-        return False
-
-
+from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import (
     QFont,
     QShortcut,
@@ -52,108 +43,27 @@ from ui.widgets.icon_widgets import BidirectionalArrowButton, ShortcutButton
 from ui.widgets.tool_indicator import ToolStatusIndicator
 from ui.widgets.layer_dock import LayerDockWidget
 from draw import DrawModeIndicator
+from core.state_manager import StateManager
 import ui.widgets.layout_constants as layout
 from ui.widgets.display_utils import strip_gichan_prefix
 from ui.widgets.file_nav_bar import FileNavBar
+from ui.widgets.plot_event_filters import (
+    ClickClearFocusFilter,
+    RangeInputFilter,
+    TabBarWheelBlocker,
+)
+from ui.widgets.style_tokens import (
+    ANALYSIS_NON_SCROLL_RIGHT_MARGIN_PX,
+    BATCH_SAVE_BUTTON_HEIGHT_PX,
+    EXPORT_BUTTON_HEIGHT_PX,
+    PLOT_NAV_BUTTON_STYLE,
+    PLOT_PRIMARY_BUTTON_STYLE,
+    PLOT_RANGE_APPLY_BUTTON_STYLE,
+    PLOT_RANGE_RESET_BUTTON_STYLE,
+    PLOT_SECONDARY_BUTTON_STYLE,
+    PROJECT_SAVE_BUTTON_HEIGHT_PX,
+)
 from utils.math_utils import hz_to_bark, bark_to_hz
-
-
-class ClickClearFocusFilter(QObject):
-    """다른 위젯 클릭 시 지정한 LineEdit들에서 포커스를 빼서 분석 탭으로 넘깁니다."""
-
-    def __init__(self, window, analysis_tab, edits, parent=None):
-        super().__init__(parent)
-        self._window = window
-        self._analysis_tab = analysis_tab
-        self._edits = set(edits)
-
-    def eventFilter(self, obj, event):
-        try:
-            # Sentry 로그 분석 결과, 이벤트 객체가 이미 파괴된 상태(broken repr)로 들어올 수 있음
-            if (
-                event.type() != QEvent.Type.MouseButtonPress
-                or event.button() != Qt.MouseButton.LeftButton
-            ):
-                return False
-
-            f = QApplication.focusWidget()
-            if not f or f not in self._edits:
-                return False
-
-            # obj가 QWindow일 수 있으며, 이미 삭제된 경우 RuntimeError가 발생할 수 있음
-            clicked_inside_edit = obj is f
-            if (
-                not clicked_inside_edit
-                and isinstance(obj, QWidget)
-                and hasattr(f, "isAncestorOf")
-            ):
-                clicked_inside_edit = f.isAncestorOf(obj)
-            if clicked_inside_edit:
-                return False
-
-            same_window = False
-            if isinstance(obj, QWidget) and hasattr(obj, "window"):
-                # window() 호출 시 이미 객체가 테이터되었는지 확인 필요
-                w = obj.window()
-                same_window = w is self._window
-            else:
-                tw = f.window() if hasattr(f, "window") else None
-                if tw and hasattr(tw, "windowHandle") and tw.windowHandle() is obj:
-                    same_window = True
-            if same_window:
-                f.clearFocus()
-                self._analysis_tab.setFocus()
-        except (RuntimeError, TypeError, AttributeError):
-            # C++ 객체 파괴 시 발생하는 에러를 무시하여 크래시 방지
-            pass
-        return False
-
-
-class RangeInputFilter(QObject):
-    """좌표축 범위 입력란: 숫자·소수점·마이너스 외 키는 입력되지 않게 막고 포커스 해제."""
-
-    ALLOWED_KEYS = frozenset(
-        {
-            Qt.Key.Key_0,
-            Qt.Key.Key_1,
-            Qt.Key.Key_2,
-            Qt.Key.Key_3,
-            Qt.Key.Key_4,
-            Qt.Key.Key_5,
-            Qt.Key.Key_6,
-            Qt.Key.Key_7,
-            Qt.Key.Key_8,
-            Qt.Key.Key_9,
-            Qt.Key.Key_Period,
-            Qt.Key.Key_Minus,
-            Qt.Key.Key_Backspace,
-            Qt.Key.Key_Delete,
-            Qt.Key.Key_Left,
-            Qt.Key.Key_Right,
-            Qt.Key.Key_Home,
-            Qt.Key.Key_End,
-            Qt.Key.Key_Tab,
-            Qt.Key.Key_Return,
-            Qt.Key.Key_Enter,
-        }
-    )
-
-    def eventFilter(self, obj, event):
-        if event.type() == QEvent.Type.KeyPress:
-            key = event.key()
-            mods = event.modifiers()
-            if mods & Qt.KeyboardModifier.ControlModifier and key in (
-                Qt.Key.Key_A,
-                Qt.Key.Key_C,
-                Qt.Key.Key_V,
-                Qt.Key.Key_X,
-            ):
-                return False
-            if key in self.ALLOWED_KEYS:
-                return False
-            obj.clearFocus()
-            return True
-        return False
 
 
 class SmartDockWidget(QDockWidget):
@@ -640,13 +550,15 @@ class PlotPopup(BasePlotWindow):
     def _setup_analysis_ui(self, parent_widget):
         parent_widget.setFocusPolicy(Qt.FocusPolicy.ClickFocus)
         layout = QVBoxLayout(parent_widget)
-        layout.setContentsMargins(12, 15, 12, 15)
+        layout.setContentsMargins(12, 15, 0, 15)
         layout.setSpacing(12)
 
         font_bold = QFont(self.ui_font_name, 10, QFont.Weight.Bold)
         font_normal = QFont(self.ui_font_name, 9)
 
-        nav_group = QVBoxLayout()
+        nav_container = QWidget()
+        nav_group = QVBoxLayout(nav_container)
+        nav_group.setContentsMargins(0, 0, ANALYSIS_NON_SCROLL_RIGHT_MARGIN_PX, 0)
         nav_group.setSpacing(8)
         self.file_nav = FileNavBar(self.ui_font_name)
         self.file_nav.set_display(1, 1, "Loading...", None)
@@ -661,11 +573,7 @@ class PlotPopup(BasePlotWindow):
         self.btn_prev = QPushButton("◀ 이전")
         self.btn_next = QPushButton("다음 ▶")
 
-        self.nav_btn_style = """
-            QPushButton { background-color: white; border: 1px solid #DCDFE6; border-radius: 4px; color: #333333; }
-            QPushButton:hover { background-color: #F5F7FA; color: #409EFF; border-color: #C0C4CC; }
-            QPushButton:disabled { background-color: #F5F7FA; color: #C0C4CC; border-color: #E4E7ED; }
-        """
+        self.nav_btn_style = PLOT_NAV_BUTTON_STYLE
         for btn in (self.btn_prev, self.btn_next):
             btn.setFixedHeight(32)
             btn.setCursor(Qt.CursorShape.PointingHandCursor)
@@ -680,12 +588,42 @@ class PlotPopup(BasePlotWindow):
         btn_h.addWidget(self.btn_next)
         nav_group.addLayout(btn_h)
 
-        layout.addLayout(nav_group)
+        layout.addWidget(nav_container)
 
         self.line1 = QFrame()
         self.line1.setFrameShape(QFrame.Shape.HLine)
         self.line1.setStyleSheet("color: #E4E7ED;")
-        layout.addWidget(self.line1)
+        line1_container = QWidget()
+        line1_layout = QVBoxLayout(line1_container)
+        line1_layout.setContentsMargins(0, 0, ANALYSIS_NON_SCROLL_RIGHT_MARGIN_PX, 0)
+        line1_layout.setSpacing(0)
+        line1_layout.addWidget(self.line1)
+        layout.addWidget(line1_container)
+
+        self._analysis_scroll = QScrollArea()
+        self._analysis_scroll.setWidgetResizable(True)
+        self._analysis_scroll.setHorizontalScrollBarPolicy(
+            Qt.ScrollBarPolicy.ScrollBarAlwaysOff
+        )
+        self._analysis_scroll.setVerticalScrollBarPolicy(
+            Qt.ScrollBarPolicy.ScrollBarAlwaysOn
+        )
+        self._analysis_scroll.setFrameShape(QFrame.Shape.NoFrame)
+        self._analysis_scroll.setStyleSheet(
+            "QScrollArea { background-color: transparent; }"
+        )
+        self._analysis_scroll.viewport().setStyleSheet("background-color: white;")
+        scroll_body = QWidget()
+        scroll_body.setStyleSheet("QWidget { background-color: white; }")
+        scroll_body.setMaximumWidth(260)
+        scroll_body.setSizePolicy(
+            QSizePolicy.Policy.Ignored, QSizePolicy.Policy.Preferred
+        )
+        scroll_body_layout = QVBoxLayout(scroll_body)
+        scroll_body_layout.setContentsMargins(0, 0, 8, 0)
+        scroll_body_layout.setSpacing(0)
+        self._analysis_scroll.setWidget(scroll_body)
+        layout.addWidget(self._analysis_scroll, 1)
 
         self.norm_section_widget = QWidget()
         norm_group = QVBoxLayout(self.norm_section_widget)
@@ -701,6 +639,7 @@ class PlotPopup(BasePlotWindow):
         self.lbl_norm_value.setStyleSheet("color: #606266;")
         norm_group.addWidget(self.lbl_norm_value)
         self.norm_section_widget.hide()
+        scroll_body_layout.addWidget(self.norm_section_widget)
 
         clean_line_edit_style = """
             QLineEdit { border: 1px solid #DCDFE6; border-radius: 3px; background-color: transparent; padding: 2px; font-size: 12px;}
@@ -739,7 +678,7 @@ class PlotPopup(BasePlotWindow):
             le.setFixedWidth(52)
             le.setAlignment(Qt.AlignmentFlag.AlignCenter)
             le.setStyleSheet(clean_line_edit_style)
-            le.setFocusPolicy(Qt.FocusPolicy.ClickFocus)
+            le.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
             le.setPlaceholderText("—")
         self._conv_btn = BidirectionalArrowButton(self)
         self._last_conv_focus = "hz"
@@ -811,7 +750,7 @@ class PlotPopup(BasePlotWindow):
             le.setFixedWidth(48)
             le.setAlignment(Qt.AlignmentFlag.AlignCenter)
             le.setStyleSheet(clean_line_edit_style)
-            le.setFocusPolicy(Qt.FocusPolicy.ClickFocus)
+            le.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         f1_row.addWidget(self.lbl_f1_axis)
         f1_row.addWidget(self.range_widgets["y_min"])
         f1_row.addWidget(QLabel("~", font=font_normal))
@@ -831,7 +770,7 @@ class PlotPopup(BasePlotWindow):
             le.setFixedWidth(48)
             le.setAlignment(Qt.AlignmentFlag.AlignCenter)
             le.setStyleSheet(clean_line_edit_style)
-            le.setFocusPolicy(Qt.FocusPolicy.ClickFocus)
+            le.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         f2_row.addWidget(self.lbl_x_axis)
         f2_row.addWidget(self.range_widgets["x_min"])
         f2_row.addWidget(QLabel("~", font=font_normal))
@@ -849,6 +788,12 @@ class PlotPopup(BasePlotWindow):
             self.range_widgets["x_max"],
             self._hz_edit,
             self._bark_edit,
+        ]
+        self._range_tab_order = [
+            self.range_widgets["y_min"],
+            self.range_widgets["y_max"],
+            self.range_widgets["x_min"],
+            self.range_widgets["x_max"],
         ]
         self._range_input_filter = RangeInputFilter(self)
         for le in range_edits:
@@ -878,14 +823,8 @@ class PlotPopup(BasePlotWindow):
             btn.setAutoDefault(False)
             btn.setDefault(False)
 
-        btn_apply.setStyleSheet("""
-            QPushButton { background-color: #E6A23C; color: white; font-weight: bold; border-radius: 4px; border: none; }
-            QPushButton:hover { background-color: #eebe77; }
-        """)
-        btn_reset.setStyleSheet("""
-            QPushButton { background-color: #909399; color: white; font-weight: bold; border-radius: 4px; border: none; }
-            QPushButton:hover { background-color: #b1b3b8; }
-        """)
+        btn_apply.setStyleSheet(PLOT_RANGE_APPLY_BUTTON_STYLE)
+        btn_reset.setStyleSheet(PLOT_RANGE_RESET_BUTTON_STYLE)
 
         btn_apply.clicked.connect(self._on_range_apply_clicked)
         btn_reset.clicked.connect(self.on_reset_clicked)
@@ -894,7 +833,8 @@ class PlotPopup(BasePlotWindow):
         apply_h.addWidget(btn_apply)
         range_group.addLayout(apply_h)
         range_group.addWidget(self._converter_container)
-        layout.addLayout(range_group)
+        scroll_body_layout.addLayout(range_group)
+        scroll_body_layout.addSpacing(8)
 
         analysis_edits = set(self.range_widgets.values()) | {
             self._hz_edit,
@@ -908,7 +848,8 @@ class PlotPopup(BasePlotWindow):
         self.line2 = QFrame()
         self.line2.setFrameShape(QFrame.Shape.HLine)
         self.line2.setStyleSheet("color: #E4E7ED;")
-        layout.addWidget(self.line2)
+        scroll_body_layout.addWidget(self.line2)
+        scroll_body_layout.addSpacing(8)
 
         tool_group = QVBoxLayout()
         tool_group.setSpacing(8)
@@ -971,21 +912,24 @@ class PlotPopup(BasePlotWindow):
         self.btn_draw.clicked.connect(self._on_toggle_draw)
         tool_group.addWidget(self.btn_draw)
 
-        layout.addLayout(tool_group)
-        layout.addStretch()
+        scroll_body_layout.addLayout(tool_group)
+        scroll_body_layout.addStretch(1)
+
+        export_container = QWidget()
+        export_container.setStyleSheet("background: transparent;")
+        export_container_layout = QVBoxLayout(export_container)
+        export_container_layout.setContentsMargins(0, 0, 12, 0)
+        export_container_layout.setSpacing(0)
 
         export_group = QVBoxLayout()
         export_group.setSpacing(6)
 
         save_h = QHBoxLayout()
         save_h.setSpacing(4)
-        export_btn_style = """
-            QPushButton { background-color: white; border: 1px solid #C0C4CC; border-radius: 4px; }
-            QPushButton:hover { background-color: #F5F7FA; border: 1px solid #909399; }
-        """
-        self._btn_export_jpg = QPushButton("JPG 저장")
-        self._btn_export_png = QPushButton("PNG 저장")
-        self._btn_export_svg = QPushButton("SVG 저장")
+        export_btn_style = PLOT_SECONDARY_BUTTON_STYLE
+        self._btn_export_jpg = QPushButton("JPG")
+        self._btn_export_png = QPushButton("PNG")
+        self._btn_export_svg = QPushButton("SVG")
         self._btn_export_txt = QPushButton("TXT")
         self._btn_export_txt.setToolTip(
             "합쳐진 포먼트 데이터를 GichanFormant 입력 형식(.txt)으로 저장합니다."
@@ -997,7 +941,7 @@ class PlotPopup(BasePlotWindow):
             [self._btn_export_jpg, self._btn_export_png, self._btn_export_svg],
             ["jpg", "png", "svg"],
         ):
-            btn.setFixedHeight(34)
+            btn.setFixedHeight(EXPORT_BUTTON_HEIGHT_PX)
             btn.setFont(QFont(self.ui_font_name, 8))
             btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
             btn.setStyleSheet(export_btn_style)
@@ -1006,7 +950,7 @@ class PlotPopup(BasePlotWindow):
             )
             save_h.addWidget(btn)
 
-        self._btn_export_txt.setFixedHeight(34)
+        self._btn_export_txt.setFixedHeight(EXPORT_BUTTON_HEIGHT_PX)
         self._btn_export_txt.setFont(QFont(self.ui_font_name, 8))
         self._btn_export_txt.setFocusPolicy(Qt.FocusPolicy.NoFocus)
         self._btn_export_txt.setStyleSheet(export_btn_style)
@@ -1014,35 +958,31 @@ class PlotPopup(BasePlotWindow):
         export_group.addLayout(save_h)
 
         btn_batch = QPushButton("일괄 저장")
-        btn_batch.setFixedHeight(38)
+        btn_batch.setFixedHeight(BATCH_SAVE_BUTTON_HEIGHT_PX)
         btn_batch.setFont(font_normal)
         btn_batch.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-        btn_batch.setStyleSheet("""
-            QPushButton { background-color: #409EFF; color: white; font-weight: bold; border-radius: 4px; }
-            QPushButton:hover { background-color: #66B1FF; }
-        """)
+        btn_batch.setStyleSheet(PLOT_PRIMARY_BUTTON_STYLE)
         btn_batch.clicked.connect(self.on_batch_save)
-        export_group.addWidget(btn_batch)
 
         btn_project_save = QPushButton("프로젝트 저장")
-        btn_project_save.setFixedHeight(34)
+        btn_project_save.setFixedHeight(PROJECT_SAVE_BUTTON_HEIGHT_PX)
         btn_project_save.setFont(font_normal)
         btn_project_save.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-        btn_project_save.setStyleSheet("""
-            QPushButton { background-color: white; border: 1px solid #C0C4CC; border-radius: 4px; }
-            QPushButton:hover { background-color: #F5F7FA; border: 1px solid #909399; }
-        """)
+        btn_project_save.setStyleSheet(PLOT_SECONDARY_BUTTON_STYLE)
         btn_project_save.clicked.connect(
             lambda: self.controller.prompt_save_project(self)
         )
         export_group.addWidget(btn_project_save)
+        export_group.addWidget(btn_batch)
 
-        layout.addLayout(export_group)
+        export_container_layout.addLayout(export_group)
+        layout.addWidget(export_container)
         self._apply_normalization_axis_ui()
 
     def _on_design_settings_changed(self, settings):
         """디자인 패널의 설정이 변경되었을 때 실시간 반영을 위한 콜백"""
         self.design_settings = settings
+        StateManager.instance().emit_design_changed(settings)
         if (
             hasattr(self, "_layer_dock_content")
             and self._layer_dock_content is not None
@@ -1077,9 +1017,7 @@ class PlotPopup(BasePlotWindow):
     def _update_combined_txt_export_visibility(self, data_item=None):
         """Combined 항목: JPG|PNG|SVG|TXT(4열). 그 외: JPG·PNG·SVG 저장(3열)."""
         is_combined = bool(data_item and data_item.get("is_combined"))
-        long_labels = ("JPG 저장", "PNG 저장", "SVG 저장")
-        short_labels = ("JPG", "PNG", "SVG")
-        labels = short_labels if is_combined else long_labels
+        labels = ("JPG", "PNG", "SVG")
         for btn, text in zip(
             (self._btn_export_jpg, self._btn_export_png, self._btn_export_svg),
             labels,
@@ -1088,7 +1026,9 @@ class PlotPopup(BasePlotWindow):
         self._btn_export_txt.setVisible(is_combined)
 
     def _on_export_combined_txt(self):
-        self.controller.prompt_save_combined_txt(parent_window=self, parent_widget=self)
+        prompt_save_combined_txt(
+            self.controller, parent_window=self, parent_widget=self
+        )
 
     def _safe_cancel_ruler_or_draw(self):
         if self._is_input_focused():
@@ -1768,6 +1708,7 @@ class PlotPopup(BasePlotWindow):
     def _on_layer_filter_state_changed(self, state: dict):
         """레이어 도크에서 필터 상태가 바뀌었을 때 플롯만 다시 그립니다."""
         # state 자체는 LayerDockWidget에서 popup.vowel_filter_state에 이미 반영함.
+        StateManager.instance().emit_filter_changed(state)
         self.request_plot_refresh(debounce_ms=90)
 
     def _on_layer_overrides_changed(self, overrides: dict):
@@ -1878,6 +1819,7 @@ class PlotPopup(BasePlotWindow):
 
     def _on_filter_changed(self, new_state):
         self.vowel_filter_state = new_state
+        StateManager.instance().emit_filter_changed(new_state)
         self.request_plot_refresh(debounce_ms=90)
 
     def on_batch_save(self):

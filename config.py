@@ -11,10 +11,15 @@ GichanFormant 전역 설정 (Configuration)
 # =============================================================================
 # 1. 프로그램 기본 정보 (App Info)
 # =============================================================================
-APP_VERSION = "2.4.2"
+APP_VERSION = "2.5.0"
 APP_TITLE = f"GichanFormant v{APP_VERSION}"
 AUTHOR = "Bae Gichan"
+CONTACT_EMAIL = "baggychani@gmail.com"
 COPYRIGHT_TEXT = f"Copyright © 2026 {AUTHOR}. All rights reserved."
+FOOTER_TEXT = (
+    f"{COPYRIGHT_TEXT} &nbsp; | &nbsp; 문의: "
+    f'<a href="mailto:{CONTACT_EMAIL}">{CONTACT_EMAIL}</a>'
+)
 
 # 경로 설정 (Path Config)
 import sys
@@ -282,6 +287,11 @@ PARSE_ERR_F1_F2_INVALID = (
     "F1/F2가 모두 숫자가 아니거나 F1 < F2 조건을 만족하지 않습니다."
 )
 PARSE_ERR_EMPTY_RESULT = "데이터 파싱 결과가 비어 있습니다."
+PARSE_ERR_RAGGED_ROWS = (
+    "행마다 열 개수가 일치하지 않습니다. "
+    "모든 행이 F1, F2, (선택) F3, 라벨 순으로 같은 형식인지 확인하세요. "
+    "데이터 가이드를 참고해 주세요."
+)
 PARSE_ERR_LOBANOV_MIXED = (
     "Lobanov 형식 파일은 Hz 형식 파일과 함께 로드할 수 없습니다. "
     "모든 파일의 첫 줄이 Lobanov이거나, 모두 일반 Hz 데이터여야 합니다."
@@ -377,8 +387,8 @@ SIGMA_VALS = ["1.0", "2.0"]
 # 메인 UI의 이상치 제거 옵션
 # NOTE: UI는 토글 버튼이며, "아무것도 선택 안 함"이 곧 OFF(None) 상태다.
 OUTLIER_SIGMA_OPTIONS = [
-    ("2-Sigma (Mahalanobis)", "mahalanobis_2sigma"),
     ("Tukey IQR", "tukey_iqr"),
+    ("2-Sigma (Mahalanobis)", "mahalanobis_2sigma"),
 ]
 
 # 이상치 제거 적용 범위(Scope) — 이상치 제거 ON일 때만 활성, 기본: 통합 그룹

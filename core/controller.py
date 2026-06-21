@@ -6,7 +6,6 @@ import traceback
 import copy
 from PySide6.QtCore import Qt, QTimer, QStandardPaths
 from PySide6.QtGui import QPixmap
-from PySide6.QtWidgets import QFileDialog, QMessageBox
 from matplotlib.figure import Figure
 
 import config
@@ -41,6 +40,7 @@ from ui.widgets.display_utils import (
     format_file_label,
     strip_gichan_prefix,
 )
+from ui.widgets.design_defaults import get_single_design_defaults
 from ui.windows.compare_plot import SelectCompareDialog, ComparePlotPopup
 from ui.dialogs.vowel_analysis_dialog import VowelAnalysisDialog
 from model.data_processor import DataProcessor
@@ -539,13 +539,14 @@ class MainController:
         source_popup = popup_window or self._active_single_plot_popup()
         if hasattr(self.ui, "request_project_save"):
             self.ui.request_project_save(
-                lambda path: self.save_project_file(path, source_popup)
+                lambda path: self.save_project_file(path, source_popup),
+                parent_window=source_popup,
             )
 
     def prompt_open_project(self):
         """프로젝트 열기 다이얼로그를 열고 .gfproj를 복원한다."""
         if hasattr(self.ui, "request_project_open"):
-            self.ui.request_project_open(self.load_project_file)
+            self.ui.request_project_open(self.load_project_file, parent_window=self.ui)
 
     def save_project_file(self, path, popup_window=None):
         try:
@@ -878,25 +879,7 @@ class MainController:
 
     def _get_default_design(self):
         """라이브 모니터 등 UI 객체가 없을 때 사용할 기본 디자인 설정"""
-        return {
-            "show_raw": True,
-            "show_centroid": True,
-            "raw_color": "#606060",
-            "lbl_color": "#000000",
-            "lbl_size": 18,
-            "lbl_bold": False,
-            "lbl_italic": False,
-            "ell_thick": 1.0,
-            "ell_style": ":",
-            "ell_color": "#606060",
-            "ell_fill_color": None,
-            "ell_fill_opacity": 0.15,
-            "box_spines": False,
-            "show_grid": False,
-            "grid_opacity": 0.3,
-            "y_label_rotation": False,
-            "show_minor_ticks": True,
-        }
+        return get_single_design_defaults()
 
     def _get_preview_design(self, params):
         """LIVE MONITOR용 디자인. 정규화 모드는 플롯 창과 동일하게 테두리·그리드 ON."""
@@ -2028,38 +2011,6 @@ class MainController:
         if ok:
             self.set_last_save_dir(save_dir_from_path(file_path))
         return ok, msg
-
-    def prompt_save_combined_txt(self, parent_window=None, parent_widget=None):
-        """Combined txt 저장 대화상자."""
-        item, _ = self._get_plot_item_at(parent_window)
-        if not item or not item.get("is_combined"):
-            QMessageBox.information(
-                parent_widget,
-                "Combined txt",
-                "Combined 항목에서만 사용할 수 있습니다.",
-            )
-            return False
-        initial_path, _ = self.get_default_combined_txt_path(parent_window)
-        path, _ = QFileDialog.getSaveFileName(
-            parent_widget,
-            "Combined 데이터 txt 저장",
-            initial_path,
-            "Text Files (*.txt);;All Files (*.*)",
-        )
-        if not path:
-            return False
-        if not path.lower().endswith(".txt"):
-            path += ".txt"
-        ok, msg = self.export_combined_txt(path, parent_window, parent_widget)
-        if ok:
-            QMessageBox.information(
-                parent_widget,
-                "저장 완료",
-                f"Combined 데이터를 저장했습니다.\n{path}",
-            )
-            return True
-        QMessageBox.warning(parent_widget, "저장 실패", msg or "저장에 실패했습니다.")
-        return False
 
     def save_plot_to_file(self, figure, file_path, fmt, parent_window=None):
         """실제 파일 저장만을 수행, 오류시 예외 발생."""

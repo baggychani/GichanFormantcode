@@ -20,8 +20,7 @@ import config
 
 
 def create_font_style_icon(is_serif=False):
-    """폰트 텍스트 대신 QPainter로 직접 'A'를 그려서 반환하는 함수 (픽셀 완벽 통제)."""
-    # 캔버스 크기를 40x26에서 34x22로 축소
+    """폰트 스타일 구분용 'Ag' 아이콘 반환."""
     w, h = 34, 22
     app = QApplication.instance()
     dpr = app.primaryScreen().devicePixelRatio() if app else 1.0
@@ -35,40 +34,12 @@ def create_font_style_icon(is_serif=False):
         try:
             painter.setRenderHint(QPainter.RenderHint.Antialiasing)
 
-            # 1. 메인 뼈대 선: 1.2 픽셀 두께로 더욱 날렵하게 (크기 축소 반영)
-            pen = QPen(QColor("#303133"))
-            pen.setWidthF(1.2)
-            pen.setCapStyle(Qt.PenCapStyle.RoundCap)
-            pen.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
-            painter.setPen(pen)
-
-            # 축소된 34x22 캔버스에 맞춘 새로운 좌표 (중앙 17 기준)
-            top_y, bottom_y = 5, 17
-            top_point = QPointF(17, top_y)
-            bottom_left = QPointF(12, bottom_y)
-            bottom_right = QPointF(22, bottom_y)
-
-            # 1-1. 'A'의 양쪽 다리
-            painter.drawLine(top_point, bottom_left)
-            painter.drawLine(top_point, bottom_right)
-
-            # 1-2. 가운데 가로줄 (높이 13 지점)
-            cross_y = 13.0
-            painter.drawLine(QPointF(14, cross_y), QPointF(20, cross_y))
-
-            # 2. 세리프(Serif) 폰트일 경우 발 장식 (SquareCap으로 절도 있게)
-            if is_serif:
-                serif_pen = QPen(QColor("#303133"))
-                serif_pen.setWidthF(0.9)  # 장식도 비례해서 얇게
-                serif_pen.setCapStyle(Qt.PenCapStyle.SquareCap)
-                painter.setPen(serif_pen)
-
-                # 상단 모자
-                painter.drawLine(QPointF(15.5, top_y), QPointF(18.5, top_y))
-                # 좌측 하단 발
-                painter.drawLine(QPointF(10, bottom_y), QPointF(14, bottom_y))
-                # 우측 하단 발
-                painter.drawLine(QPointF(20, bottom_y), QPointF(24, bottom_y))
+            painter.setPen(QColor("#303133"))
+            family = "Times New Roman" if is_serif else "Arial"
+            font = QFont(family, 12)
+            font.setBold(False)
+            painter.setFont(font)
+            painter.drawText(QRectF(0, 0, w, h), Qt.AlignmentFlag.AlignCenter, "Ag")
         finally:
             painter.end()
     except Exception:
@@ -92,21 +63,21 @@ def create_raw_marker_icon(marker_kind):
             painter.setRenderHint(QPainter.RenderHint.TextAntialiasing, True)
             cx, cy = 12, 12
             if marker_kind == "o":
-                r = 5
-                pen = QPen(QColor("#303133"), 1.5)
+                r = 6.5
+                pen = QPen(QColor("#303133"), 1.8)
                 painter.setPen(pen)
                 painter.setBrush(Qt.BrushStyle.NoBrush)
                 painter.drawEllipse(int(cx - r), int(cy - r), 2 * r, 2 * r)
             elif marker_kind == "x":
-                r = 4.5
-                pen = QPen(QColor("#303133"), 1.5)
+                r = 6
+                pen = QPen(QColor("#303133"), 1.8)
                 painter.setPen(pen)
                 painter.setBrush(Qt.BrushStyle.NoBrush)
                 painter.drawLine(QPointF(cx - r, cy - r), QPointF(cx + r, cy + r))
                 painter.drawLine(QPointF(cx + r, cy - r), QPointF(cx - r, cy + r))
             else:
                 painter.setPen(QColor("#303133"))
-                font = QFont("Arial", 12)
+                font = QFont("Arial", 16)
                 font.setBold(False)
                 painter.setFont(font)
                 painter.drawText(QRectF(0, 0, w, h), Qt.AlignmentFlag.AlignCenter, "a")
@@ -252,11 +223,11 @@ class MarkerShapeButton(QPushButton):
             QPushButton:hover:!checked { background-color: #F5F7FA; }
         """)
         self.setIcon(QIcon(self._draw_icon(marker_char)))
-        self.setIconSize(QPixmap(22, 22).size())
+        self.setIconSize(QPixmap(24, 24).size())
 
     def _draw_icon(self, marker):
         dpr = self.devicePixelRatio()
-        w_px, h_px = int(22 * dpr), int(22 * dpr)
+        w_px, h_px = int(24 * dpr), int(24 * dpr)
         pixmap = QPixmap(w_px, h_px)
         pixmap.setDevicePixelRatio(dpr)
         pixmap.fill(Qt.GlobalColor.transparent)
@@ -264,7 +235,7 @@ class MarkerShapeButton(QPushButton):
             painter = QPainter(pixmap)
             try:
                 painter.setRenderHint(QPainter.RenderHint.Antialiasing)
-                cx, cy = 11.0, 11.0
+                cx, cy = 12.0, 12.0
 
                 white_fill = marker.startswith("w") and len(marker) == 2
                 base = marker[1] if white_fill else marker
@@ -272,7 +243,7 @@ class MarkerShapeButton(QPushButton):
                 # 흰색 도형 테두리를 1.0px로 줄이고 inset 보정
                 pen_width = 1.0
                 inset = (pen_width / 2.0) if white_fill else 0.0
-                r = 5.0 - inset
+                r = 6.5 - inset
                 if white_fill:
                     painter.setPen(QPen(QColor("#000000"), pen_width))
                     painter.setBrush(QBrush(QColor("#FFFFFF")))

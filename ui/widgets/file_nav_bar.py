@@ -140,7 +140,7 @@ class FileNavBar(QWidget):
         inner.setSpacing(5)
 
         self.index_edit = NavIndexLineEdit()
-        self.index_edit.setFont(QFont(font_family, 11, QFont.Weight.Bold))
+        self.index_edit.setFont(QFont(font_family, 10, QFont.Weight.Bold))
         self.index_edit.setStyleSheet(_INDEX_EDIT_STYLE)
         self.index_edit.setFixedHeight(30)
         self.index_edit.setSizePolicy(
@@ -152,7 +152,7 @@ class FileNavBar(QWidget):
         self.index_edit.editingFinished.connect(self._on_editing_finished)
 
         self.lbl_total = QLabel("/ 1")
-        self.lbl_total.setFont(QFont(font_family, 11, QFont.Weight.Bold))
+        self.lbl_total.setFont(QFont(font_family, 10, QFont.Weight.Bold))
         self.lbl_total.setStyleSheet(_TOTAL_LABEL_STYLE)
         self.lbl_total.setAlignment(
             Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter

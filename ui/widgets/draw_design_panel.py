@@ -503,6 +503,7 @@ class DrawDesignPanel(QWidget):
         placeholder.setFont(ph_font)
         placeholder.setStyleSheet("color: #909399;")
         placeholder.setWordWrap(True)
+        placeholder.setContentsMargins(0, 10, 0, 0)
 
         stacked = CompactStackedWidget()
         stacked.setSizePolicy(QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Minimum)

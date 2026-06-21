@@ -7,6 +7,7 @@ from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QPushButton,
+    QComboBox,
     QTableWidget,
     QTableWidgetItem,
     QHeaderView,
@@ -17,6 +18,7 @@ from PySide6.QtGui import QFont
 
 from utils.formant_pair_distance import format_pair_distance
 from utils.vowel_sorting import get_vowel_sort_key
+from utils.vowel_stats import calculate_pairwise_mahalanobis_distances
 from ui.widgets.pillai_score_page import MODERN_SCROLLBAR_STYLE
 
 
@@ -33,7 +35,7 @@ class EuclideanResultTable(QTableWidget):
 
 
 class EuclideanDistancePage(QWidget):
-    """모음 무게중심 쌍별 유클리드 거리."""
+    """모음 중심점 쌍별 거리."""
 
     selectionStateChanged = Signal()
 
@@ -54,7 +56,11 @@ class EuclideanDistancePage(QWidget):
         self.fixed_plot_params = dict(fixed_plot_params or {})
         self._norm = bool(self.fixed_plot_params.get("normalization"))
         self._show_bark = False
+        self._distance_mode = "euclidean"
         self.distance_label = "유클리드 거리" if self._norm else "유클리드 거리(Hz)"
+        self._mahalanobis_by_pair = calculate_pairwise_mahalanobis_distances(
+            self.df, x_col=self.x_col, y_col=self.y_col, label_col=self.label_col
+        )
         self._vowel_list = []
         self.selection_count = 0
         self._setup_ui()
@@ -87,6 +93,19 @@ class EuclideanDistancePage(QWidget):
             return format_pair_distance(p1, p2, params, unit=resolved)
         return format_pair_distance(p1, p2, params)
 
+    def _pair_mahalanobis_str(self, v1, v2) -> str:
+        pair = self._mahalanobis_by_pair.get((str(v1), str(v2)))
+        if pair is None:
+            pair = self._mahalanobis_by_pair.get((str(v2), str(v1)))
+        if pair is None:
+            return "—"
+        return f"{pair.get('distance', 0.0):.3f}"
+
+    def _pair_metric_str(self, v1, v2) -> str:
+        if self._distance_mode == "mahalanobis":
+            return self._pair_mahalanobis_str(v1, v2)
+        return self._pair_distance_str(v1, v2)
+
     # --- UI ---
 
     def _setup_ui(self):
@@ -98,11 +117,28 @@ class EuclideanDistancePage(QWidget):
         header_layout = QHBoxLayout(header_widget)
         header_layout.setContentsMargins(16, 0, 16, 0)
 
-        header = QLabel("무게중심 간 유클리드 거리")
+        header = QLabel("중심점 간 거리")
         header.setStyleSheet(
             "font-size: 16px; font-weight: bold; color: #303133; border: none; background: transparent;"
         )
         header_layout.addWidget(header)
+        header_layout.addSpacing(8)
+        mode_label = QLabel("거리 지표")
+        mode_label.setStyleSheet("color: #606266; font-size: 12px;")
+        header_layout.addWidget(mode_label)
+        self.metric_combo = QComboBox()
+        self.metric_combo.addItem("Euclidean", "euclidean")
+        self.metric_combo.addItem("Mahalanobis", "mahalanobis")
+        self.metric_combo.setFixedWidth(130)
+        self.metric_combo.setStyleSheet("""
+            QComboBox { background-color: #FFFFFF; border: 1px solid #DCDFE6; border-radius: 4px; padding: 4px 8px; color: #303133; }
+            QComboBox:hover { border-color: #B8C1CC; }
+            QComboBox::drop-down { border: none; width: 18px; }
+        """)
+        self.metric_combo.currentIndexChanged.connect(
+            lambda _idx: self._set_distance_mode(self.metric_combo.currentData())
+        )
+        header_layout.addWidget(self.metric_combo)
         header_layout.addStretch()
 
         self.btn_reset = QPushButton("전체 초기화")
@@ -191,29 +227,31 @@ class EuclideanDistancePage(QWidget):
         self.single_page = QWidget()
         self.single_page.setStyleSheet("background: transparent; border: none;")
         single_layout = QVBoxLayout(self.single_page)
-        single_layout.addStretch(2)
+        single_layout.setContentsMargins(24, 18, 24, 18)
+        single_layout.setSpacing(8)
+        single_layout.addStretch(1)
 
         self.lbl_vowels_2 = QLabel("-")
         self.lbl_vowels_2.setStyleSheet(
-            "font-size: 20px; font-weight: bold; color: #303133; background: transparent; border: none;"
+            "font-size: 30px; font-weight: 700; color: #1F2D3D; background: transparent; border: none;"
         )
         self.lbl_vowels_2.setAlignment(Qt.AlignmentFlag.AlignCenter)
         single_layout.addWidget(self.lbl_vowels_2)
-        single_layout.addSpacing(10)
+        single_layout.addSpacing(4)
         self.lbl_dist_title = QLabel(self.distance_label)
         self.lbl_dist_title.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.lbl_dist_title.setStyleSheet(
-            "color: #606266; background: transparent; border: none;"
+            "font-size: 14px; color: #606266; background: transparent; border: none;"
         )
         single_layout.addWidget(self.lbl_dist_title)
         self.lbl_dist_val = QLabel("-")
         self.lbl_dist_val.setStyleSheet(
-            "font-size: 28px; font-weight: bold; color: #303133; background: transparent; border: none;"
+            "font-size: 52px; font-weight: 800; color: #2F8DEE; background: transparent; border: none;"
         )
         self.lbl_dist_val.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.lbl_dist_val.setWordWrap(True)
         single_layout.addWidget(self.lbl_dist_val)
-        single_layout.addStretch(3)
+        single_layout.addStretch(1)
 
         self.result_stack.addWidget(self.single_page)
 
@@ -288,7 +326,7 @@ class EuclideanDistancePage(QWidget):
         return data
 
     def get_combination_results_for_export(self):
-        """비정규화 export: Hz·Bark 거리를 모두 포함."""
+        """export: 현재 선택 모음 조합의 거리 지표들을 모두 포함."""
         rows = self.multi_table.rowCount()
         data = []
         for r in range(rows):
@@ -300,14 +338,34 @@ class EuclideanDistancePage(QWidget):
             if len(parts) != 2:
                 continue
             v1, v2 = parts
-            data.append(
-                [
-                    pair,
-                    self._pair_distance_str(v1, v2, unit="hz"),
-                    self._pair_distance_str(v1, v2, unit="bark"),
-                ]
-            )
+            if self._norm:
+                data.append(
+                    [
+                        pair,
+                        self._pair_distance_str(v1, v2),
+                        self._pair_mahalanobis_str(v1, v2),
+                    ]
+                )
+            else:
+                data.append(
+                    [
+                        pair,
+                        self._pair_distance_str(v1, v2, unit="hz"),
+                        self._pair_distance_str(v1, v2, unit="bark"),
+                        self._pair_mahalanobis_str(v1, v2),
+                    ]
+                )
         return data
+
+    def get_export_columns(self):
+        if self._norm:
+            return ["모음 조합", "유클리드 거리", "Mahalanobis 거리"]
+        return [
+            "모음 조합",
+            "유클리드 거리(Hz)",
+            "유클리드 거리(Bark)",
+            "Mahalanobis 거리",
+        ]
 
     def get_distance_column_name(self) -> str:
         return self.distance_label
@@ -320,7 +378,9 @@ class EuclideanDistancePage(QWidget):
         self._on_selection_changed()
 
     def _refresh_distance_labels(self):
-        if self._norm:
+        if self._distance_mode == "mahalanobis":
+            label = "Mahalanobis 거리"
+        elif self._norm:
             label = "유클리드 거리"
         elif self._show_bark:
             label = "유클리드 거리(Bark)"
@@ -330,6 +390,13 @@ class EuclideanDistancePage(QWidget):
         self.lbl_dist_title.setText(label)
         self.lbl_multi_header.setText(f"모음 조합별 {label}")
         self.multi_table.setHorizontalHeaderLabels(["모음 조합", label])
+
+    def _set_distance_mode(self, mode: str):
+        if mode not in {"euclidean", "mahalanobis"}:
+            return
+        self._distance_mode = mode
+        self._refresh_distance_labels()
+        self._on_selection_changed()
 
     def _reset_selection(self):
         self.vowel_table.clearSelection()
@@ -355,14 +422,14 @@ class EuclideanDistancePage(QWidget):
     def _handle_single_pair(self, vowels):
         v1, v2 = vowels
         self.lbl_vowels_2.setText(f"{v1}  vs  {v2}")
-        self.lbl_dist_val.setText(self._pair_distance_str(v1, v2))
+        self.lbl_dist_val.setText(self._pair_metric_str(v1, v2))
 
     def _handle_multi_pairs(self, vowels):
         pairs = list(itertools.combinations(vowels, 2))
         self.multi_table.setRowCount(len(pairs))
         for i, (v1, v2) in enumerate(pairs):
             pair_text = f"{v1} - {v2}"
-            dist_text = self._pair_distance_str(v1, v2)
+            dist_text = self._pair_metric_str(v1, v2)
             it_pair = QTableWidgetItem(pair_text)
             it_pair.setTextAlignment(Qt.AlignmentFlag.AlignCenter)
             it_dist = QTableWidgetItem(dist_text)

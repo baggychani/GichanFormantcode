@@ -28,6 +28,7 @@ from PySide6.QtGui import QFont
 import config
 from utils import icon_utils, app_logger
 from ui.widgets.design_panel import NoWheelComboBox
+from ui.widgets.style_tokens import MAIN_WINDOW_STYLE
 
 # 중앙 설정 열(ANALYSIS STRUCTURE ~ DATA PROCESSING) 공통 레이아웃 상수
 _SETTINGS_LABEL_COL_W = 115
@@ -132,68 +133,7 @@ class MainUI(QMainWindow):
         self._setup_fonts()
 
         _report("Applying Design System...")
-        # [핵심] UI 전반의 둥근 모서리 곡률 통일 (border-radius)
-        self.setStyleSheet("""
-            QMainWindow { background-color: #f5f7fa; }
-            QGroupBox { 
-                background-color: white; border: 1px solid #e4e7ed; 
-                border-radius: 8px; margin-top: 10px; padding-top: 10px; /* 그룹박스 곡률 8px */
-            }
-            QGroupBox::title { subcontrol-origin: margin; left: 10px; padding: 0 5px; color: #909399; font-weight: bold; }
-
-            QPushButton { 
-                background-color: #ffffff; border: 1px solid #dcdfe6; 
-                border-radius: 6px; padding: 6px; color: #606266; /* 버튼 곡률 6px */
-            }
-            QPushButton:hover { background-color: #ecf5ff; color: #409eff; border-color: #c6e2ff; }
-            QPushButton:checked { 
-                background-color: #409eff; color: white; border-color: #409eff; font-weight: bold; 
-            }
-            QPushButton:disabled { 
-                background-color: #f5f5f5; color: #bbbbbb; border: 1px solid #eeeeee; 
-            }
-
-
-            /* QMessageBox 버튼 비정상적 크기 문제 해결 (padding 및 최소 너비 조정) */
-            QMessageBox QPushButton { min-width: 80px; padding: 5px 15px; }
-
-            QTableWidget { 
-                border: 1px solid #e4e7ed; border-radius: 6px; /* 테이블 곡률 6px */
-                background: #fafafa; gridline-color: transparent; 
-            }
-            QTableWidget::item { border-bottom: 1px solid #f0f2f5; }
-
-            /* 헤더 전체의 배경색을 설정하여 빈 공간을 회색으로 채움 */
-            QHeaderView {
-                background-color: #fafafa;
-                border: none;
-            }
-
-            /* 수직 헤더(숫자 열) 섹션 스타일 */
-            QHeaderView::section:vertical {
-                border: none;
-                border-bottom: 1px solid #f0f2f5;
-                background-color: #fafafa;
-                padding-left: 5px;
-                padding-right: 5px;
-                color: #909399;
-                min-width: 25px;
-            }
-
-            /* 가로 헤더(파일명 열) 섹션 스타일 */
-            QHeaderView::section:horizontal {
-                background-color: #fafafa;
-                border: none;
-                border-bottom: 1px solid #e4e7ed;
-                color: #909399;
-            }
-
-            /* 테이블 왼쪽 상단 모서리 빈 칸도 회색으로 */
-            QTableWidget QTableCornerButton::section {
-                background-color: #fafafa;
-                border: none;
-            }
-        """)
+        self.setStyleSheet(MAIN_WINDOW_STYLE)
 
         self.central_widget = QWidget()
         self.setCentralWidget(self.central_widget)
@@ -324,18 +264,23 @@ class MainUI(QMainWindow):
         # 실제 초기화 수행 전에는 항상 사용자 확인을 거친다.
         self.btn_reset.clicked.connect(self._request_reset_all)
         self.btn_guide = QPushButton("데이터 가이드")
+        self.btn_guide.setStyleSheet("""
+            QPushButton {
+                background-color: #ECF5FF;
+                color: #409EFF;
+                border: 1px solid #B3D8FF;
+                border-radius: 4px;
+                font-weight: 600;
+            }
+            QPushButton:hover { background-color: #DCEFFF; border-color: #95C7FF; }
+        """)
         ctrl_h.addWidget(self.btn_reset)
         ctrl_h.addWidget(self.btn_guide)
         data_vbox.addLayout(ctrl_h)
 
-        project_h = QHBoxLayout()
         self.btn_project_open = QPushButton("프로젝트 열기")
-        self.btn_project_save = QPushButton("프로젝트 저장")
         self.btn_project_open.clicked.connect(self.controller.prompt_open_project)
-        self.btn_project_save.clicked.connect(self.controller.prompt_save_project)
-        project_h.addWidget(self.btn_project_open)
-        project_h.addWidget(self.btn_project_save)
-        data_vbox.addLayout(project_h)
+        data_vbox.addWidget(self.btn_project_open)
         data_vbox.addSpacing(4)
         data_group.setSizePolicy(
             QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Maximum
@@ -464,10 +409,12 @@ class MainUI(QMainWindow):
         scale_grid.setColumnStretch(3, 1)
 
         self.chk_bark_units = QCheckBox("Bark를 표시 단위로 사용")
-        self.chk_bark_units.setFont(QFont(self.ui_font_name, 8))
+        self.chk_bark_units.setFont(QFont(self.ui_font_name, 9))
         self.chk_bark_units.setStyleSheet(
             """
-            QCheckBox { color: #333333; }
+            QCheckBox { color: #4A5560; spacing: 7px; padding: 2px 0; }
+            QCheckBox::indicator { width: 15px; height: 15px; border: 1px solid #C8CFD8; border-radius: 3px; background: #FFFFFF; }
+            QCheckBox::indicator:checked { background: #409EFF; border-color: #409EFF; }
             QCheckBox:disabled { color: #bbbbbb; }
             """
         )
@@ -634,10 +581,12 @@ class MainUI(QMainWindow):
         log_vbox.addWidget(self.log_text)
         self.main_v_layout.addWidget(log_group)
 
-        lbl_cp = QLabel(config.COPYRIGHT_TEXT)
+        lbl_cp = QLabel(config.FOOTER_TEXT)
         lbl_cp.setFont(QFont(self.ui_font_name, 8))
         lbl_cp.setStyleSheet("color: #909399;")
         lbl_cp.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        lbl_cp.setTextFormat(Qt.TextFormat.RichText)
+        lbl_cp.setOpenExternalLinks(True)
         self.main_v_layout.addWidget(lbl_cp)
 
     def update_file_status(self, count):
@@ -722,13 +671,14 @@ class MainUI(QMainWindow):
                 )
             callback(files)
 
-    def request_project_open(self, callback):
+    def request_project_open(self, callback, parent_window=None):
         """프로젝트 파일(.gfproj)을 선택하고 콜백으로 경로를 전달한다."""
+        dialog_parent = parent_window or self
         initial_dir = ""
         if hasattr(self, "controller") and self.controller is not None:
             initial_dir = getattr(self.controller, "get_initial_open_dir", lambda: "")()
         path, _ = QFileDialog.getOpenFileName(
-            self,
+            dialog_parent,
             "프로젝트 열기",
             initial_dir,
             "GichanFormant Project (*.gfproj);;All Files (*.*)",
@@ -740,15 +690,16 @@ class MainUI(QMainWindow):
                 )
             callback(path)
 
-    def request_project_save(self, callback):
+    def request_project_save(self, callback, parent_window=None):
         """프로젝트 저장 경로를 선택하고 콜백으로 경로를 전달한다."""
+        dialog_parent = parent_window or self
         initial_dir = ""
         if hasattr(self, "controller") and self.controller is not None:
             initial_dir = getattr(
                 self.controller, "get_default_batch_save_dir", lambda: ""
             )()
         path, _ = QFileDialog.getSaveFileName(
-            self,
+            dialog_parent,
             "프로젝트 저장",
             initial_dir,
             "GichanFormant Project (*.gfproj);;All Files (*.*)",

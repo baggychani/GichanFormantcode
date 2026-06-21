@@ -35,7 +35,7 @@ MARGIN_NARROW = (2, 2, 2, 2)
 # 도크 디자인 패널 세로 간격 (px)
 # ---------------------------------------------------------------------------
 # 접기 섹션 제목 → 본문 첫 항목
-SPACING_SECTION_FIRST_ITEM_PX = 14
+SPACING_SECTION_FIRST_ITEM_PX = 12
 # 섹션 본문 내 필드 그룹(캡션+컨트롤 묶음) 사이
 SPACING_SECTION_ITEMS_PX = 14
 # 필드 캡션 → 바로 아래 컨트롤(팔레트·버튼 등)
@@ -44,6 +44,9 @@ SPACING_CAPTION_TO_CONTROL_PX = 8
 SPACING_ADVANCED_TOP_PX = 14
 # CollapsibleSection 위젯끼리(구분선 포함 영역) 간격
 SPACING_DOCK_SECTIONS_PX = 16
+# 디자인 패널 구분선 주변 여백. 위쪽은 섹션 내용과 숨 쉴 공간을 두고, 아래쪽만 더 좁힌다.
+SPACING_SEPARATOR_TOP_PX = 12
+SPACING_SEPARATOR_BOTTOM_PX = 6
 
 # ---------------------------------------------------------------------------
 # 일반(단일) 플롯 창 가로

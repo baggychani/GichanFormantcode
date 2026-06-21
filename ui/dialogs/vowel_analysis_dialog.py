@@ -253,8 +253,9 @@ class VowelAnalysisDialog(QDialog):
         self._page_key_by_index = {i: k for k, i in self._page_index_by_key.items()}
 
         common_btn_style = """
-            QPushButton { background-color: white; border: 1px solid #DCDFE6; border-radius: 4px; }
-            QPushButton:hover { background-color: #F5F7FA; border-color: #409EFF; }
+            QPushButton { background-color: white; border: 1px solid #D7DDE5; border-radius: 6px; }
+            QPushButton:hover { background-color: #F7FAFD; border-color: #8FB9EC; }
+            QPushButton:checked { background-color: #EEF5FF; border-color: #409EFF; }
         """
 
         def _make_page_btn(icon, tooltip, page_key):
@@ -262,6 +263,8 @@ class VowelAnalysisDialog(QDialog):
             b.setIcon(icon)
             b.setIconSize(QSize(30, 30))
             b.setFixedSize(40, 36)
+            b.setCheckable(True)
+            b.setFocusPolicy(Qt.FocusPolicy.NoFocus)
             b.setToolTip(tooltip)
             b.setStyleSheet(common_btn_style)
             b.clicked.connect(lambda: self._switch_page(page_key))
@@ -269,12 +272,12 @@ class VowelAnalysisDialog(QDialog):
 
         self.btn_page_formant = _make_page_btn(
             get_formant_icon(),
-            "포먼트 및 중심-개별 유클리드 거리",
+            "포먼트 및 중심점-개별 유클리드 거리",
             self.PAGE_FORMANT,
         )
         self.btn_page_euclidean = _make_page_btn(
             get_euclidean_icon(),
-            "무게중심 간 유클리드 거리",
+            "중심점 간 Euclidean/Mahalanobis 거리",
             self.PAGE_EUCLIDEAN,
         )
         self.btn_page_pillai = _make_page_btn(
@@ -321,10 +324,17 @@ class VowelAnalysisDialog(QDialog):
         btn_row.addWidget(self.btn_excel)
         btn_row.addWidget(self.btn_csv)
         layout.addLayout(btn_row)
+        self._sync_page_nav_buttons(self.PAGE_FORMANT)
+
+    def _sync_page_nav_buttons(self, active_page_key):
+        self.btn_page_formant.setChecked(active_page_key == self.PAGE_FORMANT)
+        self.btn_page_euclidean.setChecked(active_page_key == self.PAGE_EUCLIDEAN)
+        self.btn_page_pillai.setChecked(active_page_key == self.PAGE_PILLAI)
 
     def _switch_page(self, page_key):
         """모든 탭의 페이지를 전환합니다."""
         index = self._page_index_by_key.get(page_key, 0)
+        self._sync_page_nav_buttons(page_key)
         for stack in self._stacked_widgets:
             stack.setCurrentIndex(index)
             # 탭(파일) 전환 시 기존 선택/포커스 초기화
@@ -714,20 +724,8 @@ class VowelAnalysisDialog(QDialog):
                 isinstance(euclid_page, EuclideanDistancePage)
                 and euclid_page.selection_count >= 3
             ):
-                if self._normalization:
-                    data = euclid_page.get_combination_results()
-                    distance_col = euclid_page.get_distance_column_name()
-                    df = pd.DataFrame(data, columns=["모음 조합", distance_col])
-                else:
-                    data = euclid_page.get_combination_results_for_export()
-                    df = pd.DataFrame(
-                        data,
-                        columns=[
-                            "모음 조합",
-                            "유클리드 거리(Hz)",
-                            "유클리드 거리(Bark)",
-                        ],
-                    )
+                data = euclid_page.get_combination_results_for_export()
+                df = pd.DataFrame(data, columns=euclid_page.get_export_columns())
                 base_name = _analysis_base_name(
                     name, self.fixed_plot_params, is_euclidean=True
                 )
@@ -822,20 +820,8 @@ class VowelAnalysisDialog(QDialog):
                 isinstance(euclid_page, EuclideanDistancePage)
                 and euclid_page.selection_count >= 3
             ):
-                if self._normalization:
-                    data = euclid_page.get_combination_results()
-                    distance_col = euclid_page.get_distance_column_name()
-                    df = pd.DataFrame(data, columns=["모음 조합", distance_col])
-                else:
-                    data = euclid_page.get_combination_results_for_export()
-                    df = pd.DataFrame(
-                        data,
-                        columns=[
-                            "모음 조합",
-                            "유클리드 거리(Hz)",
-                            "유클리드 거리(Bark)",
-                        ],
-                    )
+                data = euclid_page.get_combination_results_for_export()
+                df = pd.DataFrame(data, columns=euclid_page.get_export_columns())
                 base_name = _analysis_base_name(
                     name, self.fixed_plot_params, is_euclidean=True
                 )

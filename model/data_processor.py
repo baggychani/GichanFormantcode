@@ -39,6 +39,13 @@ def _read_csv_with_encoding(path, *, skiprows: int = 0):
     raise ValueError("파일을 읽을 수 있는 인코딩을 찾지 못했습니다.")
 
 
+def _format_load_error(exc: Exception) -> str:
+    """로드 예외를 사용자용 메시지로 변환한다."""
+    if isinstance(exc, pd.errors.ParserError):
+        return config.PARSE_ERR_RAGGED_ROWS
+    return f"{type(exc).__name__}: {exc}"
+
+
 def _peek_first_line(path: str) -> str:
     """텍스트 파일 첫 줄(인코딩 자동 감지). 읽기 실패 시 빈 문자열."""
     last_err = None
@@ -227,7 +234,7 @@ class DataProcessor:
                     errors.append((path, config.PARSE_ERR_EMPTY_RESULT))
 
             except Exception as e:
-                msg = f"{type(e).__name__}: {e}"
+                msg = _format_load_error(e)
                 app_logger.error(f"[DataProcessor] 파일 로드 오류 ({path}): {msg}")
                 errors.append((path, msg))
 

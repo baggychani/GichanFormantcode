@@ -139,8 +139,8 @@ class DrawModeIndicator(QFrame):
             QLabel {
                 color: #FFFFFF;
                 background-color: rgba(0, 0, 0, 160);
-                padding: 4px 12px;
-                border-radius: 13px;
+                padding: 2px 12px;
+                border-radius: 11px;
                 font-size: 11px;
                 font-family: "Malgun Gothic";
                 margin-left: 10px;

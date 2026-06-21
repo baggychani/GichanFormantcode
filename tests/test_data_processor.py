@@ -1,8 +1,8 @@
 # tests/test_data_processor.py
 """DataProcessor._parse_fixed_columns 단위 테스트."""
 
-import sys
 import os
+import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -133,6 +133,12 @@ class TestParseFixedColumns(unittest.TestCase):
         self.assertIsNone(error)
         self.assertEqual(len(result_df), 2)
         self.assertEqual(result_df["Label"].tolist(), ["a", "e"])
+
+    def test_format_load_error_maps_parser_error(self):
+        from model.data_processor import _format_load_error
+
+        err = pd.errors.ParserError("Expected 3 fields in line 12, saw 4")
+        self.assertEqual(_format_load_error(err), config.PARSE_ERR_RAGGED_ROWS)
 
     def test_bracket_label_column(self):
         """[모음] 형식 라벨."""

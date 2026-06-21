@@ -9,6 +9,7 @@ import pandas as pd
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from core.controller import MainController
+from ui.widgets.design_defaults import get_single_design_defaults
 
 
 class TestMainController(unittest.TestCase):
@@ -87,6 +88,12 @@ class TestMainController(unittest.TestCase):
 
         params = self.controller._get_main_ui_plot_params()
         self.assertEqual(params["normalization"], "Lobanov")
+
+    def test_default_design_uses_shared_single_defaults(self):
+        """Controller 기본 디자인은 design_defaults 단일 source를 사용한다."""
+        self.assertEqual(
+            self.controller._get_default_design(), get_single_design_defaults()
+        )
 
     def test_refresh_plot_uses_single_normalized(self):
         """단일 플롯 refresh 시 Lobanov면 draw_single_normalized를 호출."""

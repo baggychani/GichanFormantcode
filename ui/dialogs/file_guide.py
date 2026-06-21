@@ -282,7 +282,7 @@ class DataGuidePopup(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowTitle("데이터 파일 준비 가이드")
-        self.setFixedSize(600, 560)
+        self.setFixedSize(600, 620)
         self.setWindowModality(Qt.WindowModality.ApplicationModal)
 
         self._apply_window_icon()

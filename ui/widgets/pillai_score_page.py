@@ -120,7 +120,7 @@ class PillaiHelpTooltip(QWidget):
             """
             <div style="font-family: 'Malgun Gothic', sans-serif; line-height: 1.6; color: #303133;">
                 <p style="font-size: 15px; font-weight: bold; margin-bottom: 10px; color: #2c3e50;">Pillai Score란 무엇인가요?</p>
-                <p style="margin-bottom: 10px; font-size: 13px;">다변량 통계 분석(MANOVA)을 기반으로, 화자가 두 모음(예: /i:/ 와 /ɪ/)을 얼마나 명확하게 구분해서 발음하고 있는지 수치화해 주는 지표입니다. 점수는 <b>0부터 1 사이</b>의 값으로 나옵니다.</p>
+                <p style="margin-bottom: 10px; font-size: 13px;">다변량 통계 분석(MANOVA)을 기반으로, 화자가 두 모음(예: /e/ 와 /ɛ/, 즉 ㅔ와 ㅐ)을 얼마나 명확하게 구분해서 발음하고 있는지 수치화해 주는 지표입니다. 점수는 <b>0부터 1 사이</b>의 값으로 나옵니다.</p>
                 <ul style="margin-left: -20px; margin-bottom: 0; font-size: 13px;">
                     <li style="margin-bottom: 8px;"><b>0에 가까울수록 (겹침):</b> 두 모음 데이터가 산점도 상에서 심하게 겹쳐 있습니다. 아직 두 모음을 구별하는 음운 카테고리가 명확히 잡히지 않아 비슷한 소리로 발음되고 있다는 뜻입니다.</li>
                     <li><b>1에 가까울수록 (분리):</b> 두 모음 데이터가 산점도 상에서 뚜렷하게 나뉘어 있습니다. 화자가 두 모음을 명확히 다른 소리에 해당하게 분리해서 발음하고 있다는 뜻입니다.</li>
@@ -319,39 +319,39 @@ class PillaiScorePage(QWidget):
         self.single_page = QWidget()
         self.single_page.setStyleSheet("background: transparent; border: none;")
         single_layout = QVBoxLayout(self.single_page)
+        single_layout.setContentsMargins(24, 18, 24, 18)
+        single_layout.setSpacing(8)
 
-        # 상단 여백 (하단보다 작게 설정하여 내용을 약간 위로 배치)
-        single_layout.addStretch(2)
+        single_layout.addStretch(1)
 
         self.lbl_vowels_2 = QLabel("-")
         self.lbl_vowels_2.setStyleSheet(
-            "font-size: 20px; font-weight: bold; color: #303133; background: transparent; border: none;"
+            "font-size: 30px; font-weight: 700; color: #1F2D3D; background: transparent; border: none;"
         )
         self.lbl_vowels_2.setAlignment(Qt.AlignmentFlag.AlignCenter)
         single_layout.addWidget(self.lbl_vowels_2)
-        single_layout.addSpacing(10)
+        single_layout.addSpacing(4)
         lbl_pillai_title = QLabel("Pillai Score")
         lbl_pillai_title.setAlignment(Qt.AlignmentFlag.AlignCenter)
         lbl_pillai_title.setStyleSheet(
-            "color: #606266; background: transparent; border: none;"
+            "font-size: 14px; color: #606266; background: transparent; border: none;"
         )
         single_layout.addWidget(lbl_pillai_title)
         self.lbl_pillai_val = QLabel("-")
         self.lbl_pillai_val.setStyleSheet(
-            "font-size: 48px; font-weight: bold; color: #303133; background: transparent; border: none;"
+            "font-size: 54px; font-weight: 800; color: #2F8DEE; background: transparent; border: none;"
         )
         self.lbl_pillai_val.setAlignment(Qt.AlignmentFlag.AlignCenter)
         single_layout.addWidget(self.lbl_pillai_val)
 
         self.lbl_p_value = QLabel("")
         self.lbl_p_value.setStyleSheet(
-            "font-size: 14px; color: #909399; background: transparent; border: none; margin-top: 4px;"
+            "font-size: 16px; color: #64B11E; background: transparent; border: none; margin-top: 2px;"
         )
         self.lbl_p_value.setAlignment(Qt.AlignmentFlag.AlignCenter)
         single_layout.addWidget(self.lbl_p_value)
 
-        # 하단 여백 (상단보다 크게 설정하여 전체적으로 위쪽으로 치우치게 함)
-        single_layout.addStretch(3)
+        single_layout.addStretch(1)
 
         self.result_stack.addWidget(self.single_page)
 

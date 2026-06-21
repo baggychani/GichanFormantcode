@@ -279,32 +279,49 @@ class BatchSaveDialog(QDialog):
         """)
         design_layout = QVBoxLayout(design_box)
         design_layout.setContentsMargins(14, 12, 14, 12)
-        design_layout.setSpacing(2)
+        design_layout.setSpacing(5)
 
         font_chk = QFont(self.ui_font_name, 9)
+        chk_style = """
+            QCheckBox {
+                color: #303133;
+                spacing: 7px;
+                padding: 1px 0;
+            }
+            QCheckBox::indicator {
+                width: 15px;
+                height: 15px;
+            }
+        """
         self.chk_global_design = QCheckBox("광역 디자인 설정", design_box)
+        self.chk_global_design.setStyleSheet(chk_style)
         self.chk_global_design.setToolTip(
             "디자인 설정 탭의 폰트, 색상, 마커, 축·배경 등 전역 설정을 각 이미지에 반영합니다."
         )
         self.chk_layer_design = QCheckBox("레이어별 디자인 설정", design_box)
+        self.chk_layer_design.setStyleSheet(chk_style)
         self.chk_layer_design.setToolTip(
             "파일·모음별로 지정한 레이어 디자인(색, 마커, 타원 등)을 반영합니다."
         )
         self.chk_layer_visibility = QCheckBox(
             "레이어 표시·투명도 (숨김/반투명)", design_box
         )
+        self.chk_layer_visibility.setStyleSheet(chk_style)
         self.chk_layer_visibility.setToolTip(
             "파일별 숨김·반투명 상태를 반영합니다. 해제 시 모든 모음을 표시합니다."
         )
         self.chk_label_positions = QCheckBox("라벨 위치", design_box)
+        self.chk_label_positions.setStyleSheet(chk_style)
         self.chk_label_positions.setToolTip(
             "파일별로 옮긴 모음 라벨 위치를 반영합니다."
         )
         self.chk_legend = QCheckBox("범례", design_box)
+        self.chk_legend.setStyleSheet(chk_style)
         self.chk_legend.setToolTip(
             "파일별 그리기 탭에 추가한 범례를 각 이미지에 포함합니다."
         )
         self.chk_draw_annotations = QCheckBox("그리기 (선·영역·참조선)", design_box)
+        self.chk_draw_annotations.setStyleSheet(chk_style)
         self.chk_draw_annotations.setToolTip(
             "각 파일에 그려 둔 선·영역·참조선·넓이 텍스트를 해당 이미지에 포함합니다. "
             "그린 내용이 없는 파일은 변화 없습니다."

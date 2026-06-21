@@ -20,15 +20,7 @@ from PySide6.QtWidgets import (
     QSplitter,
     QLabel,
 )
-from PySide6.QtCore import (
-    Qt,
-    Signal,
-    QEvent,
-    QObject,
-    QPropertyAnimation,
-    QEasingCurve,
-    QTimer,
-)
+from PySide6.QtCore import Qt, Signal, QEvent, QObject, QEasingCurve, QTimer
 from PySide6.QtGui import QFont, QCursor
 
 import config
@@ -64,6 +56,13 @@ from ui.widgets.layer_display import (
     format_color_display,
 )
 from ui.widgets.layer_selection_state import common_override_value
+from ui.widgets.layer_reorder_animator import (
+    animate_row_positions,
+    capture_visible_attr_positions,
+    capture_visible_row_positions,
+    row_pairs_for_attr,
+    row_pairs_for_order,
+)
 from ui.widgets.layer_row_widgets import (
     _RowClickForwarder,
     _LayerRowFrame,
@@ -356,7 +355,9 @@ class LayerDockWidget(QWidget):
             (3.5, Qt.PenStyle.SolidLine, "0 4px 4px 0", "두껍게"),
         ]
         thick_frame, self.group_ell_thick = create_visual_button_group(
-            self.vowel_design_container, thicks, 1
+            self.vowel_design_container,
+            thicks,
+            THICK_VALS.index(SINGLE_DESIGN_DEFAULTS["ell_thick"]),
         )
         styles = [
             (2.0, Qt.PenStyle.SolidLine, "4px 0 0 4px", "실선"),
@@ -364,7 +365,9 @@ class LayerDockWidget(QWidget):
             (2.0, Qt.PenStyle.DotLine, "0 4px 4px 0", "짧은 점선"),
         ]
         style_frame, self.group_ell_style = create_visual_button_group(
-            self.vowel_design_container, styles, 2
+            self.vowel_design_container,
+            styles,
+            STYLE_VALS.index(SINGLE_DESIGN_DEFAULTS["ell_style"]),
         )
         ell_type_row = _field_group("타원 선 타입", font_normal)
         ell_type_row.addWidget(thick_frame)
@@ -1533,10 +1536,7 @@ class LayerDockWidget(QWidget):
         ordered_vowels = self._get_ordered_vowels_for_display(vowels)
 
         # 애니메이션을 위한 이전 위치 저장
-        old_pos_map = {}
-        for v, r in self._layer_rows.items():
-            if r.isVisible():
-                old_pos_map[v] = r.pos()
+        old_pos_map = capture_visible_row_positions(self._layer_rows)
 
         self.setUpdatesEnabled(False)
         try:
@@ -1591,29 +1591,14 @@ class LayerDockWidget(QWidget):
 
         # 레이아웃 강제 활성화 후 애니메이션 실행
         self._layer_list_layout.activate()
-        for v in ordered_vowels:
-            row = self._layer_rows.get(v)
-            if row and v in old_pos_map:
-                old_pos = old_pos_map[v]
-                new_pos = row.pos()
-                if old_pos != new_pos:
-                    anim = QPropertyAnimation(row, b"pos")
-                    anim.setDuration(300)
-                    anim.setStartValue(old_pos)
-                    anim.setEndValue(new_pos)
-                    anim.setEasingCurve(QEasingCurve.Type.OutCubic)
-                    anim.start(QPropertyAnimation.DeletionPolicy.DeleteWhenStopped)
-                    # 애니메이션 가비지 컬렉션 방지
-                    if not hasattr(self, "_active_animations"):
-                        self._active_animations = []
-                    self._active_animations.append(anim)
-                    anim.finished.connect(
-                        lambda a=anim: (
-                            self._active_animations.remove(a)
-                            if a in self._active_animations
-                            else None
-                        )
-                    )
+        row_pairs = row_pairs_for_order(self._layer_rows, ordered_vowels)
+        animate_row_positions(
+            owner=self,
+            row_pairs=row_pairs,
+            old_pos_map=old_pos_map,
+            duration_ms=300,
+            easing=QEasingCurve.Type.OutCubic,
+        )
 
     def set_compare_file_index(self, index):
         """compare 모드에서 어느 파일이 선택됐는지 동기화 (0=파일A, 1=파일B)."""
@@ -1944,10 +1929,9 @@ class LayerDockWidget(QWidget):
     def update_draw_layer_list(self, draw_objects):
         """그리기 탭 목록 갱신: area_label은 제외하고 메인 객체만 행으로 표시."""
         # 애니메이션을 위한 이전 위치 저장
-        old_pos_map = {}
-        for r in getattr(self, "_draw_layer_rows", []):
-            if r.isVisible() and hasattr(r, "object_id"):
-                old_pos_map[r.object_id] = r.pos()
+        old_pos_map = capture_visible_attr_positions(
+            getattr(self, "_draw_layer_rows", []), "object_id"
+        )
 
         self.setUpdatesEnabled(False)
         try:
@@ -2085,33 +2069,16 @@ class LayerDockWidget(QWidget):
 
         # 애니메이션 실행 (기존 객체가 이동했을 때만)
         self._draw_list_layout.activate()
-        for row in getattr(self, "_draw_layer_rows", []):
-            idx = getattr(row, "draw_index", -1)
-            if 0 <= idx < len(draw_objects):
-                obj = draw_objects[idx]
-                oid = getattr(obj, "id", None) or f"obj_{id(obj)}"
-
-                if oid in old_pos_map:
-                    old_pos = old_pos_map[oid]
-                    new_pos = row.pos()
-                    if old_pos != new_pos:
-                        anim = QPropertyAnimation(row, b"pos")
-                        anim.setDuration(300)
-                        anim.setStartValue(old_pos)
-                        anim.setEndValue(new_pos)
-                        anim.setEasingCurve(QEasingCurve.Type.OutCubic)
-                        anim.start(QPropertyAnimation.DeletionPolicy.DeleteWhenStopped)
-                        # 가비지 컬렉션 방지
-                        if not hasattr(self, "_active_animations"):
-                            self._active_animations = []
-                        self._active_animations.append(anim)
-                        anim.finished.connect(
-                            lambda a=anim: (
-                                self._active_animations.remove(a)
-                                if a in self._active_animations
-                                else None
-                            )
-                        )
+        row_pairs = row_pairs_for_attr(
+            getattr(self, "_draw_layer_rows", []), "object_id"
+        )
+        animate_row_positions(
+            owner=self,
+            row_pairs=row_pairs,
+            old_pos_map=old_pos_map,
+            duration_ms=300,
+            easing=QEasingCurve.Type.OutCubic,
+        )
 
     def _sync_draw_design_panel_to_selection(self):
         """현재 그리기 탭에서 선택된 객체에 맞춰 그리기 디자인 패널을 갱신."""
@@ -2693,7 +2660,13 @@ class LayerDockWidget(QWidget):
                 btn_thick = self.group_ell_thick.button(tid)
                 if btn_thick:
                     btn_thick.setChecked(True)
-                sid = STYLE_IDS.get(o.get("ell_style", ds.get("ell_style", ":")), 2)
+                sid = STYLE_IDS.get(
+                    o.get(
+                        "ell_style",
+                        ds.get("ell_style", SINGLE_DESIGN_DEFAULTS["ell_style"]),
+                    ),
+                    STYLE_IDS[SINGLE_DESIGN_DEFAULTS["ell_style"]],
+                )
                 btn_style = self.group_ell_style.button(sid)
                 if btn_style:
                     btn_style.setChecked(True)
@@ -2740,7 +2713,11 @@ class LayerDockWidget(QWidget):
                     selected_vowels, "ell_thick", overrides, ds, 1.0
                 )
                 common_style = common_override_value(
-                    selected_vowels, "ell_style", overrides, ds, "--"
+                    selected_vowels,
+                    "ell_style",
+                    overrides,
+                    ds,
+                    SINGLE_DESIGN_DEFAULTS["ell_style"],
                 )
                 common_ell_color = common_override_value(
                     selected_vowels, "ell_color", overrides, ds, "#606060"
@@ -2864,8 +2841,12 @@ class LayerDockWidget(QWidget):
                 )
                 self.btn_lbl_italic.setChecked(bool(ds.get("lbl_italic", False)))
                 self.group_centroid_marker.button(0).setChecked(True)
-                self.group_ell_thick.button(1).setChecked(True)
-                self.group_ell_style.button(2).setChecked(True)
+                self.group_ell_thick.button(
+                    THICK_VALS.index(SINGLE_DESIGN_DEFAULTS["ell_thick"])
+                ).setChecked(True)
+                self.group_ell_style.button(
+                    STYLE_VALS.index(SINGLE_DESIGN_DEFAULTS["ell_style"])
+                ).setChecked(True)
                 self.ell_color_picker.set_color(ds.get("ell_color") or "#606060")
                 self.ell_fill_picker.set_color(
                     ds.get("ell_fill_color") or "transparent"
