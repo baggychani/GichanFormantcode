@@ -36,10 +36,8 @@ from utils import app_logger
 from ui.widgets.filter_panel import LiveVowelFilterPanel
 from ui.widgets.design_panel import (
     DesignSettingsPanel,
-    NoWheelComboBox,
-    apply_combo_center_align,
 )
-from ui.widgets.icon_widgets import BidirectionalArrowButton, ShortcutButton
+from ui.widgets.icon_widgets import ShortcutButton
 from ui.widgets.tool_indicator import ToolStatusIndicator
 from ui.widgets.layer_dock import LayerDockWidget
 from draw import DrawModeIndicator
@@ -47,9 +45,9 @@ from core.state_manager import StateManager
 import ui.widgets.layout_constants as layout
 from ui.widgets.display_utils import strip_gichan_prefix
 from ui.widgets.file_nav_bar import FileNavBar
+from ui.widgets.axis_range_panel import AxisRangePanel
 from ui.widgets.plot_event_filters import (
     ClickClearFocusFilter,
-    RangeInputFilter,
     TabBarWheelBlocker,
 )
 from ui.widgets.style_tokens import (
@@ -58,12 +56,9 @@ from ui.widgets.style_tokens import (
     EXPORT_BUTTON_HEIGHT_PX,
     PLOT_NAV_BUTTON_STYLE,
     PLOT_PRIMARY_BUTTON_STYLE,
-    PLOT_RANGE_APPLY_BUTTON_STYLE,
-    PLOT_RANGE_RESET_BUTTON_STYLE,
     PLOT_SECONDARY_BUTTON_STYLE,
     PROJECT_SAVE_BUTTON_HEIGHT_PX,
 )
-from utils.math_utils import hz_to_bark, bark_to_hz
 
 
 class SmartDockWidget(QDockWidget):
@@ -641,207 +636,29 @@ class PlotPopup(BasePlotWindow):
         self.norm_section_widget.hide()
         scroll_body_layout.addWidget(self.norm_section_widget)
 
-        clean_line_edit_style = """
-            QLineEdit { border: 1px solid #DCDFE6; border-radius: 3px; background-color: transparent; padding: 2px; font-size: 12px;}
-            QLineEdit:focus { border: 1px solid #409EFF; }
-        """
-        range_group = QVBoxLayout()
-        range_group.setSpacing(8)
-        range_header = QWidget()
-        range_header.setCursor(Qt.CursorShape.PointingHandCursor)
-        range_header_layout = QHBoxLayout(range_header)
-        range_header_layout.setContentsMargins(0, 0, 0, 0)
-        title_lbl = QLabel("좌표축 범위 설정", font=font_bold)
-        title_lbl.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self._range_toggle_btn = QPushButton("▶")
-        self._range_toggle_btn.setFixedSize(22, 22)
-        self._range_toggle_btn.setFlat(True)
-        self._range_toggle_btn.setStyleSheet(
-            "background: transparent; border: none; font-size: 11px;"
+        self._axis_range_panel = AxisRangePanel(
+            x_axis_label=self.x_axis_label,
+            font_normal=font_normal,
+            font_bold=font_bold,
         )
-        self._range_toggle_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self._range_toggle_btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-        range_header_layout.addWidget(title_lbl)
-        range_header_layout.addWidget(self._range_toggle_btn)
-        self._converter_container = QWidget()
-        converter_layout = QVBoxLayout(self._converter_container)
-        converter_layout.setContentsMargins(0, 0, 0, 0)
-        line_conv = QFrame()
-        line_conv.setFrameShape(QFrame.Shape.HLine)
-        line_conv.setStyleSheet("color: #E4E7ED;")
-        converter_layout.addWidget(line_conv)
-        conv_row = QHBoxLayout()
-        conv_row.setSpacing(6)
-        self._hz_edit = QLineEdit()
-        self._bark_edit = QLineEdit()
-        for le in (self._hz_edit, self._bark_edit):
-            le.setFixedWidth(52)
-            le.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            le.setStyleSheet(clean_line_edit_style)
-            le.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
-            le.setPlaceholderText("—")
-        self._conv_btn = BidirectionalArrowButton(self)
-        self._last_conv_focus = "hz"
-
-        def _hz_focus_in(event):
-            self._last_conv_focus = "hz"
-            QLineEdit.focusInEvent(self._hz_edit, event)
-
-        def _bark_focus_in(event):
-            self._last_conv_focus = "bark"
-            QLineEdit.focusInEvent(self._bark_edit, event)
-
-        self._hz_edit.focusInEvent = _hz_focus_in
-        self._bark_edit.focusInEvent = _bark_focus_in
-        conv_row.addStretch()
-        conv_row.addWidget(QLabel("Hz", font=font_normal))
-        conv_row.addWidget(self._hz_edit)
-        conv_row.addWidget(self._conv_btn)
-        conv_row.addWidget(self._bark_edit)
-        conv_row.addWidget(QLabel("Bark", font=font_normal))
-        conv_row.addStretch()
-        converter_layout.addLayout(conv_row)
-        self._converter_container.setVisible(False)
-
-        def _toggle_converter():
-            vis = self._converter_container.isVisible()
-            self._converter_container.setVisible(not vis)
-            self._range_toggle_btn.setText("▼" if not vis else "▶")
-
-        def _on_conv_clicked():
-            try:
-                hz_text = self._hz_edit.text().strip()
-                bark_text = self._bark_edit.text().strip()
-                if self._last_conv_focus == "bark" and bark_text:
-                    val = float(bark_text)
-                    out = float(bark_to_hz(val))
-                    self._hz_edit.setText(f"{out:.1f}")
-                elif hz_text:
-                    val = float(hz_text)
-                    out = float(hz_to_bark(val))
-                    self._bark_edit.setText(f"{out:.2f}")
-                elif bark_text:
-                    val = float(bark_text)
-                    out = float(bark_to_hz(val))
-                    self._hz_edit.setText(f"{out:.1f}")
-            except ValueError:
-                pass
-
-        self._range_toggle_btn.clicked.connect(_toggle_converter)
-        self._conv_btn.clicked.connect(_on_conv_clicked)
-
-        def _header_clicked(event):
-            if event.button() == Qt.MouseButton.LeftButton:
-                _toggle_converter()
-
-        range_header.mousePressEvent = _header_clicked
-
-        range_group.addWidget(range_header)
-
-        self.range_widgets = {}
-
-        AXIS_LABEL_WIDTH = 58
-        f1_row = QHBoxLayout()
-        self.lbl_f1_axis = QLabel("F1:", font=font_normal)
-        self.lbl_f1_axis.setFixedWidth(AXIS_LABEL_WIDTH)
-        self.range_widgets["y_min"] = QLineEdit()
-        self.range_widgets["y_max"] = QLineEdit()
-        for le in (self.range_widgets["y_min"], self.range_widgets["y_max"]):
-            le.setFixedWidth(48)
-            le.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            le.setStyleSheet(clean_line_edit_style)
-            le.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
-        f1_row.addWidget(self.lbl_f1_axis)
-        f1_row.addWidget(self.range_widgets["y_min"])
-        f1_row.addWidget(QLabel("~", font=font_normal))
-        f1_row.addWidget(self.range_widgets["y_max"])
-        f1_row.addSpacing(8)
-        self.lbl_f1_unit = QLabel("(Hz)", font=font_normal)
-        f1_row.addWidget(self.lbl_f1_unit)
-        f1_row.addStretch()
-        range_group.addLayout(f1_row)
-
-        f2_row = QHBoxLayout()
-        self.lbl_x_axis = QLabel(f"{self.x_axis_label}:", font=font_normal)
-        self.lbl_x_axis.setFixedWidth(AXIS_LABEL_WIDTH)
-        self.range_widgets["x_min"] = QLineEdit()
-        self.range_widgets["x_max"] = QLineEdit()
-        for le in (self.range_widgets["x_min"], self.range_widgets["x_max"]):
-            le.setFixedWidth(48)
-            le.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            le.setStyleSheet(clean_line_edit_style)
-            le.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
-        f2_row.addWidget(self.lbl_x_axis)
-        f2_row.addWidget(self.range_widgets["x_min"])
-        f2_row.addWidget(QLabel("~", font=font_normal))
-        f2_row.addWidget(self.range_widgets["x_max"])
-        f2_row.addSpacing(8)
-        self.lbl_f2_unit = QLabel("(Hz)", font=font_normal)
-        f2_row.addWidget(self.lbl_f2_unit)
-        f2_row.addStretch()
-        range_group.addLayout(f2_row)
-
-        range_edits = [
-            self.range_widgets["y_min"],
-            self.range_widgets["y_max"],
-            self.range_widgets["x_min"],
-            self.range_widgets["x_max"],
-            self._hz_edit,
-            self._bark_edit,
-        ]
-        self._range_tab_order = [
-            self.range_widgets["y_min"],
-            self.range_widgets["y_max"],
-            self.range_widgets["x_min"],
-            self.range_widgets["x_max"],
-        ]
-        self._range_input_filter = RangeInputFilter(self)
-        for le in range_edits:
-            le.installEventFilter(self._range_input_filter)
-
-        sig_h = QHBoxLayout()
-        sig_h.addWidget(QLabel("신뢰 타원:", font=font_normal))
-        self.cb_sigma = NoWheelComboBox()
-        self.cb_sigma.setFocusPolicy(Qt.FocusPolicy.ClickFocus)
-        self.cb_sigma.addItems(config.SIGMA_VALS)
-        self.cb_sigma.setCurrentText(
-            config.SIGMA_VALS[-1] if config.SIGMA_VALS else "2.0"
-        )
-        apply_combo_center_align(self.cb_sigma)
-        sig_h.addWidget(self.cb_sigma)
-        sig_h.addWidget(QLabel("σ", font=font_normal))
-        sig_h.addStretch()
-        range_group.addLayout(sig_h)
-
-        apply_h = QHBoxLayout()
-        btn_reset = QPushButton("초기화")
-        btn_apply = QPushButton("적용")
-        for btn in (btn_reset, btn_apply):
-            btn.setFixedHeight(28)
-            btn.setFont(font_normal)
-            btn.setFocusPolicy(Qt.FocusPolicy.NoFocus)
-            btn.setAutoDefault(False)
-            btn.setDefault(False)
-
-        btn_apply.setStyleSheet(PLOT_RANGE_APPLY_BUTTON_STYLE)
-        btn_reset.setStyleSheet(PLOT_RANGE_RESET_BUTTON_STYLE)
-
-        btn_apply.clicked.connect(self._on_range_apply_clicked)
-        btn_reset.clicked.connect(self.on_reset_clicked)
-
-        apply_h.addWidget(btn_reset)
-        apply_h.addWidget(btn_apply)
-        range_group.addLayout(apply_h)
-        range_group.addWidget(self._converter_container)
-        scroll_body_layout.addLayout(range_group)
+        self._axis_range_panel.apply_clicked.connect(self._on_range_apply_clicked)
+        self._axis_range_panel.reset_clicked.connect(self.on_reset_clicked)
+        self.range_widgets = self._axis_range_panel.range_widgets
+        self.lbl_f1_axis = self._axis_range_panel.lbl_f1_axis
+        self.lbl_x_axis = self._axis_range_panel.lbl_x_axis
+        self.lbl_f1_unit = self._axis_range_panel.lbl_f1_unit
+        self.lbl_f2_unit = self._axis_range_panel.lbl_f2_unit
+        self._hz_edit = self._axis_range_panel._hz_edit
+        self._bark_edit = self._axis_range_panel._bark_edit
+        self.cb_sigma = self._axis_range_panel.cb_sigma
+        self._range_toggle_btn = self._axis_range_panel._range_toggle_btn
+        self._converter_container = self._axis_range_panel._converter_container
+        self._range_input_filter = self._axis_range_panel.install_input_filter(self)
+        scroll_body_layout.addWidget(self._axis_range_panel)
         scroll_body_layout.addSpacing(8)
 
-        analysis_edits = set(self.range_widgets.values()) | {
-            self._hz_edit,
-            self._bark_edit,
-        }
         self._click_clear_focus_filter = ClickClearFocusFilter(
-            self, parent_widget, analysis_edits
+            self, parent_widget, self._axis_range_panel.analysis_edits()
         )
         QApplication.instance().installEventFilter(self._click_clear_focus_filter)
 

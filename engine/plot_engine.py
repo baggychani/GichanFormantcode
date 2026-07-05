@@ -29,7 +29,7 @@ from ui.widgets.design_defaults import (
 from utils.math_utils import (
     hz_to_bark,
     hz_to_log,
-    calc_f2_prime,
+    compute_x_raw,
     filter_for_plot_type,
 )
 from utils.font_stacks import axis_font_list, label_font_family
@@ -166,22 +166,8 @@ class PlotEngine:
         df_plot = df.copy()
         df_plot["y_val"] = self._apply_scale(df_plot["F1"], plot_params["f1_scale"])
         plot_type = plot_params["type"]
-        f3_data = df_plot["F3"] if "F3" in df_plot.columns else 0
-        if plot_type == "f1_f2":
-            x_raw = df_plot["F2"]
-        elif plot_type == "f1_f3":
-            x_raw = df_plot["F3"]
-        elif plot_type == "f1_f2_prime":
-            x_raw = calc_f2_prime(df_plot["F1"], df_plot["F2"], f3_data)
-        elif plot_type == "f1_f2_minus_f1":
-            x_raw = df_plot["F2"] - df_plot["F1"]
-        elif plot_type == "f1_f2_prime_minus_f1":
-            f2p = calc_f2_prime(df_plot["F1"], df_plot["F2"], f3_data)
-            x_raw = f2p - df_plot["F1"]
-        else:
-            x_raw = df_plot["F2"]
-        df_plot["x_raw"] = x_raw
-        df_plot["x_val"] = self._apply_scale(x_raw, plot_params["f2_scale"])
+        df_plot["x_raw"] = compute_x_raw(df_plot, plot_type)
+        df_plot["x_val"] = self._apply_scale(df_plot["x_raw"], plot_params["f2_scale"])
         return df_plot
 
     def _compute_axes_ranges(self, plot_type, use_bark_units, manual_ranges):
@@ -857,28 +843,7 @@ class PlotEngine:
             custom_offsets = spec.custom_label_offsets
 
             # 플롯용 복사본: 스케일 적용된 x_val, y_val 등이 추가됨
-            df_plot = df_curr.copy()
-            df_plot["y_val"] = self._apply_scale(df_plot["F1"], plot_params["f1_scale"])
-            f3_data = df_plot["F3"] if "F3" in df_plot.columns else 0
-
-            if plot_type == "f1_f2":
-                x_raw = df_plot["F2"]
-            elif plot_type == "f1_f3":
-                x_raw = df_plot["F3"]
-            elif plot_type == "f1_f2_prime":
-                x_raw = calc_f2_prime(df_plot["F1"], df_plot["F2"], f3_data)
-            elif plot_type == "f1_f2_minus_f1":
-                x_raw = df_plot["F2"] - df_plot["F1"]
-            elif plot_type == "f1_f2_prime_minus_f1":
-                f1_vals = df_plot["F1"]
-                f2_vals = df_plot["F2"]
-                f2_prime = calc_f2_prime(f1_vals, f2_vals, f3_data)
-                x_raw = f2_prime - f1_vals
-            else:
-                x_raw = df_plot["F2"]
-
-            df_plot["x_raw"] = x_raw
-            df_plot["x_val"] = self._apply_scale(x_raw, plot_params["f2_scale"])
+            df_plot = self._prepare_plot_df(df_curr, plot_params)
 
             vowels = self._order_labels_for_render(
                 df_plot["Label"].unique(), spec.layer_order

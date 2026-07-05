@@ -28,7 +28,7 @@ from utils.icon_utils import (
     get_pillai_icon,
     get_euclidean_icon,
 )
-from utils.math_utils import calc_f2_prime
+from utils.math_utils import F3_REQUIRED_PLOT_TYPES, compute_x_raw
 from ui.widgets.display_utils import truncate_display_name, MAX_DISPLAY_NAME_LEN
 from utils.vowel_stats import (
     analyze_vowels,
@@ -104,23 +104,14 @@ class _DataRowVerticalLineDelegate(QStyledItemDelegate):
 
 def _build_x_hz(df, plot_type):
     """plot_type에 따라 Hz 단위 X축 벡터 반환. 실패 시 None."""
-    if plot_type == "f1_f2":
-        return df["F2"].values if "F2" in df.columns else None
-    if plot_type == "f1_f3":
-        return df["F3"].values if "F3" in df.columns else None
-    if plot_type == "f1_f2_prime":
-        if "F3" not in df.columns:
-            return None
-        f2p = calc_f2_prime(df["F1"].values, df["F2"].values, df["F3"].values)
-        return f2p
-    if plot_type == "f1_f2_minus_f1":
-        return df["F2"].values - df["F1"].values
-    if plot_type == "f1_f2_prime_minus_f1":
-        if "F3" not in df.columns:
-            return None
-        f2p = calc_f2_prime(df["F1"].values, df["F2"].values, df["F3"].values)
-        return f2p - df["F1"].values
-    return df["F2"].values if "F2" in df.columns else None
+    if plot_type in F3_REQUIRED_PLOT_TYPES and "F3" not in df.columns:
+        return None
+    if plot_type == "f1_f2" and "F2" not in df.columns:
+        return None
+    try:
+        return compute_x_raw(df, plot_type).values
+    except KeyError:
+        return None
 
 
 def _outlier_suffix_from_params(plot_params):

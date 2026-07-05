@@ -1,4 +1,4 @@
-# main.py — 진입점
+﻿# main.py — 진입점
 
 import sys
 import platform
@@ -17,7 +17,7 @@ def init_sentry():
         sentry_sdk.init(
             dsn=config.SENTRY_DSN,
             send_default_pii=config.SENTRY_SEND_PII,
-            environment=getattr(config, "SENTRY_ENV", "production"),
+            environment=config.SENTRY_ENV,
             release=config.APP_VERSION,
         )
     else:

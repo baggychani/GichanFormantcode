@@ -24,6 +24,7 @@ from core.compare_runtime import (
     resolve_compare_session,
 )
 from core.data_loading_service import load_plot_item_from_file, make_plot_item
+from core.plot_data_types import PlotDataItem, PlotParams
 from core.export_service import (
     export_combined_txt_file,
     save_figure_file,
@@ -65,7 +66,7 @@ class MainController:
 
     def __init__(self, startup_context=None, status_callback=None):
         self.filepaths = []
-        self.plot_data_list = []
+        self.plot_data_list: list[PlotDataItem] = []
         self.current_idx = 0
         # 이상치 제거 모드 변경 로그를 위한 직전 상태 저장 (초기 None)
         self.last_outlier_mode = None
@@ -989,14 +990,7 @@ class MainController:
                 use_bark = params.get("use_bark_units", False)
                 u1 = "Bark" if (f1_scale == "bark" and use_bark) else "Hz"
                 u2 = "Bark" if (f2_scale == "bark" and use_bark) else "Hz"
-                x_names = {
-                    "f1_f2": "F2",
-                    "f1_f3": "F3",
-                    "f1_f2_prime": "F2'",
-                    "f1_f2_minus_f1": "F2-F1",
-                    "f1_f2_prime_minus_f1": "F2'-F1",
-                }
-                x_name = x_names.get(params["type"], "F2")
+                x_name = config.PLOT_X_AXIS_LABEL.get(params["type"], "F2")
                 disp_f1, disp_f2 = self.ui.get_display_scale_for_preview()
                 line2 = (
                     f"F1({disp_f1.capitalize()}, {u1}) / "
@@ -2128,7 +2122,7 @@ class MainController:
             self.ui.get_outlier_mode() if hasattr(self.ui, "get_outlier_mode") else None
         )
 
-    def get_plot_data_list(self):
+    def get_plot_data_list(self) -> list[PlotDataItem]:
         """로드된 플롯 데이터 목록. View는 이 목록을 읽기 전용으로 사용."""
         return self.plot_data_list
 
@@ -2277,7 +2271,7 @@ class MainController:
             "x_max": str(x_max),
         }
 
-    def _get_main_ui_plot_params(self):
+    def _get_main_ui_plot_params(self) -> PlotParams:
         """메인 창 UI에서 현재 플롯 타입·스케일·원점·단위(Unit)를 취합한다. Scale과 Unit은 별개."""
         f1_scale = self.ui.get_f1_scale()
         f2_scale = self.ui.get_f2_scale()
@@ -2296,7 +2290,7 @@ class MainController:
             "normalization": self.ui.get_normalization(),
         }
 
-    def _get_current_plot_params(self, popup_window=None):
+    def _get_current_plot_params(self, popup_window=None) -> PlotParams:
         """팝업이 있으면 해당 창의 고정 파라미터, 없으면 메인 UI 설정값을 반환한다. Scale과 Unit은 별도 필드로 유지."""
         if popup_window and hasattr(popup_window, "fixed_plot_params"):
             params = popup_window.fixed_plot_params.copy()

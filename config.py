@@ -183,6 +183,22 @@ PLOT_X_AXIS_LABEL_NORMALIZED = {
 PLOT_Y_AXIS_LABEL = "F1"
 PLOT_Y_AXIS_LABEL_NORMALIZED = "nF1"
 
+# 메인 창 plot type 라디오: (표시 텍스트, plot_type id, F3 필수 여부)
+PLOT_TYPE_OPTIONS = [
+    ("F1 vs F2", "f1_f2", False),
+    ("F1 vs (F2-F1)", "f1_f2_minus_f1", False),
+    ("F1 vs F3", "f1_f3", True),
+    ("F1 vs F2'", "f1_f2_prime", True),
+    ("F1 vs (F2'-F1)", "f1_f2_prime_minus_f1", True),
+]
+PLOT_TYPE_IDS = frozenset(opt[1] for opt in PLOT_TYPE_OPTIONS)
+PLOT_TYPES_REQUIRING_F3 = frozenset(opt[1] for opt in PLOT_TYPE_OPTIONS if opt[2])
+
+
+def plot_x_axis_scale_label(plot_type: str) -> str:
+    """메인 설정 패널 X축 스케일 라벨 (예: 'F2 Axis Scale')."""
+    return f"{PLOT_X_AXIS_LABEL.get(plot_type, 'X-Axis')} Axis Scale"
+
 
 # =============================================================================
 # 6. 축 범위(Range) 기본값 (Hz / Bark)
@@ -399,11 +415,17 @@ OUTLIER_SCOPE_OPTIONS = [
 # =============================================================================
 # 10. Sentry 설정 (Error Tracking)
 # =============================================================================
-SENTRY_DSN = "https://a2dd8b24066388a79cdfad4db2bf76f0@o4511081333915648.ingest.us.sentry.io/4511081343221760"
-# 배포 환경 설정 (production / development)
-SENTRY_ENV = "production"
+SENTRY_DSN = os.environ.get(
+    "GICHANFORMANT_SENTRY_DSN",
+    "https://a2dd8b24066388a79cdfad4db2bf76f0@o4511081333915648.ingest.us.sentry.io/4511081343221760",
+)
+# 배포 환경: exe는 production, 소스 실행은 development (env로 override 가능)
+_default_sentry_env = "production" if getattr(sys, "frozen", False) else "development"
+SENTRY_ENV = os.environ.get("GICHANFORMANT_SENTRY_ENV", _default_sentry_env)
 # IP 주소 등 개인 식별 정보 수집 여부 (보안을 위해 False 권장)
-SENTRY_SEND_PII = False
+SENTRY_SEND_PII = os.environ.get(
+    "GICHANFORMANT_SENTRY_SEND_PII", "false"
+).lower() in ("1", "true", "yes")
 
 # =============================================================================
 # 11. 업데이트 및 외부 프로젝트 정보 (Update Config)

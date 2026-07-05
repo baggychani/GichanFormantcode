@@ -311,16 +311,10 @@ class MainUI(QMainWindow):
         row1_h.setSpacing(8)
         row2_h.setSpacing(8)
 
-        opts = [
-            ("F1 vs F2", "f1_f2"),
-            ("F1 vs (F2-F1)", "f1_f2_minus_f1"),
-            ("F1 vs F3", "f1_f3"),
-            ("F1 vs F2'", "f1_f2_prime"),
-            ("F1 vs (F2'-F1)", "f1_f2_prime_minus_f1"),
-        ]
+        opts = config.PLOT_TYPE_OPTIONS
 
         self.f3_btns = []
-        for i, (text, val) in enumerate(opts):
+        for i, (text, val, _requires_f3) in enumerate(opts):
             btn = QPushButton(text)
             btn.setCheckable(True)
             btn.setProperty("val", val)
@@ -730,14 +724,7 @@ class MainUI(QMainWindow):
 
     def _on_plot_type_changed(self, btn):
         ptype = btn.property("val")
-        lbl_map = {
-            "f1_f2": "F2 Axis Scale",
-            "f1_f3": "F3 Axis Scale",
-            "f1_f2_prime": "F2' Axis Scale",
-            "f1_f2_minus_f1": "(F2-F1) Axis Scale",
-            "f1_f2_prime_minus_f1": "(F2'-F1) Axis Scale",
-        }
-        self.lbl_x_axis.setText(lbl_map.get(ptype, "X-Axis Scale"))
+        self.lbl_x_axis.setText(config.plot_x_axis_scale_label(ptype))
         _, desc_text = config.PLOT_DESCS.get(ptype, ("", ""))
         self.lbl_plot_desc.setText(desc_text)
         self._update_normalization_combo_for_plot_type()

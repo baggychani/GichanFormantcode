@@ -3,11 +3,11 @@
 from __future__ import annotations
 
 import os
-from typing import Any
 
 import pandas as pd
 
 import config
+from core.plot_data_types import PlotDataItem
 from model.data_processor import DataProcessor
 
 
@@ -17,7 +17,7 @@ def make_plot_item(
     df: pd.DataFrame,
     has_f3: bool | None = None,
     is_pre_lobanov: bool = False,
-) -> dict[str, Any]:
+) -> PlotDataItem:
     """Build the canonical controller plot item for a real source file."""
     resolved_has_f3 = (
         bool(has_f3)

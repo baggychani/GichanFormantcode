@@ -965,14 +965,7 @@ class BasePlotWindow(QMainWindow):
             if hasattr(self, "lbl_x_axis"):
                 ptype = params.get("type", "f1_f2")
 
-                x_names = {
-                    "f1_f2": "F2",
-                    "f1_f3": "F3",
-                    "f1_f2_prime": "F2'",
-                    "f1_f2_minus_f1": "F2 - F1",
-                    "f1_f2_prime_minus_f1": "F2' - F1",
-                }
-                self.x_axis_label = x_names.get(ptype, "F2")
+                self.x_axis_label = config.PLOT_X_AXIS_LABEL.get(ptype, "F2")
                 self.lbl_x_axis.setText(f"{self.x_axis_label}:")
             use_bark = params.get("use_bark_units", False)
             f1_scale = params.get("f1_scale", "linear")

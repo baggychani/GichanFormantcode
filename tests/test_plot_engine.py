@@ -173,6 +173,64 @@ class TestPlotEngine(unittest.TestCase):
         self.assertAlmostEqual(ylim[0], -2.0, places=4)
         self.assertAlmostEqual(ylim[1], 2.0, places=4)
 
+    def test_prepare_plot_df_consistent_across_calls(self):
+        """단일/비교 경로 모두 _prepare_plot_df가 동일 x_raw·x_val을 만든다."""
+        import pandas as pd
+
+        df = pd.DataFrame(
+            {
+                "F1": [300, 500],
+                "F2": [2000, 1800],
+                "F3": [2500, 2400],
+                "Label": ["i", "a"],
+            }
+        )
+        params = {
+            "type": "f1_f2_minus_f1",
+            "f1_scale": "linear",
+            "f2_scale": "linear",
+        }
+        first = self.engine._prepare_plot_df(df, params)
+        second = self.engine._prepare_plot_df(df.copy(), params)
+        pd.testing.assert_frame_equal(
+            first[["x_raw", "x_val", "y_val"]],
+            second[["x_raw", "x_val", "y_val"]],
+        )
+
+    def test_draw_compare_plot_shared_x_raw(self):
+        """draw_compare_plot이 _prepare_plot_df 경로로 X축을 계산한다."""
+        import pandas as pd
+        from core.compare_series import CompareSeriesInput
+
+        fig = Figure()
+        df_a = pd.DataFrame(
+            {"F1": [300], "F2": [2000], "F3": [2500], "Label": ["i"]}
+        )
+        df_b = pd.DataFrame(
+            {"F1": [500], "F2": [1800], "F3": [2400], "Label": ["a"]}
+        )
+        params = {
+            "type": "f1_f2_minus_f1",
+            "origin": "top_left",
+            "f1_scale": "linear",
+            "f2_scale": "linear",
+            "use_bark_units": False,
+            "sigma": 2.0,
+        }
+        expected_x = self.engine._prepare_plot_df(df_a, params)["x_raw"].iloc[0]
+
+        result = self.engine.draw_compare_plot(
+            fig,
+            [
+                CompareSeriesInput(df=df_a, display_name="A"),
+                CompareSeriesInput(df=df_b, display_name="B"),
+            ],
+            params,
+        )
+        self.assertIsNotNone(result.ax)
+        prepared = self.engine._prepare_plot_df(df_a, params)
+        self.assertAlmostEqual(float(prepared["x_raw"].iloc[0]), float(expected_x))
+
 
 if __name__ == "__main__":
     unittest.main()

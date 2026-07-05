@@ -2,9 +2,14 @@
 
 from __future__ import annotations
 
+import logging
+
+import config
 import pandas as pd
 import numpy as np
 from typing import Union
+
+_logger = logging.getLogger(__name__)
 
 
 def hz_to_linear(hz: Union[float, np.ndarray]) -> Union[float, np.ndarray]:
@@ -96,7 +101,44 @@ def to_phonetic_vowel(label) -> str:
 # ---------------------------------------------------------
 
 # 계산식에 F3가 필요한 플롯 타입들. F3=NaN(측정 없음) 행은 이 플롯들에서 제외해야 한다.
-F3_REQUIRED_PLOT_TYPES = frozenset({"f1_f3", "f1_f2_prime", "f1_f2_prime_minus_f1"})
+F3_REQUIRED_PLOT_TYPES = config.PLOT_TYPES_REQUIRING_F3
+KNOWN_PLOT_TYPES = config.PLOT_TYPE_IDS
+
+
+def _f3_for_plot_math(df: pd.DataFrame):
+    """F3 열 또는 calc_f2_prime용 스칼라 0 (열 없을 때 0 → 행별 F2로 대체)."""
+    if "F3" in df.columns:
+        return df["F3"]
+    return 0
+
+
+def compute_x_raw(df: pd.DataFrame, plot_type: str) -> pd.Series:
+    """plot_type에 따른 Hz 단위 X축(raw) Series. Y축은 항상 F1."""
+    if plot_type not in KNOWN_PLOT_TYPES:
+        _logger.warning("Unknown plot_type %r; falling back to F2", plot_type)
+        plot_type = "f1_f2"
+
+    f3_data = _f3_for_plot_math(df)
+    f1 = df["F1"]
+    f2 = df["F2"]
+
+    if plot_type == "f1_f2":
+        x_raw = f2
+    elif plot_type == "f1_f3":
+        x_raw = df["F3"]
+    elif plot_type == "f1_f2_prime":
+        x_raw = calc_f2_prime(f1.values, f2.values, f3_data)
+    elif plot_type == "f1_f2_minus_f1":
+        x_raw = f2 - f1
+    elif plot_type == "f1_f2_prime_minus_f1":
+        f2_prime = calc_f2_prime(f1.values, f2.values, f3_data)
+        x_raw = f2_prime - f1.values
+    else:
+        x_raw = f2
+
+    if isinstance(x_raw, pd.Series):
+        return x_raw
+    return pd.Series(x_raw, index=df.index)
 
 
 def filter_for_plot_type(df, plot_type):
@@ -287,32 +329,11 @@ def nearey1_normalization(df):
 
 def _ensure_xy_columns(df, plot_type):
     """plot_type에 따라 분석용 x, y 컬럼을 담은 DataFrame과 컬럼명 반환. (y, x) 순."""
+    if plot_type in F3_REQUIRED_PLOT_TYPES and "F3" not in df.columns:
+        return None, None, None
     out = df[["F1", "F2"]].copy()
     out.columns = ["y_val", "x_val"]
-    if plot_type == "f1_f2":
-        out["x_val"] = df["F2"].values
-    elif plot_type == "f1_f3":
-        if "F3" not in df.columns:
-            return None, None, None
-        out["x_val"] = df["F3"].values
-    elif plot_type == "f1_f2_prime":
-        f2p = calc_f2_prime(
-            df["F1"].values,
-            df["F2"].values,
-            df["F3"].values if "F3" in df.columns else df["F2"].values,
-        )
-        out["x_val"] = f2p
-    elif plot_type == "f1_f2_minus_f1":
-        out["x_val"] = (df["F2"] - df["F1"]).values
-    elif plot_type == "f1_f2_prime_minus_f1":
-        f2p = calc_f2_prime(
-            df["F1"].values,
-            df["F2"].values,
-            df["F3"].values if "F3" in df.columns else df["F2"].values,
-        )
-        out["x_val"] = f2p - df["F1"].values
-    else:
-        out["x_val"] = df["F2"].values
+    out["x_val"] = compute_x_raw(df, plot_type).values
     label_col = "Label" if "Label" in df.columns else "label"
     if label_col not in df.columns:
         return None, None, None

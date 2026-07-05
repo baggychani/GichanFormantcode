@@ -18,9 +18,10 @@ from typing import Optional
 import pandas as pd
 
 import config
+from core.plot_data_types import PlotDataItem
 
 
-def build_combined_entry(real_items: list[dict]) -> Optional[dict]:
+def build_combined_entry(real_items: list[PlotDataItem]) -> Optional[PlotDataItem]:
     """real_items: 화자별 plot_data_list 항목 리스트 (Combined 제외).
 
     각 항목은 다음 키를 가집니다: 'name', 'df', 'df_original', 'has_f3'.
@@ -79,7 +80,7 @@ def build_combined_entry(real_items: list[dict]) -> Optional[dict]:
     }
 
 
-def build_compare_group_entry(real_items: list[dict]) -> Optional[dict]:
+def build_compare_group_entry(real_items: list[PlotDataItem]) -> Optional[PlotDataItem]:
     """Compare 한쪽(A/B) 그룹 — 1명이면 그 파일, 2명 이상이면 subset Combined."""
     if not real_items:
         return None

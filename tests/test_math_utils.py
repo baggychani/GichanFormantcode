@@ -15,6 +15,7 @@ from utils.math_utils import (
     bark_to_hz,
     hz_to_log,
     calc_f2_prime,
+    compute_x_raw,
     lobanov_normalization,
     gerstman_normalization,
     nearey1_normalization,
@@ -54,6 +55,34 @@ class TestScaleConversion(unittest.TestCase):
         self.assertEqual(len(out), 2)
         self.assertTrue(np.all(out >= f2))
         self.assertTrue(np.all(out <= f3))
+
+
+class TestComputeXRaw(unittest.TestCase):
+    def setUp(self):
+        self.df = pd.DataFrame(
+            {
+                "F1": [300, 500],
+                "F2": [2000, 1800],
+                "F3": [2500, 2400],
+            }
+        )
+
+    def test_f1_f2(self):
+        out = compute_x_raw(self.df, "f1_f2")
+        pd.testing.assert_series_equal(out, self.df["F2"], check_names=False)
+
+    def test_f1_f3(self):
+        out = compute_x_raw(self.df, "f1_f3")
+        pd.testing.assert_series_equal(out, self.df["F3"], check_names=False)
+
+    def test_f1_f2_minus_f1(self):
+        out = compute_x_raw(self.df, "f1_f2_minus_f1")
+        expected = self.df["F2"] - self.df["F1"]
+        pd.testing.assert_series_equal(out, expected, check_names=False)
+
+    def test_unknown_plot_type_falls_back_to_f2(self):
+        out = compute_x_raw(self.df, "unknown_type")
+        pd.testing.assert_series_equal(out, self.df["F2"], check_names=False)
 
 
 class TestNormalization(unittest.TestCase):
