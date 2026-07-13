@@ -2,6 +2,7 @@
 import sys
 import os
 import unittest
+from dataclasses import replace
 from unittest.mock import patch
 import pandas as pd
 
@@ -9,20 +10,27 @@ import pandas as pd
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from core.controller import MainController
+from core.runtime_port import HeadlessRuntime
+from core.view_port import NullMainView
 from ui.widgets.design_defaults import get_single_design_defaults
 
 
 class TestMainController(unittest.TestCase):
-    @patch("core.controller.MainUI")
-    @patch("core.controller.QTimer")
-    def setUp(self, mock_timer, mock_ui):
-        # UI 및 타이머 모킹하여 초기화 시 오류 방지
-        self.mock_ui = mock_ui.return_value
-        self.mock_ui.get_normalization.return_value = None
-        self.controller = MainController()
+    def setUp(self):
+        self.view = NullMainView()
+        self.controller = MainController(
+            view_factory=lambda *_args: self.view,
+            runtime=HeadlessRuntime(),
+            render_initial_preview=False,
+        )
         # 테스트를 위해 빈 데이터셋으로 초기화 확인
         self.assertEqual(len(self.controller.filepaths), 0)
         self.assertEqual(len(self.controller.plot_data_list), 0)
+
+    def set_settings(self, **changes):
+        self.controller.apply_analysis_settings(
+            replace(self.controller.get_analysis_settings(), **changes)
+        )
 
     def test_add_remove_files(self):
         """파일 추가 및 삭제 로직 검증."""
@@ -79,12 +87,14 @@ class TestMainController(unittest.TestCase):
 
     def test_get_main_ui_plot_params_includes_normalization(self):
         """메인 UI 파라미터에 정규화 설정이 포함되는지 검증."""
-        self.mock_ui.get_plot_type.return_value = "f1_f2"
-        self.mock_ui.get_f1_scale.return_value = "linear"
-        self.mock_ui.get_f2_scale.return_value = "log"
-        self.mock_ui.get_origin.return_value = "bottom_left"
-        self.mock_ui.get_use_bark_units.return_value = False
-        self.mock_ui.get_normalization.return_value = "Lobanov"
+        self.set_settings(
+            plot_type="f1_f2",
+            f1_scale="linear",
+            f2_scale="log",
+            origin="bottom_left",
+            use_bark_units=False,
+            normalization="Lobanov",
+        )
 
         params = self.controller._get_main_ui_plot_params()
         self.assertEqual(params["normalization"], "Lobanov")
@@ -121,7 +131,7 @@ class TestMainController(unittest.TestCase):
         }
         popup.cb_sigma = None
 
-        self.mock_ui.get_normalization.return_value = "Lobanov"
+        self.set_settings(normalization="Lobanov")
         fig = MagicMock()
         canvas = MagicMock()
 
@@ -164,9 +174,11 @@ class TestMainController(unittest.TestCase):
         ]
 
         # UI에서 모드 읽어오는 부분 모킹
-        self.mock_ui.get_outlier_mode.return_value = "mahalanobis_2sigma"
-        self.mock_ui.get_plot_type.return_value = "f1_f2"
-        self.mock_ui.get_outlier_scope.return_value = "individual"
+        self.set_settings(
+            outlier_mode="mahalanobis_2sigma",
+            plot_type="f1_f2",
+            outlier_scope="individual",
+        )
         # 이상치 제거 함수 모킹 (실제 계산은 math_utils 테스트에서 검증됨)
         with patch("core.controller.remove_outliers_mahalanobis_scoped") as mock_remove:
             mock_remove.return_value = (df_orig.iloc[:3], 1, None, {})
@@ -197,9 +209,11 @@ class TestMainController(unittest.TestCase):
             {"name": "spk1.csv", "df": df1.copy(), "df_original": df1.copy()},
             {"name": "spk2.csv", "df": df2.copy(), "df_original": df2.copy()},
         ]
-        self.mock_ui.get_outlier_mode.return_value = "mahalanobis_2sigma"
-        self.mock_ui.get_outlier_scope.return_value = "combined"
-        self.mock_ui.get_plot_type.return_value = "f1_f2"
+        self.set_settings(
+            outlier_mode="mahalanobis_2sigma",
+            outlier_scope="combined",
+            plot_type="f1_f2",
+        )
 
         kept = pd.concat(
             [
@@ -256,9 +270,11 @@ class TestMainController(unittest.TestCase):
             {"name": "a.csv", "df": df1.copy(), "df_original": df1.copy()},
             {"name": "b.csv", "df": df2.copy(), "df_original": df2.copy()},
         ]
-        self.mock_ui.get_outlier_mode.return_value = "tukey_iqr"
-        self.mock_ui.get_outlier_scope.return_value = "combined"
-        self.mock_ui.get_plot_type.return_value = "f1_f2"
+        self.set_settings(
+            outlier_mode="tukey_iqr",
+            outlier_scope="combined",
+            plot_type="f1_f2",
+        )
 
         with patch.object(self.controller, "update_live_preview"):
             self.controller.on_outlier_mode_changed()
@@ -285,9 +301,11 @@ class TestMainController(unittest.TestCase):
         self.controller.plot_data_list = [
             {"name": "solo.csv", "df": df_orig.copy(), "df_original": df_orig.copy()}
         ]
-        self.mock_ui.get_outlier_mode.return_value = "mahalanobis_2sigma"
-        self.mock_ui.get_outlier_scope.return_value = "combined"
-        self.mock_ui.get_plot_type.return_value = "f1_f2"
+        self.set_settings(
+            outlier_mode="mahalanobis_2sigma",
+            outlier_scope="combined",
+            plot_type="f1_f2",
+        )
 
         with patch("core.controller.remove_outliers_mahalanobis_scoped") as mock_remove:
             mock_remove.return_value = (df_orig.iloc[:3], 1, {}, {})
@@ -308,7 +326,7 @@ class TestMainController(unittest.TestCase):
             {"name": "b.csv", "df": df2.iloc[0:0], "df_original": df2.copy()},
         ]
         self.controller.last_outlier_mode = "mahalanobis_2sigma"
-        self.mock_ui.get_outlier_mode.return_value = None
+        self.set_settings(outlier_mode=None)
 
         with patch.object(self.controller, "update_live_preview"):
             with patch.object(self.controller, "_rebuild_combined_entry"):

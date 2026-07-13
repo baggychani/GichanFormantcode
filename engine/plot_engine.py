@@ -22,7 +22,7 @@ from core.compare_settings import (
     get_series_design_cfg,
     normalize_compare_design_settings,
 )
-from ui.widgets.design_defaults import (
+from core.design_defaults import (
     get_single_design_defaults,
     SINGLE_DESIGN_DEFAULTS,
 )

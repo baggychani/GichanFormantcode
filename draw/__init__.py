@@ -1,24 +1,20 @@
-# draw — 그리기 모드 (선, 영역, 참조선)
-# draw_mode.md 2차 확정안 기준 구현.
+"""Drawing package with lazy presentation-module imports."""
 
-from .indicator import DrawModeIndicator
+from importlib import import_module
+
 from .draw_common import (
+    AreaLabelObject,
     DrawMode,
-    snap_query,
     DrawObject,
+    LegendEntry,
+    LegendObject,
     LineObject,
     PolygonObject,
     ReferenceLineObject,
-    AreaLabelObject,
-    LegendEntry,
-    LegendObject,
     TextObject,
     polygon_area,
+    snap_query,
 )
-from . import draw_line
-from . import draw_polygon
-from . import draw_reference
-from . import draw_text
 
 __all__ = [
     "DrawModeIndicator",
@@ -38,3 +34,15 @@ __all__ = [
     "draw_reference",
     "draw_text",
 ]
+
+_LAZY_MODULES = {"draw_line", "draw_polygon", "draw_reference", "draw_text"}
+
+
+def __getattr__(name):
+    if name == "DrawModeIndicator":
+        from .indicator import DrawModeIndicator
+
+        return DrawModeIndicator
+    if name in _LAZY_MODULES:
+        return import_module(f"{__name__}.{name}")
+    raise AttributeError(name)

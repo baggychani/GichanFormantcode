@@ -1,12 +1,9 @@
 # core/controller.py
 
 import os
-import io
 import traceback
 import copy
 import pandas as pd
-from PySide6.QtCore import Qt, QTimer, QStandardPaths
-from PySide6.QtGui import QPixmap
 from matplotlib.figure import Figure
 
 import config
@@ -25,7 +22,13 @@ from core.compare_runtime import (
     resolve_compare_session,
 )
 from core.data_loading_service import load_plot_item_from_file, make_plot_item
+from core.application_state import AnalysisSettings
+from core.application_service import ApplicationService
 from core.plot_data_types import PlotDataItem, PlotParams
+from core.preview_renderer import PreviewRenderer
+from core.view_port import MainViewPort
+from core.window_port import HeadlessWindowCoordinator
+from core.workspace_state import WorkspaceState
 from core.export_service import (
     export_combined_txt_file,
     save_figure_file,
@@ -33,29 +36,21 @@ from core.export_service import (
 )
 from core.project_service import load_project, save_project
 from utils import app_logger
-from ui.windows.main_window import MainUI
-from ui.dialogs.file_guide import DataGuidePopup
-from ui.windows.popup_plot import PlotPopup
-from ui.widgets.display_utils import (
+from core.display_utils import (
     apply_file_indicator_style,
     default_combined_export_txt_basename,
     format_file_label,
     strip_gichan_prefix,
 )
-from ui.widgets.design_defaults import get_single_design_defaults
-from ui.windows.compare_plot import SelectCompareDialog, ComparePlotPopup
-from ui.dialogs.vowel_analysis_dialog import VowelAnalysisDialog
+from core.design_defaults import get_single_design_defaults
 from model.data_processor import DataProcessor
 from engine.plot_engine import PlotEngine, kor_font
-from tools.ruler import RulerTool
-from tools.label_move import LabelMoveTool
 from utils.math_utils import (
     remove_outliers_tukey_iqr,
     remove_outliers_mahalanobis_scoped,
 )
 from core.normalization_service import apply_normalization, normalize_dataframe
 from model.combined_dataset import build_combined_entry, build_compare_group_entry
-from .workers import BatchSaveWorker
 from utils import path_prefs
 
 
@@ -65,10 +60,85 @@ class MainController:
     파일 가이드 연동 및 데이터 기반 인터랙션 제어를 담당합니다.
     """
 
-    def __init__(self, startup_context=None, status_callback=None):
+    def _ensure_workspace(self) -> WorkspaceState:
+        workspace = self.__dict__.get("workspace")
+        if workspace is None:
+            workspace = WorkspaceState()
+            self.__dict__["workspace"] = workspace
+        return workspace
+
+    @property
+    def filepaths(self):
+        return self._ensure_workspace().filepaths
+
+    @filepaths.setter
+    def filepaths(self, value):
+        self._ensure_workspace().filepaths = value
+
+    @property
+    def plot_data_list(self):
+        return self._ensure_workspace().plot_data_list
+
+    @plot_data_list.setter
+    def plot_data_list(self, value):
+        self._ensure_workspace().plot_data_list = value
+
+    @property
+    def current_idx(self):
+        return self._ensure_workspace().current_idx
+
+    @current_idx.setter
+    def current_idx(self, value):
+        self._ensure_workspace().current_idx = value
+
+    @property
+    def last_outlier_mode(self):
+        return self._ensure_workspace().last_outlier_mode
+
+    @last_outlier_mode.setter
+    def last_outlier_mode(self, value):
+        self._ensure_workspace().last_outlier_mode = value
+
+    @property
+    def last_save_dir(self):
+        return self._ensure_workspace().last_save_dir
+
+    @last_save_dir.setter
+    def last_save_dir(self, value):
+        self._ensure_workspace().last_save_dir = value
+
+    @property
+    def last_open_dir(self):
+        return self._ensure_workspace().last_open_dir
+
+    @last_open_dir.setter
+    def last_open_dir(self, value):
+        self._ensure_workspace().last_open_dir = value
+
+    @property
+    def custom_label_offsets(self):
+        return self._ensure_workspace().custom_label_offsets
+
+    @custom_label_offsets.setter
+    def custom_label_offsets(self, value):
+        self._ensure_workspace().custom_label_offsets = value
+
+    def __init__(
+        self,
+        startup_context=None,
+        status_callback=None,
+        *,
+        view_factory=None,
+        timer_factory=None,
+        runtime=None,
+        window_coordinator=None,
+        render_initial_preview=True,
+    ):
+        self.workspace = WorkspaceState()
         self.filepaths = []
         self.plot_data_list: list[PlotDataItem] = []
         self.current_idx = 0
+        self._analysis_settings = AnalysisSettings()
         # 이상치 제거 모드 변경 로그를 위한 직전 상태 저장 (초기 None)
         self.last_outlier_mode = None
         # 저장 다이얼로그에서 사용할 마지막 저장 디렉터리 (없으면 Downloads)
@@ -78,6 +148,11 @@ class MainController:
 
         # startup_context에서 사전 로드된 설정 반영
         context = startup_context or {}
+        if runtime is None:
+            from ui.qt_runtime_adapter import create_qt_runtime
+
+            runtime = create_qt_runtime(timer_factory=timer_factory)
+        self.runtime = runtime
         _loaded_prefs = context.get("path_prefs")
 
         if _loaded_prefs:
@@ -91,9 +166,7 @@ class MainController:
                 self.last_save_dir = _loaded_prefs["last_save_dir"]
         else:
             # context가 없거나 prefs가 없으면 직접 로딩 시도 (폴더가 존재할 때만 반영)
-            _prefs_base = QStandardPaths.writableLocation(
-                QStandardPaths.StandardLocation.AppDataLocation
-            )
+            _prefs_base = self.runtime.app_data_dir()
             if _prefs_base:
                 _loaded = path_prefs.load_path_prefs(_prefs_base)
                 if _loaded.get("last_open_dir") and os.path.isdir(
@@ -111,8 +184,8 @@ class MainController:
         self._compare_virtual_items: dict[int, dict] = {}
         self._compare_virtual_next_id = -1
 
-        self.ruler_tool = RulerTool()
-        self.label_move_tool = None  # LabelMoveTool: 단일 플롯 팝업에서만 생성
+        self.ruler_tool = context.get("ruler_tool")
+        self.label_move_tool = context.get("label_move_tool")
         self.custom_label_offsets = {}  # (file_idx, plot_type) -> { vowel: (dx_data, dy_data) }
 
         # 사전 초기화된 엔진 재사용
@@ -121,24 +194,49 @@ class MainController:
         self.live_preview_fig = context.get("live_preview_fig") or Figure(
             figsize=(6.5, 6.5), dpi=150
         )
+        self.preview_renderer = context.get("preview_renderer") or PreviewRenderer(
+            self.plot_engine, self.live_preview_fig
+        )
 
         # LIVE 미리보기 디바운스: 연속 호출 시 마지막 한 번만 렌더 (메인 스레드 블로킹 완화)
-        self._live_preview_timer = QTimer()
-        self._live_preview_timer.setSingleShot(True)
-        self._live_preview_timer.timeout.connect(self._render_live_preview)
+        self._live_preview_debouncer = self.runtime.create_debouncer(
+            self._render_live_preview
+        )
 
-        self.ui = MainUI(self, status_callback=status_callback)
-        app_logger.set_ui(self.ui)
+        self.application_service = ApplicationService(self)
+
+        if view_factory is None:
+            from ui.main_view_adapter import create_pyside_main_view
+
+            view_factory = create_pyside_main_view
+        self.view: MainViewPort = view_factory(self, status_callback)
+        self.ui = self.view.native_window
+        if window_coordinator is None:
+            if self.ui is None:
+                window_coordinator = HeadlessWindowCoordinator()
+            else:
+                from ui.desktop_window_coordinator import (
+                    create_pyside_window_coordinator,
+                )
+
+                window_coordinator = create_pyside_window_coordinator()
+        self.window_coordinator = window_coordinator
+        if self.ruler_tool is None:
+            self.ruler_tool = self.window_coordinator.create_ruler_tool()
+        self.sync_analysis_settings_from_view()
+        if self.ui is not None:
+            app_logger.set_ui(self.ui)
         # 작업표시줄 아이콘이 처음 실행 시 바로 뜨도록, 창 표시 전에 한 번 더 아이콘 적용
         try:
-            if hasattr(self.ui, "_apply_window_icon"):
+            if self.ui is not None and hasattr(self.ui, "_apply_window_icon"):
                 self.ui._apply_window_icon()
         except Exception as e:
             app_logger.debug(f"[_apply_window_icon] 초기 아이콘 적용 실패: {e}")
 
         # 사전 초기화된 Fig가 있다면 첫 렌더링을 즉시 동기적으로 수행하여 스플래시 종료 전 화면을 채웁니다.
         # (실제 창 표시는 main.py에서 splash.finish()와 함께 수행하여 겹침 현상을 방지합니다)
-        self._render_live_preview()
+        if render_initial_preview and self.view.supports_preview():
+            self._render_live_preview()
         app_logger.info(config.LOG_MSG["APP_START"].format(app_title=config.APP_TITLE))
 
     def _deferred_init_after_show(self):
@@ -187,15 +285,12 @@ class MainController:
         2. 필터링된 데이터를 각 화자 항목에 반영합니다.
         3. 변경 결과를 로그로 출력하고 실시간 미리보기를 갱신합니다.
         """
-        outlier_mode = self.ui.get_outlier_mode()
+        settings = self.sync_analysis_settings_from_view()
+        outlier_mode = settings.outlier_mode
         prev_outlier_mode = self.last_outlier_mode
         self.last_outlier_mode = outlier_mode
-        plot_type = self.ui.get_plot_type()
-        outlier_scope = (
-            self.ui.get_outlier_scope()
-            if hasattr(self.ui, "get_outlier_scope")
-            else None
-        ) or "combined"
+        plot_type = settings.plot_type
+        outlier_scope = settings.outlier_scope or "combined"
 
         if not self.plot_data_list:
             return
@@ -404,8 +499,7 @@ class MainController:
         return bool(real) and all(it.get("is_pre_lobanov") for it in real)
 
     def _sync_pre_lobanov_ui(self):
-        if hasattr(self.ui, "sync_pre_lobanov_normalization"):
-            self.ui.sync_pre_lobanov_normalization(self.all_real_items_pre_lobanov())
+        self.view.sync_pre_lobanov_normalization(self.all_real_items_pre_lobanov())
 
     def _rebuild_combined_entry(self):
         """real 화자 항목들로부터 Combined 항목을 (재)구성한다.
@@ -444,8 +538,7 @@ class MainController:
         key_cmp = getattr(popup, "_plot_key_compare", None)
         if key_cmp:
             self._clear_compare_label_offsets_for_plot_key(key_cmp, popup)
-        if popup in self.open_popups:
-            self.open_popups.remove(popup)
+        self.window_coordinator.remove(self.open_popups, popup)
 
     def _clear_compare_label_offsets_for_plot_key(self, plot_key, popup_window=None):
         """Compare plot key에 연결된 모든 series 라벨 오프셋을 제거한다."""
@@ -522,8 +615,7 @@ class MainController:
 
     def open_file_dialog(self):
         """파일 탐색기를 통한 파일 추가 요청(실제 다이얼로그는 View에서 처리)"""
-        if hasattr(self.ui, "request_file_open"):
-            self.ui.request_file_open(self._process_new_files)
+        self.view.request_file_open(self._process_new_files)
 
     def _active_single_plot_popup(self):
         for popup in reversed(self.open_popups):
@@ -536,39 +628,47 @@ class MainController:
     def prompt_save_project(self, popup_window=None):
         """프로젝트 저장 다이얼로그를 열고 현재 세션을 .gfproj로 저장한다."""
         if not self.plot_data_list:
-            self.ui.show_warning("데이터 없음", "저장할 프로젝트 데이터가 없습니다.")
+            self.view.show_warning("데이터 없음", "저장할 프로젝트 데이터가 없습니다.")
             return
         source_popup = popup_window or self._active_single_plot_popup()
-        if hasattr(self.ui, "request_project_save"):
-            self.ui.request_project_save(
-                lambda path: self.save_project_file(path, source_popup),
-                parent_window=source_popup,
-            )
+        self.view.request_project_save(
+            lambda path: self.save_project_file(path, source_popup),
+            parent_window=source_popup,
+        )
 
     def prompt_open_project(self):
         """프로젝트 열기 다이얼로그를 열고 .gfproj를 복원한다."""
-        if hasattr(self.ui, "request_project_open"):
-            self.ui.request_project_open(self.load_project_file, parent_window=self.ui)
+        self.view.request_project_open(self.load_project_file, parent_window=self.ui)
 
     def save_project_file(self, path, popup_window=None):
         try:
-            save_project(path, self, popup_window)
-            app_logger.info(f"[Project] 프로젝트 저장 완료: {path}")
+            self.save_project_document(path, popup_window)
         except Exception as e:
             traceback.print_exc()
-            self.ui.show_critical("프로젝트 저장 실패", str(e))
+            self.view.show_critical("프로젝트 저장 실패", str(e))
             app_logger.error(f"[Project] save failed: {e}")
+
+    def save_project_document(self, path, popup_window=None):
+        """Save a project and propagate failures to non-UI callers."""
+        self.sync_analysis_settings_from_view()
+        save_project(path, self, popup_window)
+        app_logger.info(f"[Project] 프로젝트 저장 완료: {path}")
 
     def load_project_file(self, path):
         try:
-            project = load_project(path)
-            self._apply_loaded_project(project)
-            self.set_last_open_dir(os.path.dirname(os.path.abspath(path)))
-            app_logger.info(f"[Project] 프로젝트 불러오기 완료: {path}")
+            self.load_project_document(path)
         except Exception as e:
             traceback.print_exc()
-            self.ui.show_critical("프로젝트 열기 실패", str(e))
+            self.view.show_critical("프로젝트 열기 실패", str(e))
             app_logger.error(f"[Project] load failed: {e}")
+
+    def load_project_document(self, path):
+        """Load a project and propagate failures to non-UI callers."""
+        project = load_project(path)
+        self._apply_loaded_project(project)
+        self.set_last_open_dir(os.path.dirname(os.path.abspath(path)))
+        app_logger.info(f"[Project] 프로젝트 불러오기 완료: {path}")
+        return project
 
     def _load_project_source_item(self, source, snapshots):
         source_id = str(source.get("id", ""))
@@ -616,9 +716,7 @@ class MainController:
                     not isinstance(index, int) or index < 0 or index >= real_count
                     for index in group
                 ):
-                    raise ValueError(
-                        "프로젝트의 비교 세션이 없는 소스를 참조합니다."
-                    )
+                    raise ValueError("프로젝트의 비교 세션이 없는 소스를 참조합니다.")
         requested_idx = int((project.get("analysis") or {}).get("current_idx", 0))
         current_idx = max(0, min(requested_idx, len(plot_data_list) - 1))
         return {
@@ -638,14 +736,15 @@ class MainController:
         self.custom_label_offsets = prepared["custom_label_offsets"]
         self.data_processor = prepared["data_processor"]
 
-        self.ui.update_file_status(len(self.filepaths))
+        self.view.update_file_status(len(self.filepaths))
         real_items = [it for it in self.plot_data_list if not it.get("is_combined")]
-        self.ui.toggle_f3_options(all(it.get("has_f3") for it in real_items))
-        if hasattr(self.ui, "apply_project_analysis_state"):
-            self.ui.apply_project_analysis_state(project.get("analysis") or {})
+        self.view.toggle_f3_options(all(it.get("has_f3") for it in real_items))
+        self.apply_analysis_settings(
+            AnalysisSettings.from_mapping(project.get("analysis"))
+        )
         self._sync_pre_lobanov_ui()
 
-        if self.ui.get_outlier_mode() is not None:
+        if self.get_analysis_settings().outlier_mode is not None:
             self.on_outlier_mode_changed()
         else:
             self.update_live_preview()
@@ -878,8 +977,8 @@ class MainController:
                         )
                     )
 
-        self.ui.update_file_status(result["total_files"])
-        self.ui.toggle_f3_options(result["has_f3_all"])
+        self.view.update_file_status(result["total_files"])
+        self.view.toggle_f3_options(result["has_f3_all"])
         if result["success_count"] > 0:
             if self.all_real_items_pre_lobanov():
                 app_logger.info(config.LOG_MSG["LOBANOV_FILE_DETECTED"])
@@ -888,8 +987,13 @@ class MainController:
 
     def _process_new_files(self, files):
         """새 파일 로드 후 UI에 결과 반영 (add_files + _apply_file_load_result_to_ui)."""
+        self.load_files(files)
+
+    def load_files(self, files):
+        """Public file-loading command for desktop and external frontends."""
         result = self.add_files(files)
         self._apply_file_load_result_to_ui(result)
+        return result
 
     def remove_file(self, index):
         """테이블의 '×' 버튼 클릭 시 특정 인덱스 데이터 삭제"""
@@ -922,7 +1026,7 @@ class MainController:
         self._rebuild_combined_entry()
 
         # UI 갱신 (count는 real 파일 수 = filepaths 길이)
-        self.ui.update_file_status(len(self.filepaths))
+        self.view.update_file_status(len(self.filepaths))
         app_logger.info(
             config.LOG_MSG["FILE_REMOVED"].format(removed_name=removed_name)
         )
@@ -930,10 +1034,10 @@ class MainController:
         # 남은 데이터에 따라 버튼 상태 재조정 (Combined는 real의 파생이므로 real만 확인)
         real_items = [d for d in self.plot_data_list if not d.get("is_combined")]
         if not real_items:
-            self.ui.toggle_f3_options(False)
+            self.view.toggle_f3_options(False)
         else:
             current_has_f3 = all(d["has_f3"] for d in real_items)
-            self.ui.toggle_f3_options(current_has_f3)
+            self.view.toggle_f3_options(current_has_f3)
 
         self._sync_pre_lobanov_ui()
 
@@ -944,11 +1048,9 @@ class MainController:
         """모든 데이터와 설정을 리셋 (사용자 확인은 View에서 수행)"""
         if not self.filepaths:
             return
-        self.filepaths = []
-        self.plot_data_list = []
-        self.current_idx = 0
+        self.workspace.clear_data()
         self.data_processor = DataProcessor()
-        self.ui.reset_ui_state()
+        self.view.reset()
         app_logger.info(config.LOG_MSG["RESET_ALL"])
 
     # --- 라이브 모니터 렌더링 로직 ---
@@ -957,12 +1059,7 @@ class MainController:
         """파일 열기 다이얼로그 초기 폴더: 최근 선택 폴더가 있으면 사용, 없으면 문서 폴더."""
         if self.last_open_dir and os.path.isdir(self.last_open_dir):
             return self.last_open_dir
-        return (
-            QStandardPaths.writableLocation(
-                QStandardPaths.StandardLocation.DocumentsLocation
-            )
-            or ""
-        )
+        return self.runtime.documents_dir() or ""
 
     def set_last_open_dir(self, dir_path):
         """파일 열기 후 선택한 폴더를 기억 (다음 열기 시 초기 폴더로 사용)."""
@@ -978,9 +1075,7 @@ class MainController:
 
     def _save_path_prefs(self):
         """현재 last_open_dir / last_save_dir를 JSON에 저장."""
-        base = QStandardPaths.writableLocation(
-            QStandardPaths.StandardLocation.AppDataLocation
-        )
+        base = self.runtime.app_data_dir()
         if not base:
             return
         path_prefs.save_path_prefs(
@@ -1010,10 +1105,8 @@ class MainController:
 
     def _set_preview_empty(self):
         """LIVE 모니터를 데이터 없음 상태로 표시합니다."""
-        self.ui.preview_label.clear()
-        self.ui.preview_label.setText("LIVE")
-        if hasattr(self.ui, "preview_info_label"):
-            self.ui.preview_info_label.setText("")
+        self.view.show_empty_preview()
+        self.application_service.publish_empty_preview()
 
     def _norm_ranges_for_widgets(self, norm):
         """정규화 축 범위 dict (range_widgets용 문자열 값)."""
@@ -1024,7 +1117,7 @@ class MainController:
         """메인 창 정규화 선택을 단일 PlotPopup에 반영."""
         if not getattr(popup_window, "uses_main_normalization", False):
             return
-        norm = self.ui.get_normalization()
+        norm = self.get_analysis_settings().normalization
         prev = getattr(popup_window, "_last_synced_normalization", "__unset__")
         norm_changed = norm != prev
         popup_window.normalization = norm
@@ -1045,90 +1138,56 @@ class MainController:
         self, current_data, params, smart_ranges, default_design
     ):
         """LIVE 모니터에 플롯을 그려 버퍼로 저장한 뒤 레이블에 표시하고 하단 정보를 갱신합니다."""
-        self.live_preview_fig.clear()
         norm = (params or {}).get("normalization")
-        if norm:
-            df_norm = self._normalize_dataframe(current_data["df"], norm, current_data)
-            manual_ranges = self._norm_ranges_for_widgets(norm)
-            *_, _ = self.plot_engine.draw_single_normalized(
-                self.live_preview_fig,
-                df_norm,
-                norm,
-                manual_ranges=manual_ranges,
-                design_settings=default_design,
-                plot_params=params,
-            )
-        else:
-            *_, _ = self.plot_engine.draw_plot(
-                self.live_preview_fig,
-                current_data["df"],
-                params,
-                manual_ranges=smart_ranges,
-                design_settings=default_design,
-            )
-
-        buf = io.BytesIO()
-        buf = io.BytesIO()
-        self.live_preview_fig.savefig(buf, format="png", facecolor="white")
-        buf.seek(0)
-
-        pixmap = QPixmap()
-        pixmap.loadFromData(buf.getvalue())
-
-        # High-DPI 대응: label의 논리 좌표와 실제 픽셀 해상도를 맞춤
-        dpr = self.ui.preview_label.devicePixelRatio()
-        w = int(self.ui.preview_label.width() * dpr)
-        h = int(self.ui.preview_label.height() * dpr)
-
-        scaled_pixmap = pixmap.scaled(
-            w,
-            h,
-            Qt.AspectRatioMode.KeepAspectRatio,
-            Qt.TransformationMode.SmoothTransformation,
+        ranges = self._norm_ranges_for_widgets(norm) if norm else smart_ranges
+        png_data = self.preview_renderer.render_png(
+            current_data,
+            params,
+            ranges,
+            default_design,
         )
-        scaled_pixmap.setDevicePixelRatio(dpr)
-
-        self.ui.preview_label.setPixmap(scaled_pixmap)
-        buf.close()
 
         # 모니터 하단 정보: 파일명(확장자 제거), F1(스케일, 단위) / F2(스케일, 단위) / 이상치 제거(선택 시만)
-        if hasattr(self.ui, "preview_info_label"):
-            fname_base = strip_gichan_prefix(os.path.splitext(current_data["name"])[0])
-            norm = (params or {}).get("normalization")
-            if norm:
-                line2 = f"nF1 / nF2 / {norm} 정규화"
-            else:
-                f1_scale = params.get("f1_scale", "linear")
-                f2_scale = params.get("f2_scale", "linear")
-                use_bark = params.get("use_bark_units", False)
-                u1 = "Bark" if (f1_scale == "bark" and use_bark) else "Hz"
-                u2 = "Bark" if (f2_scale == "bark" and use_bark) else "Hz"
-                x_name = config.PLOT_X_AXIS_LABEL.get(params["type"], "F2")
-                disp_f1, disp_f2 = self.ui.get_display_scale_for_preview()
-                line2 = (
-                    f"F1({disp_f1.capitalize()}, {u1}) / "
-                    f"{x_name}({disp_f2.capitalize()}, {u2})"
-                )
-            outlier_mode = self.ui.get_outlier_mode()
-            if outlier_mode == "mahalanobis_2sigma":
-                line2 += " / 이상치 제거 : 2σ(Mahalanobis)"
-            elif outlier_mode == "tukey_iqr":
-                line2 += " / 이상치 제거 : Tukey IQR"
-            self.ui.preview_info_label.setText(f"{fname_base}\n{line2}")
+        fname_base = strip_gichan_prefix(os.path.splitext(current_data["name"])[0])
+        norm = (params or {}).get("normalization")
+        if norm:
+            line2 = f"nF1 / nF2 / {norm} 정규화"
+        else:
+            f1_scale = params.get("f1_scale", "linear")
+            f2_scale = params.get("f2_scale", "linear")
+            use_bark = params.get("use_bark_units", False)
+            u1 = "Bark" if (f1_scale == "bark" and use_bark) else "Hz"
+            u2 = "Bark" if (f2_scale == "bark" and use_bark) else "Hz"
+            x_name = config.PLOT_X_AXIS_LABEL.get(params["type"], "F2")
+            disp_f1, disp_f2 = self.view.get_display_scales()
+            line2 = (
+                f"F1({disp_f1.capitalize()}, {u1}) / "
+                f"{x_name}({disp_f2.capitalize()}, {u2})"
+            )
+        outlier_mode = self.get_analysis_settings().outlier_mode
+        if outlier_mode == "mahalanobis_2sigma":
+            line2 += " / 이상치 제거 : 2σ(Mahalanobis)"
+        elif outlier_mode == "tukey_iqr":
+            line2 += " / 이상치 제거 : Tukey IQR"
+        info = f"{fname_base}\n{line2}"
+        self.view.show_preview(png_data, info)
+        self.application_service.publish_preview(png_data, info)
 
     def update_live_preview(self):
         """LIVE 미리보기 갱신 요청. 디바운스(150ms) 후 한 번만 렌더링해 메인 스레드 블로킹을 줄입니다."""
-        if not hasattr(self, "ui") or not hasattr(self.ui, "preview_label"):
+        if not hasattr(self, "view"):
+            return
+        self.sync_analysis_settings_from_view()
+        if not self.view.supports_preview():
             return
         if not self.plot_data_list:
             self._set_preview_empty()
             return
-        self._live_preview_timer.stop()
-        self._live_preview_timer.start(150)
+        self._live_preview_debouncer.trigger(150)
 
     def _render_live_preview(self):
         """디바운스 타이머 만료 시 실제 LIVE 미리보기 렌더링을 수행합니다."""
-        if not hasattr(self, "ui") or not hasattr(self.ui, "preview_label"):
+        if not self.view.supports_preview():
             return
         if not self.plot_data_list:
             self._set_preview_empty()
@@ -1166,32 +1225,42 @@ class MainController:
                 ax.set_axis_off()
             except Exception as e:
                 app_logger.debug(f"[_render_live_preview] 렌더링 오류 폴백 실패: {e}")
-            self.ui.preview_label.clear()
-            self.ui.preview_label.setText("LIVE 렌더링 오류")
-            if hasattr(self.ui, "preview_info_label"):
-                self.ui.preview_info_label.setText(str(e))
+            self.view.show_preview_error(str(e))
+            self.application_service.publish_preview_error(str(e))
 
     # --- 팝업 생성 및 가이드 로직 ---
 
+    def _show_warning(self, title, text, parent_window=None):
+        if parent_window is not None and hasattr(parent_window, "show_warning"):
+            parent_window.show_warning(title, text)
+            return
+        self.view.show_warning(title, text)
+
+    def _show_critical(self, title, text, parent_window=None):
+        if parent_window is not None and hasattr(parent_window, "show_critical"):
+            parent_window.show_critical(title, text)
+            return
+        self.view.show_critical(title, text)
+
     def open_guide(self):
         """데이터 파일 준비 가이드 팝업 표시"""
-        guide = DataGuidePopup(self.ui)
-        guide.exec()
+        self.window_coordinator.open_guide(self.ui)
 
     def open_single_plot(self):
         """현재 데이터로 시각화 창(PlotPopup)을 생성합니다."""
+        self.sync_analysis_settings_from_view()
         self._cleanup_popups()
         if not self.plot_data_list:
-            self.ui.show_warning("데이터 없음", "분석할 데이터를 먼저 로드해 주세요.")
+            self.view.show_warning("데이터 없음", "분석할 데이터를 먼저 로드해 주세요.")
             return
 
         fig = Figure(figsize=(6.5, 6.5), dpi=100)
-        plot_type = self.ui.get_plot_type()
+        plot_type = self.get_analysis_settings().plot_type
         x_label = self._get_x_axis_label(plot_type)
         params = self._get_main_ui_plot_params()
         norm = params.get("normalization")
 
-        popup = PlotPopup(
+        popup = self.window_coordinator.create_single_plot(
             parent=self.ui,
             controller=self,
             figure=fig,
@@ -1285,7 +1354,7 @@ class MainController:
         popup.canvas.draw()
 
         popup.show()
-        self.open_popups.append(popup)
+        self.window_coordinator.register(self.open_popups, popup)
         if hasattr(popup, "_refresh_layer_dock_vowels"):
             popup._refresh_layer_dock_vowels()
         app_logger.info(
@@ -1336,12 +1405,12 @@ class MainController:
             config.LOG_MSG["ANALYSIS_OPEN"].format(title_suffix=title_suffix)
         )
         initial_tab = getattr(popup_window, "current_idx", 0)
-        dlg = VowelAnalysisDialog(
-            popup_window,
-            self,
-            snapshot,
-            params,
-            title_suffix,
+        dlg = self.window_coordinator.create_vowel_analysis(
+            parent=popup_window,
+            controller=self,
+            plot_data_snapshot=snapshot,
+            fixed_plot_params=params,
+            title_suffix=title_suffix,
             initial_tab_idx=initial_tab,
         )
         popup_window.raise_()
@@ -1349,7 +1418,7 @@ class MainController:
         dlg.show()
         dlg.raise_()
         dlg.activateWindow()
-        self.open_popups.append(dlg)
+        self.window_coordinator.register(self.open_popups, dlg)
 
     # --- 다중 비교 팝업 및 제어 로직 ---
 
@@ -1358,9 +1427,10 @@ class MainController:
         # 비교 기능은 real 화자 파일 ≥ 2개일 때만 의미가 있다.
         real_count = sum(1 for it in self.plot_data_list if not it.get("is_combined"))
         if real_count < 2:
-            (parent_window or self.ui).show_warning(
+            self._show_warning(
                 "데이터 부족",
                 "비교할 대상이 부족합니다.\n2개 이상의 데이터를 로드해 주세요.",
+                parent_window,
             )
             return
 
@@ -1368,18 +1438,22 @@ class MainController:
         if 0 <= current_idx < len(self.plot_data_list) and self.plot_data_list[
             current_idx
         ].get("is_combined"):
-            (parent_window or self.ui).show_warning(
+            self._show_warning(
                 "비교 불가",
                 "Combined 항목은 다중 비교의 기준이 될 수 없습니다.\n"
                 "비교를 시작하려면 개별 화자 파일로 먼저 이동해 주세요.",
+                parent_window,
             )
             return
 
         self._disable_ruler_for_open_popups()
         self._disable_label_move_for_open_popups()
 
-        dialog = SelectCompareDialog(parent_window or self.ui, self, current_idx)
-        dialog.exec()
+        self.window_coordinator.open_compare_dialog(
+            parent=parent_window or self.ui,
+            controller=self,
+            current_idx=current_idx,
+        )
 
     def open_compare_plot(
         self, current_idx, target_idx, normalization=None, parent_window=None
@@ -1418,9 +1492,10 @@ class MainController:
             for group in source_groups
         ]
         if len(group_items) < 2 or any(item is None for item in group_items):
-            (parent_window or self.ui).show_warning(
+            self._show_warning(
                 "비교 불가",
                 "선택한 그룹에서 비교할 데이터를 만들 수 없습니다.",
+                parent_window,
             )
             return None
         virtual_indices = tuple(
@@ -1444,10 +1519,12 @@ class MainController:
         source_groups: tuple[tuple[int, ...], ...] | None = None,
     ):
         """N개 데이터 인덱스로 compare 창을 연다. UI 탭은 0·1번만, 렌더는 session 전체."""
+        self.sync_analysis_settings_from_view()
         if len(indices) < 2:
-            (parent_window or self.ui).show_warning(
+            self._show_warning(
                 "비교 불가",
                 "compare에는 2개 이상의 데이터가 필요합니다.",
+                parent_window,
             )
             return
 
@@ -1458,16 +1535,16 @@ class MainController:
         try:
             fig = Figure(figsize=(6.5, 6.5), dpi=100)
 
-            plot_type = self.ui.get_plot_type()
+            plot_type = self.get_analysis_settings().plot_type
             x_label = self._get_x_axis_label(plot_type)
             self._disable_ruler_for_open_popups()
 
-            popup = ComparePlotPopup(
-                parent_window or self.ui,
-                self,
-                fig,
-                current_idx,
-                target_idx,
+            popup = self.window_coordinator.create_compare_plot(
+                parent=parent_window or self.ui,
+                controller=self,
+                figure=fig,
+                idx_blue=current_idx,
+                idx_red=target_idx,
                 x_axis_label=x_label,
                 normalization=normalization,
             )
@@ -1503,8 +1580,7 @@ class MainController:
             self._disable_label_move_for_open_popups()
 
             popup.show()
-            QTimer.singleShot(
-                0,
+            self.runtime.call_soon(
                 lambda: self._refresh_compare_plot_for_session(
                     fig,
                     popup.canvas,
@@ -1515,7 +1591,7 @@ class MainController:
                 ),
             )
 
-            self.open_popups.append(popup)
+            self.window_coordinator.register(self.open_popups, popup)
 
             names = get_compare_names(self, session)
             log_msg = f"다중 비교 플롯 창 생성 완료: {', '.join(names)}"
@@ -1527,9 +1603,10 @@ class MainController:
             if virtual_indices:
                 self._release_compare_virtual_indices(tuple(virtual_indices))
             traceback.print_exc()
-            (parent_window or self.ui).show_critical(
+            self._show_critical(
                 "다중 플롯 오류",
                 f"다중 플롯 창을 열 수 없습니다.\n\n{e}",
+                parent_window,
             )
             app_logger.error(config.LOG_MSG["PLOT_OPEN_FAIL"].format(e=e))
             return None
@@ -1942,7 +2019,7 @@ class MainController:
         if self.ruler_tool.active:
             return
         if self.label_move_tool is None:
-            self.label_move_tool = LabelMoveTool()
+            self.label_move_tool = self.window_coordinator.create_label_move_tool()
         self.label_move_tool.on_offset_saved = (
             lambda pw: lambda d: self._save_label_offset(d, pw)
         )(popup_window)
@@ -1999,7 +2076,7 @@ class MainController:
         if self.ruler_tool.active:
             return
         if self.label_move_tool is None:
-            self.label_move_tool = LabelMoveTool()
+            self.label_move_tool = self.window_coordinator.create_label_move_tool()
         self.label_move_tool.on_offset_saved = (
             lambda pw: lambda d: self._save_compare_label_offset(d, pw)
         )(popup_window)
@@ -2026,7 +2103,7 @@ class MainController:
 
     def _get_outlier_save_suffix(self):
         """현재 이상치 제거 모드에 맞는 저장 파일명 suffix를 반환."""
-        outlier_mode = getattr(self.ui, "get_outlier_mode", lambda: None)()
+        outlier_mode = self.get_analysis_settings().outlier_mode
         if outlier_mode == "mahalanobis_2sigma":
             return "_이상치 제거 2σ"
         if outlier_mode == "tukey_iqr":
@@ -2037,18 +2114,14 @@ class MainController:
         """저장 다이얼로그의 초기 디렉터리를 반환 (세션 메모리 → path_prefs.json)."""
         if self.last_save_dir and os.path.isdir(self.last_save_dir):
             return self.last_save_dir
-        base = QStandardPaths.writableLocation(
-            QStandardPaths.StandardLocation.AppDataLocation
-        )
+        base = self.runtime.app_data_dir()
         if base:
             loaded = path_prefs.load_path_prefs(base)
             saved = loaded.get("last_save_dir")
             if saved and os.path.isdir(saved):
                 self.last_save_dir = saved
                 return saved
-        downloads_dir = QStandardPaths.writableLocation(
-            QStandardPaths.StandardLocation.DownloadLocation
-        )
+        downloads_dir = self.runtime.downloads_dir()
         return downloads_dir or ""
 
     def _normalize_tag_for_filename(self, norm):
@@ -2181,9 +2254,7 @@ class MainController:
 
         plot_params = self._get_current_plot_params(parent_popup)
         plot_params["sigma"] = sigma
-        plot_params["outlier_mode"] = getattr(
-            self.ui, "get_outlier_mode", lambda: None
-        )()
+        plot_params["outlier_mode"] = self.get_analysis_settings().outlier_mode
 
         if apply_global and design_settings:
             ds_settings = design_settings
@@ -2227,7 +2298,7 @@ class MainController:
             else []
         )
 
-        return BatchSaveWorker(
+        return self.window_coordinator.create_batch_save_worker(
             save_dir,
             self.plot_data_list,
             self.plot_engine,
@@ -2250,15 +2321,29 @@ class MainController:
 
     # --- 공개 API (View는 이 메서드들만 사용) ---
 
+    def get_analysis_settings(self) -> AnalysisSettings:
+        """Return the current UI-independent analysis settings."""
+        return self._analysis_settings
+
+    def sync_analysis_settings_from_view(self) -> AnalysisSettings:
+        """Pull settings at the presentation boundary after a UI event."""
+        if not hasattr(self, "view"):
+            return self._analysis_settings
+        self._analysis_settings = self.view.get_analysis_settings()
+        return self._analysis_settings
+
+    def apply_analysis_settings(self, settings: AnalysisSettings) -> None:
+        """Apply analysis settings through the active presentation adapter."""
+        self._analysis_settings = settings
+        self.view.apply_analysis_settings(settings)
+
     def get_plot_type(self):
         """현재 플롯 타입(메인 UI 기준)."""
-        return self.ui.get_plot_type() if hasattr(self.ui, "get_plot_type") else "f1_f2"
+        return self.get_analysis_settings().plot_type
 
     def get_outlier_mode(self):
         """이상치 제거 모드: None, '1sigma', '2sigma'."""
-        return (
-            self.ui.get_outlier_mode() if hasattr(self.ui, "get_outlier_mode") else None
-        )
+        return self.get_analysis_settings().outlier_mode
 
     def get_plot_data_list(self) -> list[PlotDataItem]:
         """로드된 플롯 데이터 목록. View는 이 목록을 읽기 전용으로 사용."""
@@ -2355,18 +2440,7 @@ class MainController:
         """이미 닫혀서 파괴된 팝업 창들에 대한 참조를 리스트에서 제거합니다."""
         if not hasattr(self, "open_popups"):
             return
-        # isVisible()이 False이거나 파이썬 객체가 살아있어도
-        # C++ 객체가 파괴된 경우(RuntimeError 발생 가능) 등을 걸러냅니다.
-        active = []
-        for p in self.open_popups:
-            try:
-                # isVisible() 체크를 통해 닫힌 창(WA_DeleteOnClose가 작동 중인 창 포함) 제외
-                if p and not p.isHidden() and p.isVisible():
-                    active.append(p)
-            except (RuntimeError, AttributeError):
-                # 래퍼만 남고 내부는 이미 파괴된 경우
-                continue
-        self.open_popups = active
+        self.open_popups = self.window_coordinator.cleanup(self.open_popups)
 
     # --- 유틸리티 메서드 ---
 
@@ -2410,23 +2484,8 @@ class MainController:
         }
 
     def _get_main_ui_plot_params(self) -> PlotParams:
-        """메인 창 UI에서 현재 플롯 타입·스케일·원점·단위(Unit)를 취합한다. Scale과 Unit은 별개."""
-        f1_scale = self.ui.get_f1_scale()
-        f2_scale = self.ui.get_f2_scale()
-        use_bark = self.ui.get_use_bark_units()
-        f1_unit = "Bark" if (f1_scale == "bark" and use_bark) else "Hz"
-        f2_unit = "Bark" if (f2_scale == "bark" and use_bark) else "Hz"
-        return {
-            "type": self.ui.get_plot_type(),
-            "f1_scale": f1_scale,
-            "f2_scale": f2_scale,
-            "f1_unit": f1_unit,
-            "f2_unit": f2_unit,
-            "origin": self.ui.get_origin(),
-            "use_bark_units": use_bark,
-            "sigma": config.DEFAULT_SIGMA,
-            "normalization": self.ui.get_normalization(),
-        }
+        """Build render params from the UI-independent analysis state."""
+        return self.get_analysis_settings().to_plot_params()
 
     def _get_current_plot_params(self, popup_window=None) -> PlotParams:
         """팝업이 있으면 해당 창의 고정 파라미터, 없으면 메인 UI 설정값을 반환한다. Scale과 Unit은 별도 필드로 유지."""
@@ -2449,7 +2508,7 @@ class MainController:
                     "f2_unit", "Bark" if (f2_scale == "bark" and use_bark) else "Hz"
                 )
             if getattr(popup_window, "uses_main_normalization", False):
-                norm = self.ui.get_normalization()
+                norm = self.get_analysis_settings().normalization
                 params["normalization"] = norm
                 popup_window.normalization = norm
             return params

@@ -60,9 +60,9 @@ def _apply_settings_grid(
 
 
 class DropLabel(QLabel):
-    def __init__(self, text, controller, parent=None):
+    def __init__(self, text, application, parent=None):
         super().__init__(text, parent)
-        self.controller = controller
+        self.application = application
         self.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
         self.setWordWrap(True)
@@ -94,17 +94,18 @@ class DropLabel(QLabel):
             url.toLocalFile() for url in event.mimeData().urls() if url.isLocalFile()
         ]
         if files:
-            self.controller.handle_file_drop(files)
+            self.application.load_files(files)
 
     def mousePressEvent(self, event):
         if event.button() == Qt.MouseButton.LeftButton:
-            self.controller.open_file_dialog()
+            self.application.request_file_open()
 
 
 class MainUI(QMainWindow):
     def __init__(self, controller, status_callback=None):
         super().__init__()
         self.controller = controller
+        self.application = controller.application_service
 
         def _report(msg):
             if status_callback:
@@ -160,7 +161,7 @@ class MainUI(QMainWindow):
         )
 
         # 데이터 가이드 버튼 연결
-        self.btn_guide.clicked.connect(self.controller.open_guide)
+        self.btn_guide.clicked.connect(self.application.open_guide)
 
         # [로직] 처음 실행 시 모든 인터랙션 잠금
         self.reset_ui_state()
@@ -221,7 +222,7 @@ class MainUI(QMainWindow):
 
         self.drop_label = DropLabel(
             "여기를 클릭하여 파일을 선택하거나\n파일을 이곳으로 끌어다 놓으세요",
-            self.controller,
+            self.application,
         )
         self.drop_label.setSizePolicy(
             QSizePolicy.Policy.Preferred, QSizePolicy.Policy.Expanding
@@ -279,7 +280,7 @@ class MainUI(QMainWindow):
         data_vbox.addLayout(ctrl_h)
 
         self.btn_project_open = QPushButton("프로젝트 열기")
-        self.btn_project_open.clicked.connect(self.controller.prompt_open_project)
+        self.btn_project_open.clicked.connect(self.application.prompt_open_project)
         data_vbox.addWidget(self.btn_project_open)
         data_vbox.addSpacing(4)
         data_group.setSizePolicy(
@@ -554,7 +555,7 @@ class MainUI(QMainWindow):
             QPushButton:disabled { background-color: #C0C4CC; color: #909399; }
         """)
         self.btn_generate.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.btn_generate.clicked.connect(self.controller.open_single_plot)
+        self.btn_generate.clicked.connect(self.application.open_single_plot)
         preview_vbox.addWidget(self.btn_generate)
 
         col3.addWidget(preview_group, 0, Qt.AlignmentFlag.AlignTop)
@@ -590,9 +591,10 @@ class MainUI(QMainWindow):
         # row(시각 행 번호)와 i(plot_data_list 인덱스, 삭제용)는 항상 일치하지만
         # 방어적으로 분리해서 관리한다.
         row = 0
-        for i, data in enumerate(self.controller.get_plot_data_list()):
-            if data.get("is_combined"):
+        for data in self.application.snapshot()["sources"]:
+            if data["is_combined"]:
                 continue
+            i = data["index"]
             self.table_files.insertRow(row)
             item = QTableWidgetItem(data["name"])
             item.setFlags(item.flags() ^ Qt.ItemFlag.ItemIsEditable)
@@ -634,7 +636,7 @@ class MainUI(QMainWindow):
 
     def _request_reset_all(self):
         """모든 데이터/설정 초기화 여부를 사용자에게 확인한 뒤, Yes인 경우에만 컨트롤러에 요청."""
-        if not self.controller.filepaths:
+        if not self.application.snapshot()["capabilities"]["can_plot"]:
             return
         reply = QMessageBox.question(
             self,
@@ -644,14 +646,14 @@ class MainUI(QMainWindow):
             QMessageBox.StandardButton.Yes,
         )
         if reply == QMessageBox.StandardButton.Yes:
-            self.controller.reset_data()
+            self.application.reset()
 
     def request_file_open(self, callback):
         """파일 탐색기를 통해 데이터 파일을 선택하고, 선택된 경로 리스트를 콜백으로 전달한다.
         초기 폴더: 최근 선택 폴더가 있으면 사용, 없으면 문서 폴더 (저장 다이얼로그의 다운로드/최근 폴더와 동일한 로직)."""
         initial_dir = ""
-        if hasattr(self, "controller") and self.controller is not None:
-            initial_dir = getattr(self.controller, "get_initial_open_dir", lambda: "")()
+        if self.application is not None:
+            initial_dir = self.application.get_initial_open_dir()
         files, _ = QFileDialog.getOpenFileNames(
             self,
             "데이터 파일 선택",
@@ -659,18 +661,17 @@ class MainUI(QMainWindow):
             "Data Files (*.txt *.csv *.tsv *.xlsx *.xls);;All Files (*.*)",
         )
         if files:
-            if hasattr(self, "controller") and self.controller is not None:
-                getattr(self.controller, "set_last_open_dir", lambda x: None)(
-                    os.path.dirname(os.path.abspath(files[0]))
-                )
+            self.application.remember_open_dir(
+                os.path.dirname(os.path.abspath(files[0]))
+            )
             callback(files)
 
     def request_project_open(self, callback, parent_window=None):
         """프로젝트 파일(.gfproj)을 선택하고 콜백으로 경로를 전달한다."""
         dialog_parent = parent_window or self
         initial_dir = ""
-        if hasattr(self, "controller") and self.controller is not None:
-            initial_dir = getattr(self.controller, "get_initial_open_dir", lambda: "")()
+        if self.application is not None:
+            initial_dir = self.application.get_initial_open_dir()
         path, _ = QFileDialog.getOpenFileName(
             dialog_parent,
             "프로젝트 열기",
@@ -678,20 +679,15 @@ class MainUI(QMainWindow):
             "GichanFormant Project (*.gfproj);;All Files (*.*)",
         )
         if path:
-            if hasattr(self, "controller") and self.controller is not None:
-                getattr(self.controller, "set_last_open_dir", lambda x: None)(
-                    os.path.dirname(os.path.abspath(path))
-                )
+            self.application.remember_open_dir(os.path.dirname(os.path.abspath(path)))
             callback(path)
 
     def request_project_save(self, callback, parent_window=None):
         """프로젝트 저장 경로를 선택하고 콜백으로 경로를 전달한다."""
         dialog_parent = parent_window or self
         initial_dir = ""
-        if hasattr(self, "controller") and self.controller is not None:
-            initial_dir = getattr(
-                self.controller, "get_default_batch_save_dir", lambda: ""
-            )()
+        if self.application is not None:
+            initial_dir = self.application.get_default_save_dir()
         path, _ = QFileDialog.getSaveFileName(
             dialog_parent,
             "프로젝트 저장",
@@ -699,16 +695,14 @@ class MainUI(QMainWindow):
             "GichanFormant Project (*.gfproj);;All Files (*.*)",
         )
         if path:
-            if hasattr(self, "controller") and self.controller is not None:
-                getattr(self.controller, "set_last_save_dir", lambda x: None)(
-                    os.path.dirname(os.path.abspath(path))
-                )
+            self.application.remember_save_dir(os.path.dirname(os.path.abspath(path)))
             callback(path)
 
     def _request_delete(self, index):
-        if index < 0 or index >= self.controller.get_plot_data_count():
+        sources = self.application.snapshot()["sources"]
+        if index < 0 or index >= len(sources):
             return
-        item = self.controller.get_data_item_at(index)
+        item = sources[index]
         if not item:
             return
         fname = item["name"]
@@ -720,7 +714,7 @@ class MainUI(QMainWindow):
             QMessageBox.StandardButton.No,
         )
         if reply == QMessageBox.StandardButton.Yes:
-            self.controller.remove_file(index)
+            self.application.remove_file(index)
 
     def _on_plot_type_changed(self, btn):
         ptype = btn.property("val")
@@ -785,7 +779,7 @@ class MainUI(QMainWindow):
             self._apply_integer_bark_display_and_lock()
 
     def toggle_f3_options(self, has_f3):
-        has_files = self.controller.get_plot_data_count() > 0
+        has_files = self.application.snapshot()["capabilities"]["can_plot"]
         enabled = has_files and has_f3
         for b in self.f3_btns:
             b.setEnabled(enabled)
@@ -963,7 +957,7 @@ class MainUI(QMainWindow):
             self._pre_lobanov_locked = False
             ptype = self.get_plot_type()
             unsupported = ptype in ("f1_f2_minus_f1", "f1_f2_prime_minus_f1")
-            has_files = self.controller.get_plot_data_count() > 0
+            has_files = self.application.snapshot()["capabilities"]["can_plot"]
             self.cb_normalization.setEnabled(has_files and not unsupported)
             if not has_files:
                 self.cb_normalization.setCurrentIndex(0)
@@ -992,7 +986,7 @@ class MainUI(QMainWindow):
             self.cb_normalization.setEnabled(False)
             self._set_norm_mode_active(False)
         else:
-            has_files = self.controller.get_plot_data_count() > 0
+            has_files = self.application.snapshot()["capabilities"]["can_plot"]
             self.cb_normalization.setEnabled(has_files)
             self._set_norm_mode_active(bool(self.get_normalization()))
         self.cb_normalization.blockSignals(False)
@@ -1005,8 +999,7 @@ class MainUI(QMainWindow):
         else:
             app_logger.info(config.LOG_MSG["NORM_OFF"])
         self._draw_preview()
-        if hasattr(self.controller, "_refresh_open_popups"):
-            self.controller._refresh_open_popups()
+        self.application.refresh_open_plots()
 
     def _outlier_at_most_one(self, button, checked):
         """최대 1개만 선택: 켜진 버튼이 있으면 나머지 해제. 재클릭 시 해제되어 Optional 가능."""
@@ -1020,16 +1013,14 @@ class MainUI(QMainWindow):
     def _on_outlier_changed(self, btn):
         """이상치 제거 옵션 변경 시 LIVE 미리보기 및 데이터 반영 (컨트롤러에서 처리)"""
         self._update_outlier_scope_ui()
-        if hasattr(self.controller, "on_outlier_mode_changed"):
-            self.controller.on_outlier_mode_changed()
+        self.application.apply_outlier_settings()
         self._draw_preview()
 
     def _on_outlier_scope_changed(self, _btn):
         """적용 범위 변경 — 이상치 제거가 켜진 상태에서만 재적용."""
         if self.get_outlier_mode() is None:
             return
-        if hasattr(self.controller, "on_outlier_mode_changed"):
-            self.controller.on_outlier_mode_changed()
+        self.application.apply_outlier_settings()
         self._draw_preview()
 
     def append_log(self, msg):
@@ -1074,8 +1065,8 @@ class MainUI(QMainWindow):
         QMessageBox.critical(self, title, text)
 
     def _draw_preview(self, *args):
-        if hasattr(self.controller, "update_live_preview"):
-            self.controller.update_live_preview()
+        if self.application is not None:
+            self.application.request_preview()
         else:
             if hasattr(self, "preview_label"):
                 self.preview_label.clear()

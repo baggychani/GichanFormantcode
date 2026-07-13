@@ -231,10 +231,10 @@ def collect_project_document(controller: Any, popup_window: Any | None = None) -
             }
         )
 
+    analysis_settings = controller.get_analysis_settings()
     analysis = {
         **controller._get_main_ui_plot_params(),
-        "outlier_mode": controller.ui.get_outlier_mode(),
-        "outlier_scope": controller.ui.get_outlier_scope(),
+        **analysis_settings.to_dict(),
         "current_idx": int(getattr(controller, "current_idx", 0)),
     }
 
@@ -305,9 +305,7 @@ def save_project(path: str, controller: Any, popup_window: Any | None = None) ->
     )
     os.close(file_descriptor)
     try:
-        with zipfile.ZipFile(
-            temp_path, "w", compression=zipfile.ZIP_DEFLATED
-        ) as zf:
+        with zipfile.ZipFile(temp_path, "w", compression=zipfile.ZIP_DEFLATED) as zf:
             zf.writestr(MANIFEST_NAME, manifest)
             for snapshot_name, snapshot_json in snapshots:
                 zf.writestr(snapshot_name, snapshot_json)

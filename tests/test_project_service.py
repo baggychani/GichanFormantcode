@@ -4,6 +4,7 @@ import pandas as pd
 import pytest
 
 from core.controller import MainController
+from core.application_state import AnalysisSettings
 from core.compare_series import CompareSession
 from core.project_service import load_project, save_project
 from draw.draw_common import LineObject
@@ -71,6 +72,18 @@ class _FakeController:
             "sigma": 2.0,
             "normalization": self.ui.get_normalization(),
         }
+
+    def get_analysis_settings(self):
+        return AnalysisSettings(
+            plot_type=self.ui.get_plot_type(),
+            f1_scale=self.ui.get_f1_scale(),
+            f2_scale=self.ui.get_f2_scale(),
+            origin=self.ui.get_origin(),
+            use_bark_units=self.ui.get_use_bark_units(),
+            outlier_mode=self.ui.get_outlier_mode(),
+            outlier_scope=self.ui.get_outlier_scope(),
+            normalization=self.ui.get_normalization(),
+        )
 
 
 class _FakeEdit:
@@ -170,9 +183,7 @@ def test_compare_session_save_load_roundtrip(tmp_path):
     controller.filepaths.append("C:/data/b.txt")
     popup = _FakeComparePopup()
     controller.open_popups = [popup]
-    controller.custom_label_offsets[
-        (-1, -2, "f1_f2", "blue")
-    ] = {"a": (3.0, 4.0)}
+    controller.custom_label_offsets[(-1, -2, "f1_f2", "blue")] = {"a": (3.0, 4.0)}
 
     path = tmp_path / "compare.gfproj"
     save_project(str(path), controller, popup)
@@ -217,9 +228,7 @@ def test_project_save_failure_preserves_existing_file(tmp_path, monkeypatch):
 def test_project_source_prefers_embedded_snapshot(tmp_path, monkeypatch):
     original_path = tmp_path / "source.txt"
     original_path.write_text("a valid but changed source", encoding="utf-8")
-    snapshot = pd.DataFrame(
-        {"F1": [500.0], "F2": [1500.0], "Label": ["snapshot"]}
-    )
+    snapshot = pd.DataFrame({"F1": [500.0], "F2": [1500.0], "Label": ["snapshot"]})
     controller = MainController.__new__(MainController)
 
     def unexpected_file_load(_path):
@@ -325,9 +334,7 @@ def test_compare_session_restore_rebinds_state_and_label_offsets(monkeypatch):
         opened.append((groups, normalization, parent_window))
         return popup
 
-    monkeypatch.setattr(
-        controller, "open_compare_plot_for_source_groups", open_groups
-    )
+    monkeypatch.setattr(controller, "open_compare_plot_for_source_groups", open_groups)
     controller._restore_compare_sessions_from_project(
         [
             {

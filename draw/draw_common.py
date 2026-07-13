@@ -5,8 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 import uuid
 
-# 기획: 기존 눈금자 툴에서 스냅·호버·툴팁 로직 import 재사용
-from tools.ruler import snap_query
+from core.snap_service import snap_query
 
 __all__ = [
     "DrawMode",
