@@ -102,7 +102,15 @@ class ApplicationService:
         }
 
     def remove_file(self, index: int) -> dict[str, Any]:
-        self.controller.remove_file(index)
+        removed = self.controller.remove_file(index)
+        if not removed:
+            error = ApplicationError(
+                code="file_remove_failed",
+                message="파일을 삭제할 수 없습니다.",
+                details={"index": index},
+            )
+            self.events.emit("operation_failed", error.to_dict())
+            raise error
         state = self._emit_state("file_removed")
         self.events.emit("files_changed", {"action": "remove", "state": state})
         return state
@@ -113,9 +121,9 @@ class ApplicationService:
         self.events.emit("files_changed", {"action": "reset", "state": state})
         return state
 
-    def save_project(self, path: str) -> None:
+    def save_project(self, path: str, popup_window: Any | None = None) -> None:
         try:
-            self.controller.save_project_document(path)
+            self.controller.save_project_document(path, popup_window)
         except Exception as exc:
             error = ApplicationError(
                 code="project_save_failed",

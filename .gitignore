@@ -266,6 +266,12 @@ __pycache__/
 .uv-cache/
 .tmp/
 
+# Desktop (Tauri)
+desktop/node_modules/
+desktop/dist/
+desktop/src-tauri/target/
+_tauri_scaffold/
+
 # Log files
 *.log
 logs/

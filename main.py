@@ -1,4 +1,7 @@
-﻿# main.py — 진입점
+﻿# main.py — 정식 진입점 (canonical entry)
+#
+# 배포·개발·PyInstaller 모두 이 파일을 실행합니다.
+# desktop/(Tauri/React) 파일럿은 실험용이며 이 진입점을 대체하지 않습니다.
 
 import sys
 import platform

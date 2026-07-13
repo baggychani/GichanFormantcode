@@ -1,0 +1,146 @@
+{
+  "protocol_version": 1,
+  "transport": "ndjson-stdio",
+  "max_message_bytes": 33554432,
+  "commands": {
+    "ping": {
+      "params": {}
+    },
+    "health": {
+      "params": {}
+    },
+    "shutdown": {
+      "params": {}
+    },
+    "get_state": {
+      "params": {}
+    },
+    "snapshot": {
+      "params": {}
+    },
+    "set_analysis_settings": {
+      "params": {
+        "settings": "object"
+      },
+      "required": [
+        "settings"
+      ]
+    },
+    "load_files": {
+      "params": {
+        "paths": "string[]"
+      },
+      "required": [
+        "paths"
+      ]
+    },
+    "remove_file": {
+      "params": {
+        "index": "int"
+      },
+      "required": [
+        "index"
+      ]
+    },
+    "reset": {
+      "params": {}
+    },
+    "save_project": {
+      "params": {
+        "path": "string"
+      },
+      "required": [
+        "path"
+      ]
+    },
+    "load_project": {
+      "params": {
+        "path": "string"
+      },
+      "required": [
+        "path"
+      ]
+    },
+    "open_single_plot": {
+      "params": {}
+    },
+    "open_compare": {
+      "params": {
+        "source_groups": "int[][]",
+        "normalization": "string|null"
+      },
+      "required": [
+        "source_groups"
+      ]
+    },
+    "open_guide": {
+      "params": {}
+    },
+    "request_preview": {
+      "params": {}
+    }
+  },
+  "events": [
+    "state_changed",
+    "files_changed",
+    "operation_progress",
+    "project_saved",
+    "project_loaded",
+    "preview_ready",
+    "preview_cleared",
+    "preview_failed",
+    "window_requested",
+    "operation_failed",
+    "sidecar_ready",
+    "sidecar_shutting_down"
+  ],
+  "envelopes": {
+    "request": [
+      "v",
+      "id",
+      "method",
+      "params"
+    ],
+    "response": [
+      "v",
+      "id",
+      "result"
+    ],
+    "error": [
+      "v",
+      "id?",
+      "error"
+    ],
+    "event": [
+      "v",
+      "event",
+      "payload"
+    ]
+  },
+  "application_state": {
+    "analysis": [
+      "type",
+      "f1_scale",
+      "f2_scale",
+      "origin",
+      "use_bark_units",
+      "outlier_mode",
+      "outlier_scope",
+      "normalization"
+    ],
+    "current_index": "int",
+    "sources": [
+      "index",
+      "name",
+      "path",
+      "has_f3",
+      "is_combined",
+      "is_pre_lobanov"
+    ],
+    "capabilities": [
+      "can_plot",
+      "can_compare",
+      "can_save_project"
+    ]
+  }
+}

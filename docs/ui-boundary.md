@@ -110,14 +110,61 @@ PySideMainViewAdapter <- MainController -> ApplicationEventBus
 이 Qt 코드는 `core` import 경계 밖에 있다. Tauri 초기 단계에서는 Python
 sidecar가 별도 `QApplication`을 유지해 기존 플롯 창을 생성한다.
 
-## React/Tauri 착수 전 남은 작업
+## Step 1 — IPC + sidecar (완료 기반)
 
-의존성 분리 2차는 완료됐다. 다음 작업은 UI 리팩터링이 아니라 transport와
-sidecar 생명주기다.
+의존성 분리 2차 이후 첫 Tauri 공사 단위다. UI 화면 제작보다 transport를 먼저 둔다.
 
-1. 길이 제한과 요청 ID를 갖는 JSON-RPC 또는 로컬 IPC host를 추가한다.
-2. 명령 입력 schema와 허용 파일 경로를 검증한다.
-3. `ApplicationEventBus` 이벤트를 Tauri event stream으로 전달한다.
-4. 정상 종료, 강제 종료, 재시작과 단일 sidecar 인스턴스를 구현한다.
-5. 이후 React에서 파일 목록·분석 설정·프로젝트 명령부터 구현한다.
-6. 혼합 창의 포커스·DPI·종료 동작을 Windows와 macOS에서 검증한다.
+| 산출물 | 역할 |
+| --- | --- |
+| `core/ipc/protocol.py` | 명령·이벤트·envelope source of truth |
+| `desktop/ipc/protocol.ts` / `schema.json` | TypeScript 미러 계약 |
+| `sidecar` (`python -m sidecar`) | NDJSON stdio 호스트 (`health`/`shutdown` 포함) |
+| Rust `SidecarState` | Tauri 배포·실행의 단일 자식 프로세스 소유자 |
+| `sidecar.supervisor` | Python 통합 테스트·로컬 진단 전용 supervisor |
+| `desktop/` Tauri 2 + React | 메인 창 파일럿 (파일 목록·미리보기·health) |
+| `tests/test_ipc_*.py` | 스키마·호스트·ApplicationService 동등성 |
+
+프로토콜은 JSON-RPC 전체가 아니라 **NDJSON + request id**다.
+
+```text
+→ {"v":1,"id":"1","method":"snapshot","params":{}}
+← {"v":1,"id":"1","result":{...}}
+← {"v":1,"event":"state_changed","payload":{...}}
+```
+
+로컬 확인:
+
+```powershell
+# 정식 앱 (항상 이것)
+uv run main.py
+
+# Tauri/React 파일럿 (실험) — Python 진입점
+uv run desktop_main.py
+
+# Python sidecar만 (실험)
+uv run python -m sidecar --headless
+```
+
+개발 중 Tauri는 `uv run python -m sidecar --desktop`을 자식 프로세스로 띄운다.
+다른 명령을 쓰려면 `GICHAN_SIDECAR_CMD` 환경 변수를 설정한다.
+
+**진입점 규칙:** 배포·릴리스·기본 실행은 `main.py`만 사용한다. `desktop/`은 파일럿이다.
+
+**롤백:** React/Tauri 이전 상태는 Git 태그 `pyside-stable`과 브랜치 `release/pyside-stable`에 고정한다.
+
+## Visual Key
+
+메인 창 재설계의 비주얼 기준은 `docs/desktop-visual-key.md`와
+`desktop/src/styles/tokens.css`다. UI를 쌓기 전에 키·토큰을 먼저 잠근다.
+
+## Controller 분리
+
+`MainController` 대개편은 `docs/controller-split-plan.md` 순서를 따른다.
+명령 단일화(ApplicationService)를 먼저 하고, 세션 추출은 그다음이다.
+
+## React/Tauri 다음 작업
+
+1. 허용 파일 경로 검증과 요청 크기 제한을 Tauri 권한 모델과 맞춘다
+2. 미리보기·설정 패널을 React로 확장한다
+3. 혼합 창의 포커스·DPI·종료 동작을 Windows와 macOS에서 검증한다
+4. 배포용 PyInstaller sidecar 바이너리를 Tauri `externalBin`에 묶는다

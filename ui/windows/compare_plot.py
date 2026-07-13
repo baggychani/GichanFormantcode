@@ -35,7 +35,6 @@ from PySide6.QtGui import (
 )
 
 from ui.widgets.canvas_fixed import FixedFigureCanvas
-from ui.widgets.icon_widgets import ShortcutButton
 
 from engine.plot_engine import PlotEngine
 from ui.widgets.tool_indicator import ToolStatusIndicator

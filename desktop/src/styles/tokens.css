@@ -1,0 +1,77 @@
+/**
+ * GichanFormant desktop visual key tokens.
+ * Source of truth for the Tauri/React shell. See docs/desktop-visual-key.md.
+ *
+ * Brand cue: assets/gichanformant.png — cyan mesh on near-black.
+ */
+
+:root {
+  /* --- Surfaces --- */
+  --gf-surface-shell: #07090c;
+  --gf-surface-sidebar: #0c1016;
+  --gf-surface-stage: #10151d;
+  --gf-surface-panel: #151b25;
+  --gf-surface-elevated: #1b2330;
+  --gf-surface-input: #0a0e14;
+
+  /* --- Text --- */
+  --gf-text-primary: #e8eef7;
+  --gf-text-secondary: #9aa8bc;
+  --gf-text-tertiary: #6b7a90;
+  --gf-text-invert: #071016;
+
+  /* --- Brand accent (instrument cyan) --- */
+  --gf-accent: #5ce1e6;
+  --gf-accent-hover: #7aebef;
+  --gf-accent-muted: rgba(92, 225, 230, 0.12);
+  --gf-accent-border: rgba(92, 225, 230, 0.45);
+  --gf-accent-glow: rgba(92, 225, 230, 0.22);
+
+  /* --- States --- */
+  --gf-danger: #ff6b7a;
+  --gf-danger-muted: rgba(255, 107, 122, 0.12);
+  --gf-warning: #f0b429;
+  --gf-success: #3dd68c;
+
+  /* --- Borders / focus --- */
+  --gf-border-subtle: rgba(232, 238, 247, 0.08);
+  --gf-border-strong: rgba(232, 238, 247, 0.16);
+  --gf-focus-ring: 0 0 0 2px var(--gf-surface-shell), 0 0 0 4px var(--gf-accent-border);
+
+  /* --- Density --- */
+  --gf-radius-sm: 6px;
+  --gf-radius-md: 10px;
+  --gf-radius-lg: 14px;
+  --gf-sidebar-width: 232px;
+  --gf-inspector-width: 300px;
+  --gf-row-height: 34px;
+  --gf-space-1: 4px;
+  --gf-space-2: 8px;
+  --gf-space-3: 12px;
+  --gf-space-4: 16px;
+  --gf-space-5: 24px;
+
+  /* --- Type --- */
+  --gf-font-sans: "Segoe UI", "Malgun Gothic", "Apple SD Gothic Neo", sans-serif;
+  --gf-font-mono: Consolas, "Cascadia Mono", ui-monospace, monospace;
+  --gf-text-xs: 11px;
+  --gf-text-sm: 12px;
+  --gf-text-md: 13px;
+  --gf-text-lg: 15px;
+
+  /* --- Motion --- */
+  --gf-ease: cubic-bezier(0.2, 0.8, 0.2, 1);
+  --gf-duration: 160ms;
+
+  /* --- Shadows (minimal; prefer border over soft white cards) --- */
+  --gf-shadow-panel: 0 12px 40px rgba(0, 0, 0, 0.35);
+}
+
+html,
+body,
+#root {
+  background: var(--gf-surface-shell);
+  color: var(--gf-text-primary);
+  font-family: var(--gf-font-sans);
+  font-size: var(--gf-text-md);
+}

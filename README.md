@@ -10,6 +10,10 @@
 
 **GichanFormant**는 모음 분석 및 포먼트 시각화를 위한 데스크톱 애플리케이션입니다.
 
+> **진입점:** 정식 실행은 항상 `main.py`입니다 (`uv run main.py`).
+> Tauri/React 파일럿만 보려면 `uv run desktop_main.py` 를 사용하세요.
+> `desktop/` 자체는 실험용이며 기본 실행 경로가 아닙니다.
+
 
 ## 🚀 시작하기
 
@@ -31,6 +35,54 @@ powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | ie
 ```bash
 uv sync
 uv run main.py
+```
+
+Tauri/React 파일럿(실험):
+
+```bash
+uv run desktop_main.py
+```
+
+### 되돌리기 (PySide 안정 지점)
+
+React/Tauri 실험 커밋 이전의 PySide 전용 상태는 태그 `pyside-stable`과 브랜치 `release/pyside-stable`에 고정되어 있습니다.
+
+```bash
+# 그 시점 코드만 잠깐 보기
+git switch --detach pyside-stable
+
+# 또는 안정 브랜치로 작업
+git switch release/pyside-stable
+
+# main으로 다시 돌아오기
+git switch main
+```
+
+## ✅ 개발 점검
+
+코드를 수정하기 전후에는 다음 검사를 통과시키는 것을 권장합니다.
+
+```bash
+uv sync --locked --all-extras --dev
+uv run python scripts/sync_version.py --check
+uv run ruff check .
+uv run pytest tests/ -q
+```
+
+Windows PowerShell에서는 같은 검사를 한 번에 실행할 수 있습니다.
+
+```powershell
+.\scripts\dev_check.ps1
+```
+
+이 스크립트는 Windows 권한 문제를 줄이기 위해 프로젝트 내부의 `.uv-cache`와 `.tmp`를 우선 사용합니다.
+
+의존성 다운로드가 막히는 환경에서는 먼저 네트워크 권한을 확인한 뒤 다시 실행해 주세요.
+uv 캐시 문제를 피하려면 프로젝트 내부 캐시를 지정할 수 있습니다.
+
+```powershell
+$env:UV_CACHE_DIR = "$PWD\.uv-cache"
+uv sync --locked --all-extras --dev
 ```
 
 

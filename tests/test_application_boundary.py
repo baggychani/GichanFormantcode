@@ -181,3 +181,81 @@ def test_application_service_returns_structured_project_errors(
     assert exc_info.value.code == error_code
     assert exc_info.value.details["path"] == "C:/project.gfproj"
     assert failures[-1].payload["code"] == error_code
+
+
+def test_file_dialog_callback_routes_through_application_service(monkeypatch, tmp_path):
+    controller, view = _headless_controller()
+    service = controller.application_service
+    progress = []
+    service.events.subscribe("operation_progress", progress.append)
+    source = tmp_path / "speaker.csv"
+    df = pd.DataFrame({"F1": [500.0], "F2": [1500.0], "Label": ["a"]})
+
+    monkeypatch.setattr(
+        "core.controller.load_plot_item_from_file",
+        lambda _path, **_kwargs: {
+            "success": True,
+            "name": source.name,
+            "item": {
+                "name": source.name,
+                "df": df.copy(),
+                "df_original": df.copy(),
+                "has_f3": False,
+                "is_pre_lobanov": False,
+            },
+            "errors": [],
+            "row_dropped": [],
+        },
+    )
+
+    captured = {}
+
+    def fake_request_file_open(callback):
+        captured["callback"] = callback
+
+    view.request_file_open = fake_request_file_open
+    controller.open_file_dialog()
+    captured["callback"]([str(source)])
+
+    assert [event.payload["status"] for event in progress] == ["started", "completed"]
+    assert view.file_count == 1
+
+
+def test_project_ui_callbacks_emit_service_events(monkeypatch, tmp_path):
+    controller, view = _headless_controller()
+    service = controller.application_service
+    saved = []
+    loaded = []
+    service.events.subscribe("project_saved", saved.append)
+    service.events.subscribe("project_loaded", loaded.append)
+
+    monkeypatch.setattr(controller, "save_project_document", lambda _path, _popup=None: None)
+    monkeypatch.setattr(
+        controller,
+        "load_project_document",
+        lambda _path: {"ok": True},
+    )
+
+    path = str(tmp_path / "demo.gfproj")
+    controller.save_project_file(path)
+    controller.load_project_file(path)
+
+    assert saved[-1].payload["path"] == path
+    assert loaded[-1].payload["path"] == path
+    assert view.criticals == []
+
+
+def test_remove_file_invalid_index_does_not_emit_success():
+    controller, _view = _headless_controller()
+    service = ApplicationService(controller)
+    changed = []
+    failed = []
+    service.events.subscribe("files_changed", changed.append)
+    service.events.subscribe("operation_failed", failed.append)
+
+    with pytest.raises(ApplicationError) as exc_info:
+        service.remove_file(0)
+
+    assert exc_info.value.code == "file_remove_failed"
+    assert changed == []
+    assert failed[-1].payload["code"] == "file_remove_failed"

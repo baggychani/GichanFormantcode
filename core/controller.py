@@ -24,6 +24,7 @@ from core.compare_runtime import (
 from core.data_loading_service import load_plot_item_from_file, make_plot_item
 from core.application_state import AnalysisSettings
 from core.application_service import ApplicationService
+from core.application_events import ApplicationError
 from core.plot_data_types import PlotDataItem, PlotParams
 from core.preview_renderer import PreviewRenderer
 from core.view_port import MainViewPort
@@ -611,11 +612,11 @@ class MainController:
         사용자가 메인 창에 파일을 드롭했을 때의 진입점입니다.
         전달받은 파일 경로 리스트를 내부 로드 프로세스로 연결합니다.
         """
-        self._process_new_files(files)
+        self.application_service.load_files(files)
 
     def open_file_dialog(self):
         """파일 탐색기를 통한 파일 추가 요청(실제 다이얼로그는 View에서 처리)"""
-        self.view.request_file_open(self._process_new_files)
+        self.view.request_file_open(self.application_service.load_files)
 
     def _active_single_plot_popup(self):
         for popup in reversed(self.open_popups):
@@ -641,9 +642,10 @@ class MainController:
         self.view.request_project_open(self.load_project_file, parent_window=self.ui)
 
     def save_project_file(self, path, popup_window=None):
+        """UI callback: route save through ApplicationService for event parity."""
         try:
-            self.save_project_document(path, popup_window)
-        except Exception as e:
+            self.application_service.save_project(path, popup_window=popup_window)
+        except ApplicationError as e:
             traceback.print_exc()
             self.view.show_critical("프로젝트 저장 실패", str(e))
             app_logger.error(f"[Project] save failed: {e}")
@@ -655,9 +657,10 @@ class MainController:
         app_logger.info(f"[Project] 프로젝트 저장 완료: {path}")
 
     def load_project_file(self, path):
+        """UI callback: route load through ApplicationService for event parity."""
         try:
-            self.load_project_document(path)
-        except Exception as e:
+            self.application_service.load_project(path)
+        except ApplicationError as e:
             traceback.print_exc()
             self.view.show_critical("프로젝트 열기 실패", str(e))
             app_logger.error(f"[Project] load failed: {e}")
@@ -986,8 +989,8 @@ class MainController:
             self.update_live_preview()
 
     def _process_new_files(self, files):
-        """새 파일 로드 후 UI에 결과 반영 (add_files + _apply_file_load_result_to_ui)."""
-        self.load_files(files)
+        """새 파일 로드 후 UI에 결과 반영. ApplicationService로 위임한다."""
+        return self.application_service.load_files(files)
 
     def load_files(self, files):
         """Public file-loading command for desktop and external frontends."""
@@ -995,8 +998,12 @@ class MainController:
         self._apply_file_load_result_to_ui(result)
         return result
 
-    def remove_file(self, index):
-        """테이블의 '×' 버튼 클릭 시 특정 인덱스 데이터 삭제"""
+    def remove_file(self, index) -> bool:
+        """테이블의 '×' 버튼 클릭 시 특정 인덱스 데이터 삭제.
+
+        Returns:
+            True if a file was removed, False if the request was ignored.
+        """
         if index < 0 or index >= len(self.plot_data_list):
             # 잘못된 인덱스는 조용히 무시하되, 디버그 로그로만 남긴다.
             app_logger.debug(
@@ -1005,13 +1012,13 @@ class MainController:
                     "[DEBUG] remove_file: 잘못된 인덱스 요청",
                 )
             )
-            return
+            return False
 
         # Combined 항목은 테이블에 노출되지 않으므로 이 경로로 들어올 일이 없지만,
         # 어떤 경로로든 호출되었을 때 안전하게 무시한다 (Combined는 파생 항목).
         if self.plot_data_list[index].get("is_combined"):
             app_logger.debug("[remove_file] Combined 항목은 직접 삭제할 수 없습니다.")
-            return
+            return False
 
         removed_name = self.plot_data_list[index]["name"]
         # index는 real 화자 항목(0..N-1) 범위 안에 있으므로 filepaths 인덱스와 동일하게 사용 가능.
@@ -1043,6 +1050,7 @@ class MainController:
 
         # 제거 후 라이브 모니터 갱신
         self.update_live_preview()
+        return True
 
     def reset_data(self):
         """모든 데이터와 설정을 리셋 (사용자 확인은 View에서 수행)"""
