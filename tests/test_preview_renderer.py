@@ -9,11 +9,13 @@ from core.runtime_port import HeadlessRuntime
 class _Figure:
     def __init__(self):
         self.cleared = False
+        self.savefig_kwargs = None
 
     def clear(self):
         self.cleared = True
 
-    def savefig(self, buffer, **_kwargs):
+    def savefig(self, buffer, **kwargs):
+        self.savefig_kwargs = kwargs
         buffer.write(b"png-data")
 
 
@@ -35,6 +37,7 @@ def test_preview_renderer_returns_png_without_presentation_types():
 
     assert png == b"png-data"
     assert figure.cleared is True
+    assert figure.savefig_kwargs == {"format": "png", "facecolor": "white"}
     engine.draw_plot.assert_called_once()
     engine.draw_single_normalized.assert_not_called()
 

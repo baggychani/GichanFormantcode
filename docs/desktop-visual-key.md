@@ -1,116 +1,93 @@
-# Desktop Visual Key (메인 창 재설계 기준)
+# Desktop Visual Key
 
-이 문서는 Tauri/React 메인 창의 **비주얼 정체성**을 고정한다.
-UI 컴포넌트를 예쁘게 만들기 전에 여기 규칙을 통과해야 한다.
+이 문서는 Tauri/React 메인 창의 시각 언어와 정보 구조를 고정한다. 정식 PySide 진입점인
+`main.py`에는 적용하지 않으며, 파일럿 진입점 `desktop_main.py`의 셸을 대상으로 한다.
 
-관련 자산: `assets/gichanformant.png` (블랙 위 cyan mesh)
+## 1. 제품 인상
 
----
+GichanFormant는 설정 폼이나 대시보드가 아니라 **정밀한 음향 분석 스튜디오**처럼 보여야 한다.
 
-## 1. 제품이 보여줘야 하는 것
-
-GichanFormant는 소비자 랜딩페이지가 아니라 **분석 워크벤치**다.
-
-| 키워드 | 의미 |
+| 원칙 | 의미 |
 | --- | --- |
-| Precision | 축·단위·스케일이 도구처럼 또렷해야 한다 |
-| Density | 한 화면에 파일·미리보기·핵심 설정이 군더더기 없이 |
-| Quiet chrome | 장식보다 데이터(미리보기/파일)가 주인공 |
-| Brand signal | cyan mesh / 딥 블랙 계열이 “이 앱”임을 말함 |
+| Editorial hierarchy | 제목, 상태, 다음 행동의 순서가 명확해야 한다 |
+| Instrument precision | 수치와 설정은 조밀하되 읽기 쉬워야 한다 |
+| Quiet depth | 색면, 선, 미세한 광원으로 깊이를 만들고 장식은 절제한다 |
+| Visual evidence | 빈 화면에도 포먼트 궤적 등 제품 성격을 보여 주는 시각 요소가 있어야 한다 |
+| Progressive control | 자주 쓰는 흐름은 전면에, 세부 설정은 우측 레일에 둔다 |
 
-**하지 않을 것**
+피해야 할 것:
 
-- PySide Element UI(`#409EFF` 카드 스택)를 웹으로 복붙
-- 보라 그라데이션, 크림+세리프, 대시보드 카드 잔치
-- “AI 툴 느낌”만 나는 과장된 glow를 화면 전체에 깔기
+- 같은 크기의 버튼을 한곳에 모은 실행 패널
+- 라이브 미리보기가 화면 대부분을 차지하는 모니터형 배치
+- 의미 없는 카드 반복, 과도한 glow, 여러 종류의 강조색 경쟁
+- 상시 노출되는 큰 로그 패널
 
----
+## 2. Visual Key와 테마
 
-## 2. Visual Key (한 줄)
+> **Deep charcoal analysis studio + mint instrument signal + restrained spectral color**
 
-> **Deep charcoal workbench + cyan instrument accent.**
-> 사이드바는 어두운 도구함, 본문은 데이터가 읽는 작업면, accent는 브랜드 cyan만 절제해서.
+어두운 테마는 차콜 계열을 기본으로 한다. 밝은 테마는 청회색 작업면과 흰색 패널을 사용하되
+정보 구조와 강조색의 의미는 동일하게 유지한다. mint는 주요 행동과 연결 상태에, blue와 violet은
+데이터 시각화와 공간감을 만드는 데만 제한적으로 쓴다.
 
-브랜드 PNG의 메시는 **스플래시/빈 상태/로딩**에만 쓰고, 일상 UI에는 얇은 accent line·focus ring 정도로만 남긴다.
+앱과 헤더의 브랜드 아이콘은 기존 PySide 앱과 같은 `assets/icon.ico`를 사용한다. 별도의 심볼을
+새로 그리거나 Tauri 기본 아이콘으로 대체하지 않는다.
 
----
+토큰의 단일 소스는 `desktop/src/styles/tokens.css`다. 컴포넌트에서 색상과 반경을 임의로
+늘리기보다 semantic token을 먼저 추가한다.
 
-## 3. 색 시스템 (semantic tokens)
+## 3. 정보 구조
 
-이름은 역할 기준. hex는 `desktop/src/styles/tokens.css`가 소스다.
+```text
+Header       제품 정체성 / 현재 작업 공간 / 주요 행동
+Source rail  데이터 추가 / 소스 목록 / 프로젝트 동작
+Workspace    분석 개요 / 핵심 상태 / 보조 미리보기 / 다음 행동
+Settings     분석 모델 / 축 / 처리 옵션
+Status line  연결 및 현재 상태 한 줄
+Toast        실패와 주의가 필요할 때만 일시 노출
+```
 
-### Surfaces
-- `surface-shell` — 앱 외곽 (거의 블랙)
-- `surface-sidebar` — 사이드바
-- `surface-stage` — 메인 작업면 (딥 그레이, 순백 금지)
-- `surface-panel` — inspector / 팝오버
-- `surface-elevated` — 드롭다운·모달
+시각적 무게는 `Workspace overview > analysis flow ≈ preview > side rails > chrome` 순서다.
+미리보기는 결과를 빠르게 확인하는 보조 증거이며 화면의 주인공이 아니다.
 
-### Text
-- `text-primary` / `text-secondary` / `text-tertiary` / `text-invert`
+## 4. 컴포넌트 원칙
 
-### Accent (브랜드)
-- `accent` — cyan instrument (`≈ #5CE1E6` 계열, PNG와 맞춤)
-- `accent-muted` — 선택/호버 배경
-- `accent-border` — 포커스·활성 테두리
+- 헤더의 primary action은 하나만 둔다.
+- 소스 추가는 버튼이 아니라 drag-and-drop 가능한 입력 영역처럼 보이게 한다.
+- 플롯 유형은 이름, 수식, 요구 데이터가 함께 보이는 선택 행으로 표현한다.
+- 분석 설정은 번호가 붙은 짧은 섹션으로 나누고 우측 레일을 접을 수 있게 한다.
+- 빈 상태는 단순 문장 대신 제품 고유의 포먼트 시각화와 다음 행동을 함께 보여 준다.
+- 오류는 7초 후 사라지는 toast로 전달하고, 지속 상태는 하단 한 줄에만 남긴다.
 
-### State
-- `danger` / `success` / `warning`
-  CTA “플롯 생성”은 success 초록이 아니라 **accent 기반 primary**로 통일한다.
-  (PySide 초록 CTA는 레거시. 새 셸에서는 accent가 행동 색.)
+## 5. 타입과 밀도
 
-### Borders
-- `border-subtle` / `border-strong` — 헤어라인 위주, 두꺼운 카드 테두리 지양
+- UI sans: `Pretendard`, `Noto Sans KR`, `Malgun Gothic`, `Segoe UI` 순서로 사용한다.
+- 수치와 상태: `Cascadia Code` 또는 `Cascadia Mono`를 사용한다.
+- 한국어 UI 문구를 기본으로 하며 영문 직역투 대신 실제 작업 흐름에 맞는 표현을 쓴다.
+- 한국어에 대문자 스타일이나 넓은 자간을 적용하지 않는다. 기본 자간은 0으로 둔다.
+- 설정 이름과 설명은 11px 미만으로 낮추지 않고, 핵심 설정 제목은 13px 이상으로 유지한다.
+- 사이드 레일은 고정 폭, 중앙 작업 영역은 유동 폭으로 구성한다.
 
----
+## 6. 상태와 모션
 
-## 4. 타이포 / 밀도
+- 상태 의미는 색만으로 전달하지 않고 아이콘이나 텍스트를 함께 쓴다.
+- hover와 패널 전환은 180ms 안팎의 opacity/transform/border 변화로 제한한다.
+- 처리 중에는 레이아웃을 밀지 않는 상단 progress line을 사용한다.
+- `prefers-reduced-motion`에서 애니메이션을 제거한다.
+- 실제 앱 콘텐츠가 로드된 뒤에도 빈 상태와 동일한 레이아웃 크기를 유지한다.
 
-| 역할 | 규칙 |
-| --- | --- |
-| UI sans | 시스템 우선: Windows `Segoe UI`, 한글 `Malgun Gothic` 폴백. 장식 세리프 금지 |
-| Mono | 로그·경로·수치: `Consolas` / `ui-monospace` |
-| 밀도 | 사이드바 행 높이 ≈ 32–36px. 카드 마진으로 화면을 먹지 말 것 |
-| 제목 | 사이드바 섹션은 11–12px caps/tracking. 히어로 카피 남발 금지 |
+## 7. 반응형 기준
 
----
+- 넓은 화면: source rail / workspace / settings rail의 3열 구조.
+- 중간 화면: workspace 내부 preview와 recipe를 세로 또는 압축 가로 배치.
+- 좁은 화면: source rail + workspace의 2열, settings는 workspace 아래 전체 폭.
+- 어떤 폭에서도 primary action, 데이터 추가, 설정 접근이 사라지면 안 된다.
 
-## 5. 레이아웃 원칙 (비주얼과 결합)
+## 8. 검수 질문
 
-1. **Sidebar = 항해** (파일, 프로젝트, 가이드) — 항상 보임
-2. **Stage = 결과** (LIVE 미리보기) — 가장 큰 면적
-3. **Inspector = 조정** (분석 설정) — 기본 요약, 펼쳐서 편집
-4. **Log = 보조** — 상시 115px 블랙박스가 아니라 상태바 + 필요할 때 패널
-
-시각적 무게: `Stage > Sidebar ≥ Inspector > chrome`
-
----
-
-## 6. 모션
-
-- 150–200ms ease, opacity/transform만
-- glow 펄스·파티클·배경 애니메이션 상시 금지
-- 패널 열림, 파일 선택, preview 교체만 짧게
-
----
-
-## 7. 합격 테스트 (디자인 리뷰용)
-
-새 메인 창 스크린샷에서:
-
-1. 브랜드 PNG를 옆에 두면 **같은 제품**으로 보이는가? (cyan + deep dark)
-2. 그룹박스 제목만 지워도 구조가 읽히는가? (장식 카드에 의존하지 않는가?)
-3. 파일 0개 / 파일 있음 두 상태에서 Stage가 주인공인가?
-4. PySide 메인과 나란히 놓고 “웹 복붙”이 아니라 “다음 세대 셸”로 보이는가?
-5. 설정이 기본 상태에서 과하게 많은가? (많으면 Inspector가 실패한 것)
-
----
-
-## 8. 적용 순서
-
-1. 이 Visual Key 합의 (본 문서)
-2. `tokens.css`만 먼저 반영·스토리/빈 셸에 색만 검증
-3. 그다음 Sidebar / Stage / Inspector 구조 이식
-4. 마지막에 마이크로 카피·단축키·커맨드 팔레트
-
-예쁜 화면 한 방이 아니라, **키 → 토큰 → 셸 → 기능** 순서를 지킨다.
+1. 첫 시선이 라이브 모니터가 아니라 현재 분석의 맥락과 다음 행동으로 향하는가?
+2. 버튼의 수가 아니라 배치, 타이포그래피, 시각적 증거가 제품을 설명하는가?
+3. 파일이 0개여도 완성된 분석 도구처럼 보이는가?
+4. 설정을 접어도 핵심 흐름을 이해하고 실행할 수 있는가?
+5. 오류가 없을 때 로그나 진단 UI가 시각적 공간을 차지하지 않는가?
+6. `main.py`의 PySide 화면과 독립적으로 `desktop_main.py`에서만 실행되는가?

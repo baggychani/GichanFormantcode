@@ -1,7 +1,7 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "GichanFormant",
-  "version": "2.5.0",
+  "version": "3.0.0",
   "identifier": "com.gichanformant.app",
   "build": {
     "beforeDevCommand": "npm run dev",
@@ -13,10 +13,11 @@
     "windows": [
       {
         "title": "GichanFormant",
-        "width": 1280,
-        "height": 800,
-        "minWidth": 1060,
-        "minHeight": 680,
+        "width": 1560,
+        "height": 880,
+        "minWidth": 1200,
+        "minHeight": 720,
+        "visible": false,
         "backgroundColor": "#07090c"
       }
     ],

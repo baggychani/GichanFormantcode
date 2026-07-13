@@ -11,11 +11,12 @@ GichanFormant 전역 설정 (Configuration)
 # =============================================================================
 # 1. 프로그램 기본 정보 (App Info)
 # =============================================================================
-APP_VERSION = "2.5.0"
+APP_VERSION = "3.0.0"
 APP_TITLE = f"GichanFormant v{APP_VERSION}"
 AUTHOR = "Bae Gichan"
 CONTACT_EMAIL = "baggychani@gmail.com"
-COPYRIGHT_TEXT = f"Copyright © 2026 {AUTHOR}. All rights reserved."
+COPYRIGHT_TEXT = f"Copyright © 2025-2026 {AUTHOR}. All rights reserved."
+
 FOOTER_TEXT = (
     f"{COPYRIGHT_TEXT} &nbsp; | &nbsp; 문의: "
     f'<a href="mailto:{CONTACT_EMAIL}">{CONTACT_EMAIL}</a>'
