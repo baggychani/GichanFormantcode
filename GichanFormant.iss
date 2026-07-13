@@ -64,9 +64,6 @@ Type: files; Name: "{app}\sentry_opt_in.config"
 Source: "{#MyBasePath}\{#MyBuildDir}\{#MyAppExeName}"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#MyBasePath}\{#MyBuildDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 
-; Sentry 설정 파일 (체크박스 동의 시에만 설치 폴더로 복사)
-Source: "{#MyBasePath}\sentry_opt_in.config"; DestDir: "{app}"; Check: IsSentryAgreed; Flags: ignoreversion
-
 ; === VCL Styles 적용을 위한 플러그인 및 테마 파일 (dontcopy 제거) ===
 Source: "{#MyBasePath}\VclStylesInno.dll"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#MyBasePath}\{#VCLStyle}"; DestDir: "{app}"; Flags: ignoreversion
@@ -151,7 +148,7 @@ begin
   SentryCheckBox.Top := SentryPage.SurfaceHeight - 20;
   SentryCheckBox.Width := SentryPage.SurfaceWidth;
   SentryCheckBox.Caption := '프로그램 개선을 위한 오류 로그 자동 전송에 동의합니다.';
-  SentryCheckBox.Checked := True;
+  SentryCheckBox.Checked := False;
 
   // 취소 버튼 위치 수정
   WizardForm.CancelButton.Top := WizardForm.NextButton.Top;
@@ -161,4 +158,14 @@ end;
 function IsSentryAgreed: Boolean;
 begin
   Result := SentryCheckBox.Checked;
+end;
+
+procedure CurStepChanged(CurStep: TSetupStep);
+begin
+  if (CurStep = ssPostInstall) and IsSentryAgreed then
+    SaveStringToFile(
+      ExpandConstant('{app}\sentry_opt_in.config'),
+      'enabled',
+      False
+    );
 end;

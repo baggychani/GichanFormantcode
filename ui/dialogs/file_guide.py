@@ -366,7 +366,7 @@ class DataGuidePopup(QDialog):
 
         # 1. 지원 파일
         sec1_lbl1 = make_lbl(
-            "GichanFormant는 <b>.txt, .xlsx, .csv, .tsv</b> 파일을 지원합니다."
+            "GichanFormant는 <b>.txt, .xls, .xlsx, .csv, .tsv</b> 파일을 지원합니다."
         )
         sec1_lbl2 = make_lbl(
             "여러 파일을 동시에 클릭 또는 드래그 앤 드롭으로 로드할 수 있습니다."

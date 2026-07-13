@@ -9,6 +9,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import unittest
 import pandas as pd
 import numpy as np
+from core.normalization_service import NormalizationError, apply_normalization
 from utils.math_utils import (
     hz_to_linear,
     hz_to_bark,
@@ -138,6 +139,20 @@ class TestNormalization(unittest.TestCase):
         self.assertIn("F1", out.columns)
         self.assertIn("F2", out.columns)
         self.assertEqual(len(out), len(self.sample_df))
+
+    def test_bigham_invalid_numeric_data_raises_normalization_error(self):
+        invalid = self.sample_df.copy()
+        invalid["F1"] = ["bad", "data", "here"]
+
+        with self.assertRaisesRegex(NormalizationError, "Bigham 정규화"):
+            apply_normalization(invalid, "Bigham")
+
+    def test_watt_fabricius_invalid_numeric_data_raises_normalization_error(self):
+        invalid = self.sample_df.copy()
+        invalid["F1"] = ["bad", "data", "here"]
+
+        with self.assertRaisesRegex(NormalizationError, "2mW/F 정규화"):
+            apply_normalization(invalid, "2mW/F")
 
 
 if __name__ == "__main__":

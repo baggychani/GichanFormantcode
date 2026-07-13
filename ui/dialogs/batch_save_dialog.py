@@ -482,10 +482,23 @@ class BatchSaveDialog(QDialog):
         def on_log_error(msg):
             app_logger.warning(msg)
 
+        def on_cancelled(success_count):
+            progress_dialog.close()
+            app_logger.info(
+                f"일괄 저장이 취소되었습니다. "
+                f"취소 전 {success_count}개 파일을 저장했습니다."
+            )
+
+        def request_cancel():
+            progress_dialog.setLabelText("현재 작업을 마친 뒤 취소합니다...")
+            progress_dialog.setCancelButton(None)
+            worker.cancel()
+
         worker.progress.connect(on_progress)
         worker.finished_with_count.connect(on_finished)
+        worker.cancelled_with_count.connect(on_cancelled)
         worker.log_error.connect(on_log_error)
-        progress_dialog.canceled.connect(worker.terminate)
+        progress_dialog.canceled.connect(request_cancel)
 
         parent_popup._batch_worker = worker
         parent_popup._batch_progress = progress_dialog

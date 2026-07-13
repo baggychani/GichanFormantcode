@@ -13,12 +13,14 @@ from io import StringIO
 import json
 import os
 from pathlib import Path
+import tempfile
 import zipfile
 from typing import Any
 
 import pandas as pd
 
 import config
+from core.compare_series import legacy_key_from_series_id
 from draw.draw_common import (
     AreaLabelObject,
     LegendEntry,
@@ -121,6 +123,79 @@ def _deserialize_draw_objects_by_file(data: dict | None) -> dict[int, list[Any]]
     }
 
 
+def _serialize_compare_popup(popup: Any, controller: Any) -> dict | None:
+    session = getattr(popup, "compare_session", None)
+    if session is None:
+        return None
+    source_groups = getattr(popup, "compare_source_groups", None)
+    if not source_groups and all(index >= 0 for index in session.data_indices):
+        source_groups = tuple((index,) for index in session.data_indices)
+    if not source_groups:
+        return None
+
+    range_widgets = getattr(popup, "range_widgets", {}) or {}
+    plot_key = getattr(popup, "_plot_key_compare", None)
+    label_offsets_by_series = {}
+    if plot_key:
+        for series_id in range(session.count):
+            legacy = legacy_key_from_series_id(series_id)
+            offsets = getattr(controller, "custom_label_offsets", {}).get(
+                (*plot_key, legacy)
+            )
+            if offsets:
+                label_offsets_by_series[series_id] = offsets
+
+    return {
+        "source_groups": [list(group) for group in source_groups],
+        "normalization": getattr(popup, "normalization", None),
+        "fixed_plot_params": dict(getattr(popup, "fixed_plot_params", {}) or {}),
+        "ranges": {
+            key: widget.text()
+            for key, widget in range_widgets.items()
+            if hasattr(widget, "text")
+        },
+        "sigma": (
+            popup.get_sigma()
+            if hasattr(popup, "get_sigma")
+            else str(config.DEFAULT_SIGMA)
+        ),
+        "design_settings": dict(getattr(popup, "design_settings", {}) or {}),
+        "vowel_filter_states": _serialize_keyed_dict(
+            getattr(popup, "vowel_filter_states", {})
+        ),
+        "layer_design_overrides_by_series": _serialize_keyed_dict(
+            getattr(popup, "layer_design_overrides_by_series", {})
+        ),
+        "layer_locked_vowels_by_series": _serialize_keyed_dict(
+            getattr(popup, "layer_locked_vowels_by_series", {})
+        ),
+        "layer_order_by_series": _serialize_keyed_dict(
+            getattr(popup, "layer_order_by_series", {})
+        ),
+        "label_offsets_by_series": _serialize_keyed_dict(label_offsets_by_series),
+        "draw_objects": [
+            _serialize_draw_object(obj)
+            for obj in (getattr(popup, "_draw_objects_shared", []) or [])
+        ],
+    }
+
+
+def _collect_compare_sessions(controller: Any, popup_window: Any | None) -> list[dict]:
+    candidates = list(getattr(controller, "open_popups", []) or [])
+    if popup_window is not None:
+        candidates.append(popup_window)
+    sessions = []
+    seen = set()
+    for popup in candidates:
+        if id(popup) in seen or not hasattr(popup, "compare_session"):
+            continue
+        seen.add(id(popup))
+        serialized = _serialize_compare_popup(popup, controller)
+        if serialized is not None:
+            sessions.append(serialized)
+    return sessions
+
+
 def _flush_single_popup_state(popup_window: Any | None) -> None:
     if popup_window is None:
         return
@@ -207,7 +282,7 @@ def collect_project_document(controller: Any, popup_window: Any | None = None) -
             getattr(controller, "custom_label_offsets", {})
         ),
         "single_plot": single_plot,
-        "compare_sessions": [],
+        "compare_sessions": _collect_compare_sessions(controller, popup_window),
     }
 
 
@@ -218,15 +293,32 @@ def save_project(path: str, controller: Any, popup_window: Any | None = None) ->
         target = target.with_suffix(".gfproj")
 
     real_items = [it for it in controller.plot_data_list if not it.get("is_combined")]
-    with zipfile.ZipFile(target, "w", compression=zipfile.ZIP_DEFLATED) as zf:
-        zf.writestr(
-            MANIFEST_NAME,
-            json.dumps(doc, ensure_ascii=False, indent=2, default=_json_default),
-        )
-        for idx, item in enumerate(real_items):
-            snapshot_df = item.get("df_original", item.get("df"))
-            if isinstance(snapshot_df, pd.DataFrame):
-                zf.writestr(f"data/{idx}.json", _df_to_json(snapshot_df))
+    manifest = json.dumps(doc, ensure_ascii=False, indent=2, default=_json_default)
+    snapshots = []
+    for idx, item in enumerate(real_items):
+        snapshot_df = item.get("df_original", item.get("df"))
+        if isinstance(snapshot_df, pd.DataFrame):
+            snapshots.append((f"data/{idx}.json", _df_to_json(snapshot_df)))
+
+    file_descriptor, temp_path = tempfile.mkstemp(
+        prefix=f".{target.name}.", suffix=".tmp", dir=target.parent
+    )
+    os.close(file_descriptor)
+    try:
+        with zipfile.ZipFile(
+            temp_path, "w", compression=zipfile.ZIP_DEFLATED
+        ) as zf:
+            zf.writestr(MANIFEST_NAME, manifest)
+            for snapshot_name, snapshot_json in snapshots:
+                zf.writestr(snapshot_name, snapshot_json)
+        os.replace(temp_path, target)
+        temp_path = None
+    finally:
+        if temp_path and os.path.exists(temp_path):
+            try:
+                os.unlink(temp_path)
+            except OSError:
+                pass
 
 
 def load_project(path: str) -> dict:
@@ -258,4 +350,19 @@ def load_project(path: str) -> dict:
         single_plot["draw_objects_by_file"] = _deserialize_draw_objects_by_file(
             single_plot.get("draw_objects_by_file", {})
         )
+    for compare_state in doc.get("compare_sessions", []) or []:
+        if not isinstance(compare_state, dict):
+            continue
+        for key in (
+            "vowel_filter_states",
+            "layer_design_overrides_by_series",
+            "layer_locked_vowels_by_series",
+            "layer_order_by_series",
+            "label_offsets_by_series",
+        ):
+            compare_state[key] = _deserialize_keyed_dict(compare_state.get(key, {}))
+        compare_state["draw_objects"] = [
+            _deserialize_draw_object(obj)
+            for obj in compare_state.get("draw_objects", [])
+        ]
     return doc

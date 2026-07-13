@@ -105,7 +105,7 @@ uv run python scripts/sync_version.py --check
 ```powershell
 uv sync --locked --all-extras --dev
 uv run python scripts/sync_version.py --check
-uv run pyinstaller --noconfirm --windowed --icon=assets/icon.ico --name=GichanFormant --version-file=info.txt --collect-all PySide6 --add-data "assets;assets" main.py
+uv run pyinstaller --noconfirm --windowed --icon=assets/icon.ico --name=GichanFormant --version-file=info.txt --hidden-import=xlrd --add-data "assets;assets" main.py
 ```
 
 Inno Setup (바탕화면 출력 기본):
@@ -145,4 +145,4 @@ CI와 동일 출력 경로:
 
 커밋하지 말 것: `.venv/`, `dist/`, `build/`, `release/`, `__pycache__/`, `.pytest_cache/`, `logs/`, `*.spec`
 
-`build_base.py`는 개발용 일회성 스크립트로 배포에 불필요합니다.
+기존 UI 소스를 덮어쓰던 일회성 `build_base.py`는 안전성을 위해 제거했습니다.

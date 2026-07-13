@@ -51,6 +51,8 @@ from ui.widgets.opacity_slider import (
 )
 from core.compare_settings import (
     default_compare_design_settings,
+    get_series_design_cfg,
+    normalize_compare_design_settings,
     pack_compare_design_settings,
 )
 from core.compare_series import (
@@ -1842,6 +1844,55 @@ class CompareDesignSettingsPanel(QWidget):
 
         self._is_loading = False
         self._on_setting_changed()
+
+    def apply_settings(self, settings, *, emit=True):
+        """Apply a complete compare design document to the panel controls."""
+        normalized = normalize_compare_design_settings(settings)
+        common = normalized.get("common", {})
+        single_defaults = get_single_design_defaults()
+        self._is_loading = True
+        try:
+            self.sw_show_raw.setChecked(bool(common.get("show_raw", True)))
+            self.sw_show_centroid.setChecked(bool(common.get("show_centroid", True)))
+            self.sw_show_axis_units.setChecked(
+                bool(common.get("show_axis_units", False))
+            )
+            self.sw_axis_position_swap.setChecked(
+                bool(common.get("axis_position_swap", False))
+            )
+            self.sw_y_label_rotation.setChecked(
+                bool(common.get("y_label_rotation", False))
+            )
+            self.sw_box_spines.setChecked(bool(common.get("box_spines", False)))
+            self.sw_show_grid.setChecked(bool(common.get("show_grid", False)))
+            self.sw_show_minor_ticks.setChecked(
+                bool(common.get("show_minor_ticks", True))
+            )
+            self.grid_opacity_row.set_opacity(
+                float(common.get("grid_opacity", DEFAULT_GRID_OPACITY))
+            )
+            self.sw_label_slash_wrap_cmp.setChecked(
+                bool(common.get("label_slash_wrap", False))
+            )
+            font_id = 0 if common.get("font_style", "serif") == "serif" else 1
+            self.group_font_style_common.button(font_id).setChecked(True)
+            raw_marker = common.get("raw_marker", "o")
+            raw_idx = ["o", "x", "a"].index(
+                raw_marker if raw_marker in ("o", "x", "a") else "o"
+            )
+            self.group_raw_marker_common.button(raw_idx).setChecked(True)
+            for series_id in self._series_ids:
+                self._apply_individual_defaults(
+                    series_id,
+                    get_series_design_cfg(normalized, series_id),
+                    single_defaults,
+                )
+            self._sync_grid_opacity_enabled()
+            self._update_compare_tab_text_colors()
+        finally:
+            self._is_loading = False
+        if emit:
+            self._on_setting_changed()
 
     def _parse_individual_settings(self, ctrl):
         line_color = ctrl["ell_line_picker"].current_color

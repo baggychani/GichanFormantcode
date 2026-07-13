@@ -1,10 +1,30 @@
 # core/workers.py — 백그라운드 워커 (일괄 저장 등)
 
 import os
+import tempfile
 import traceback
 from types import SimpleNamespace
 
 from PySide6.QtCore import QThread, Signal
+
+
+def build_unique_batch_save_names(plot_data_list, img_format, suffix=""):
+    """Return deterministic, case-insensitively unique names for one batch."""
+    extension = str(img_format).lstrip(".") or "png"
+    used = set()
+    names = []
+    for data in plot_data_list:
+        base_name = os.path.splitext(os.path.basename(str(data["name"])))[0]
+        base_name = base_name or "plot"
+        stem = f"{base_name}{suffix}"
+        candidate = f"{stem}.{extension}"
+        sequence = 2
+        while candidate.casefold() in used:
+            candidate = f"{stem}_{sequence}.{extension}"
+            sequence += 1
+        used.add(candidate.casefold())
+        names.append(candidate)
+    return names
 
 
 class BatchSaveWorker(QThread):
@@ -12,6 +32,7 @@ class BatchSaveWorker(QThread):
 
     progress = Signal(int, int)  # current, total
     finished_with_count = Signal(int)
+    cancelled_with_count = Signal(int)
     log_error = Signal(str)
 
     def __init__(
@@ -56,6 +77,15 @@ class BatchSaveWorker(QThread):
         self.apply_legend = apply_legend
         self.apply_draw_annotations = apply_draw_annotations
         self.errors = []
+        self._cancel_requested = False
+
+    def cancel(self):
+        """Request cancellation after the current rendering operation yields."""
+        self._cancel_requested = True
+        self.requestInterruption()
+
+    def _should_cancel(self):
+        return self._cancel_requested or self.isInterruptionRequested()
 
     def _plot_key_suffix(self):
         norm = self.plot_params.get("normalization")
@@ -167,11 +197,19 @@ class BatchSaveWorker(QThread):
         elif outlier_mode == "2sigma":
             outlier_suffix = "_이상치 제거 2σ"
 
-        for i, data in enumerate(self.plot_data_list):
+        save_names = build_unique_batch_save_names(
+            self.plot_data_list, self.img_format, outlier_suffix
+        )
+        image_format = str(self.img_format).lstrip(".").lower()
+        was_cancelled = self._should_cancel()
+        for i, (data, save_name) in enumerate(zip(self.plot_data_list, save_names)):
+            if self._should_cancel():
+                was_cancelled = True
+                break
             fname = data["name"]
-            base_name = os.path.splitext(fname)[0]
-            save_name = f"{base_name}{outlier_suffix}.{self.img_format}"
             save_path = os.path.join(self.save_dir, save_name)
+            temp_path = None
+            temp_fig = None
             try:
                 df = data["df"]
                 if self.normalize_fn is not None:
@@ -180,17 +218,41 @@ class BatchSaveWorker(QThread):
                 self._render_plot(temp_fig, df, i)
                 self._render_draw_annotations(temp_fig, i)
                 self._render_legend(temp_fig, i)
-                if self.img_format.lower() == "png":
-                    temp_fig.savefig(save_path, format="png", dpi=300, transparent=True)
-                else:
+                file_descriptor, temp_path = tempfile.mkstemp(
+                    prefix=f".{save_name}.",
+                    suffix=".tmp",
+                    dir=self.save_dir,
+                )
+                os.close(file_descriptor)
+                if image_format == "png":
                     temp_fig.savefig(
-                        save_path, format=self.img_format, facecolor="white"
+                        temp_path, format="png", dpi=300, transparent=True
                     )
+                else:
+                    temp_fig.savefig(temp_path, format=image_format, facecolor="white")
+                if self._should_cancel():
+                    was_cancelled = True
+                    break
+                os.replace(temp_path, save_path)
+                temp_path = None
                 success_count += 1
             except Exception as e:
                 traceback.print_exc()
                 self.log_error.emit(f"파일 저장 실패 ({fname}): {e}")
                 self.errors.append((fname, str(e)))
+            finally:
+                if temp_fig is not None:
+                    temp_fig.clear()
+                if temp_path and os.path.exists(temp_path):
+                    try:
+                        os.unlink(temp_path)
+                    except OSError:
+                        pass
+            if was_cancelled:
+                break
             self.progress.emit(i + 1, total)
-        self.finished_with_count.emit(success_count)
+        if was_cancelled:
+            self.cancelled_with_count.emit(success_count)
+        else:
+            self.finished_with_count.emit(success_count)
         self.plot_data_list = None

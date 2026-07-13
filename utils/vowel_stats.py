@@ -166,9 +166,21 @@ def calculate_pairwise_mahalanobis_distances(
 
             coords_a = group_a.to_numpy(dtype=float)
             coords_b = group_b.to_numpy(dtype=float)
-            pooled = np.vstack([coords_a, coords_b])
-            cov = np.cov(pooled.T)
+            # 모음 사이의 위치 차이가 공분산 자체에 섞이지 않도록 각 집단의
+            # within-group covariance를 자유도로 가중해 합친다. 두 집단을
+            # 단순히 합친 뒤 np.cov()를 호출하면 between-group variance가
+            # 포함되어, 중심이 멀수록 오히려 거리가 축소된다.
+            cov_a = np.cov(coords_a, rowvar=False, ddof=1)
+            cov_b = np.cov(coords_b, rowvar=False, ddof=1)
+            pooled_dof = len(coords_a) + len(coords_b) - 2
+            if pooled_dof <= 0:
+                continue
+            cov = (
+                (len(coords_a) - 1) * cov_a + (len(coords_b) - 1) * cov_b
+            ) / pooled_dof
             if cov.ndim != 2 or cov.shape != (2, 2):
+                continue
+            if not np.isfinite(cov).all():
                 continue
             cov_inv = np.linalg.pinv(cov)
             diff = coords_a.mean(axis=0) - coords_b.mean(axis=0)

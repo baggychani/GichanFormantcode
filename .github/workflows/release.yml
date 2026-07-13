@@ -135,7 +135,7 @@ jobs:
             --icon=assets/icon.ico `
             --name=GichanFormant `
             --version-file=info.txt `
-            --collect-all PySide6 `
+            --hidden-import=xlrd `
             --add-data "assets;assets" `
             main.py
           if (-not (Test-Path "dist\GichanFormant\GichanFormant.exe")) {
@@ -206,7 +206,7 @@ jobs:
           uv run pyinstaller --noconfirm --windowed \
             --name=GichanFormant \
             --version-file=info.txt \
-            --collect-all PySide6 \
+            --hidden-import=xlrd \
             --add-data "assets:assets" \
             main.py
           cd dist

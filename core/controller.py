@@ -4,6 +4,7 @@ import os
 import io
 import traceback
 import copy
+import pandas as pd
 from PySide6.QtCore import Qt, QTimer, QStandardPaths
 from PySide6.QtGui import QPixmap
 from matplotlib.figure import Figure
@@ -575,35 +576,67 @@ class MainController:
         name = source.get("name") or os.path.basename(path) or f"source_{source_id}"
         snapshot_df = snapshots.get(source_id)
 
+        if snapshot_df is not None:
+            if not isinstance(snapshot_df, pd.DataFrame):
+                raise ValueError(f"프로젝트 데이터 스냅샷이 손상되었습니다: {name}")
+            return path, make_plot_item(
+                name=name,
+                df=snapshot_df,
+                has_f3=source.get("has_f3"),
+                is_pre_lobanov=bool(source.get("is_pre_lobanov", False)),
+            )
+
         if path and os.path.exists(path):
             loaded = load_plot_item_from_file(path)
             if loaded["success"]:
                 return path, loaded["item"]
 
-        if snapshot_df is None:
-            raise ValueError(f"프로젝트 데이터 스냅샷을 찾을 수 없습니다: {name}")
-        return path, make_plot_item(
-            name=name,
-            df=snapshot_df,
-            is_pre_lobanov=bool(source.get("is_pre_lobanov", False)),
-        )
+        raise ValueError(f"프로젝트 데이터 스냅샷을 찾을 수 없습니다: {name}")
 
-    def _apply_loaded_project(self, project):
-        self._cleanup_popups()
-        self.filepaths = []
-        self.plot_data_list = []
-        self.current_idx = int((project.get("analysis") or {}).get("current_idx", 0))
-        self.custom_label_offsets = dict(project.get("label_offsets", {}) or {})
-        self.data_processor = DataProcessor()
-
+    def _prepare_loaded_project(self, project):
+        """Validate and construct project state without mutating the session."""
+        filepaths = []
+        plot_data_list = []
         snapshots = project.get("snapshots", {}) or {}
         for source in project.get("sources", []) or []:
             path, item = self._load_project_source_item(source, snapshots)
-            self.filepaths.append(path)
-            self.plot_data_list.append(item)
+            filepaths.append(path)
+            plot_data_list.append(item)
 
-        self._rebuild_combined_entry()
-        self.current_idx = max(0, min(self.current_idx, len(self.plot_data_list) - 1))
+        combined = build_combined_entry(plot_data_list)
+        if combined is not None:
+            plot_data_list.append(combined)
+        real_count = len(filepaths)
+        for compare_state in project.get("compare_sessions", []) or []:
+            source_groups = compare_state.get("source_groups") or []
+            if len(source_groups) < 2:
+                raise ValueError("프로젝트의 비교 세션 정보가 손상되었습니다.")
+            for group in source_groups:
+                if not group or any(
+                    not isinstance(index, int) or index < 0 or index >= real_count
+                    for index in group
+                ):
+                    raise ValueError(
+                        "프로젝트의 비교 세션이 없는 소스를 참조합니다."
+                    )
+        requested_idx = int((project.get("analysis") or {}).get("current_idx", 0))
+        current_idx = max(0, min(requested_idx, len(plot_data_list) - 1))
+        return {
+            "filepaths": filepaths,
+            "plot_data_list": plot_data_list,
+            "current_idx": current_idx,
+            "custom_label_offsets": dict(project.get("label_offsets", {}) or {}),
+            "data_processor": DataProcessor(),
+        }
+
+    def _apply_loaded_project(self, project):
+        prepared = self._prepare_loaded_project(project)
+        self._cleanup_popups()
+        self.filepaths = prepared["filepaths"]
+        self.plot_data_list = prepared["plot_data_list"]
+        self.current_idx = prepared["current_idx"]
+        self.custom_label_offsets = prepared["custom_label_offsets"]
+        self.data_processor = prepared["data_processor"]
 
         self.ui.update_file_status(len(self.filepaths))
         real_items = [it for it in self.plot_data_list if not it.get("is_combined")]
@@ -620,6 +653,9 @@ class MainController:
         single_state = project.get("single_plot")
         if isinstance(single_state, dict) and self.plot_data_list:
             self._restore_single_plot_from_project(single_state)
+        self._restore_compare_sessions_from_project(
+            project.get("compare_sessions", []) or []
+        )
 
     def _restore_single_plot_from_project(self, single_state):
         self.current_idx = max(
@@ -663,6 +699,83 @@ class MainController:
         self.refresh_plot(
             popup.figure, popup.canvas, popup.range_widgets, popup.lbl_info, popup
         )
+
+    def _restore_compare_sessions_from_project(self, compare_sessions):
+        for state in compare_sessions:
+            source_groups = [
+                [int(index) for index in group]
+                for group in (state.get("source_groups") or [])
+            ]
+            normalization = state.get("normalization") or (
+                state.get("fixed_plot_params") or {}
+            ).get("normalization")
+            popup = self.open_compare_plot_for_source_groups(
+                source_groups,
+                normalization=normalization,
+                parent_window=self.ui,
+            )
+            if popup is None:
+                raise ValueError("프로젝트의 비교 창을 복원할 수 없습니다.")
+
+            popup.fixed_plot_params = dict(
+                state.get("fixed_plot_params") or popup.fixed_plot_params or {}
+            )
+            popup.normalization = normalization
+            design_settings = dict(state.get("design_settings") or {})
+            if design_settings and hasattr(popup.design_tab, "apply_settings"):
+                popup.design_tab.apply_settings(design_settings, emit=False)
+                popup.design_settings = popup.design_tab.get_current_settings()
+            else:
+                popup.design_settings = design_settings
+            popup.vowel_filter_states = {
+                int(key): dict(value)
+                for key, value in (state.get("vowel_filter_states") or {}).items()
+            }
+            popup.layer_design_overrides_by_series = {
+                int(key): dict(value)
+                for key, value in (
+                    state.get("layer_design_overrides_by_series") or {}
+                ).items()
+            }
+            popup.layer_locked_vowels_by_series = {
+                int(key): set(value)
+                for key, value in (
+                    state.get("layer_locked_vowels_by_series") or {}
+                ).items()
+            }
+            popup.layer_order_by_series = {
+                int(key): list(value)
+                for key, value in (state.get("layer_order_by_series") or {}).items()
+            }
+            popup._draw_objects_shared = list(state.get("draw_objects") or [])
+
+            ranges = state.get("ranges") or {}
+            if ranges:
+                self._apply_ranges_to_widgets(popup.range_widgets, ranges)
+            sigma = state.get("sigma")
+            if sigma is not None and hasattr(popup, "cb_sigma"):
+                popup.cb_sigma.setCurrentText(str(sigma))
+
+            plot_type = (
+                "f1_f2"
+                if normalization
+                else popup.fixed_plot_params.get("type", "f1_f2")
+            )
+            plot_key = make_compare_plot_key(
+                popup.compare_session, plot_type, normalization
+            )
+            for series_id, offsets in (
+                state.get("label_offsets_by_series") or {}
+            ).items():
+                self.custom_label_offsets[
+                    compare_label_offset_key(plot_key, int(series_id))
+                ] = dict(offsets)
+
+            if hasattr(popup, "_refresh_compare_draw_layer_lists"):
+                popup._refresh_compare_draw_layer_lists()
+            for dock in getattr(popup, "_iter_compare_layer_docks", lambda: [])():
+                dock.refresh_design_ui()
+            popup.request_plot_refresh(debounce_ms=0)
 
     def add_files(self, filepaths):
         """
@@ -1287,21 +1400,38 @@ class MainController:
         parent_window=None,
     ):
         """양쪽 그룹(각 1~N 파일)을 combine한 뒤 compare 창을 연다."""
-        left_item = self.build_compare_group_from_indices(left_indices)
-        right_item = self.build_compare_group_from_indices(right_indices)
-        if left_item is None or right_item is None:
+        return self.open_compare_plot_for_source_groups(
+            [left_indices, right_indices],
+            normalization=normalization,
+            parent_window=parent_window,
+        )
+
+    def open_compare_plot_for_source_groups(
+        self,
+        source_groups: list[list[int]],
+        normalization=None,
+        parent_window=None,
+    ):
+        """Open a compare window from two or more groups of real source indices."""
+        group_items = [
+            self.build_compare_group_from_indices(list(group))
+            for group in source_groups
+        ]
+        if len(group_items) < 2 or any(item is None for item in group_items):
             (parent_window or self.ui).show_warning(
                 "비교 불가",
                 "선택한 그룹에서 비교할 데이터를 만들 수 없습니다.",
             )
-            return
-        idx_left = self.register_compare_virtual_item(left_item)
-        idx_right = self.register_compare_virtual_item(right_item)
-        self.open_compare_plot_for_indices(
-            [idx_left, idx_right],
+            return None
+        virtual_indices = tuple(
+            self.register_compare_virtual_item(item) for item in group_items
+        )
+        return self.open_compare_plot_for_indices(
+            list(virtual_indices),
             normalization=normalization,
             parent_window=parent_window,
-            virtual_indices=(idx_left, idx_right),
+            virtual_indices=virtual_indices,
+            source_groups=tuple(tuple(group) for group in source_groups),
         )
 
     def open_compare_plot_for_indices(
@@ -1311,6 +1441,7 @@ class MainController:
         parent_window=None,
         *,
         virtual_indices: tuple[int, ...] | None = None,
+        source_groups: tuple[tuple[int, ...], ...] | None = None,
     ):
         """N개 데이터 인덱스로 compare 창을 연다. UI 탭은 0·1번만, 렌더는 session 전체."""
         if len(indices) < 2:
@@ -1341,6 +1472,9 @@ class MainController:
                 normalization=normalization,
             )
             popup.compare_session = session
+            popup.compare_source_groups = source_groups or tuple(
+                (index,) for index in indices
+            )
             popup.fixed_plot_params = self._get_current_plot_params()
             if virtual_indices:
                 popup._compare_virtual_indices = tuple(virtual_indices)
@@ -1388,13 +1522,17 @@ class MainController:
             if normalization:
                 log_msg += f" (정규화 : {normalization})"
             app_logger.info(log_msg)
+            return popup
         except Exception as e:
+            if virtual_indices:
+                self._release_compare_virtual_indices(tuple(virtual_indices))
             traceback.print_exc()
             (parent_window or self.ui).show_critical(
                 "다중 플롯 오류",
                 f"다중 플롯 창을 열 수 없습니다.\n\n{e}",
             )
             app_logger.error(config.LOG_MSG["PLOT_OPEN_FAIL"].format(e=e))
+            return None
 
     def _present_popup_canvas(self, popup_window, canvas):
         """플롯 재렌더 후 그리기 레이어를 함께 올려 한 번에 표시한다."""

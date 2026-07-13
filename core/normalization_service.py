@@ -19,6 +19,10 @@ from utils.math_utils import (
 )
 
 
+class NormalizationError(ValueError):
+    """Raised when a selected normalization cannot be applied safely."""
+
+
 def apply_normalization(
     df: pd.DataFrame,
     norm_name: str | None,
@@ -36,23 +40,32 @@ def apply_normalization(
     df_norm = df.copy()
     label_col = "Label" if "Label" in df_norm.columns else "label"
 
-    if norm_name == "Lobanov":
-        return lobanov_normalization(df_norm)
-    if norm_name == "Gerstman":
-        return gerstman_normalization(df_norm)
-    if norm_name == "2mW/F":
-        df_norm["Vowel"] = df_norm[label_col].apply(to_phonetic_vowel)
-        if not (df_norm["Vowel"] == "i").any() or not (df_norm["Vowel"] == "a").any():
-            unique_vowels = sorted(df_norm["Vowel"].dropna().unique())
-            app_logger.warning(
-                "[2mW/F] 코너 모음 'i' 또는 'a' 토큰이 없어 정규화가 적용되지 않았습니다. "
-                f"(현재 라벨: {unique_vowels[:10]}{' …' if len(unique_vowels) > 10 else ''})"
-            )
-        return watt_fabricius_normalization(df_norm, variant="2m")
-    if norm_name == "Bigham":
-        return bigham_normalization(df_norm)
-    if norm_name == "Nearey1":
-        return nearey1_normalization(df_norm)
+    try:
+        if norm_name == "Lobanov":
+            return lobanov_normalization(df_norm)
+        if norm_name == "Gerstman":
+            return gerstman_normalization(df_norm)
+        if norm_name == "2mW/F":
+            df_norm["Vowel"] = df_norm[label_col].apply(to_phonetic_vowel)
+            if not (df_norm["Vowel"] == "i").any() or not (
+                df_norm["Vowel"] == "a"
+            ).any():
+                unique_vowels = sorted(df_norm["Vowel"].dropna().unique())
+                app_logger.warning(
+                    "[2mW/F] 코너 모음 'i' 또는 'a' 토큰이 없어 "
+                    "정규화가 적용되지 않았습니다. "
+                    f"(현재 라벨: {unique_vowels[:10]}"
+                    f"{' …' if len(unique_vowels) > 10 else ''})"
+                )
+            return watt_fabricius_normalization(df_norm, variant="2m")
+        if norm_name == "Bigham":
+            return bigham_normalization(df_norm)
+        if norm_name == "Nearey1":
+            return nearey1_normalization(df_norm)
+    except (KeyError, TypeError, ValueError, ArithmeticError) as exc:
+        raise NormalizationError(
+            f"{norm_name} 정규화를 적용할 수 없습니다: {exc}"
+        ) from exc
     return df_norm
 
 

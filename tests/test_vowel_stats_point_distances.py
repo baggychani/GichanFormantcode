@@ -1,5 +1,6 @@
 import math
 
+import numpy as np
 import pandas as pd
 
 from utils.vowel_stats import (
@@ -71,3 +72,31 @@ def test_pairwise_mahalanobis_distances_respects_min_group_size():
     result = calculate_pairwise_mahalanobis_distances(df, min_group_size=4)
 
     assert result == {}
+
+
+def test_pairwise_mahalanobis_uses_pooled_within_group_covariance():
+    group_a = np.array(
+        [[0.0, 0.0], [1.0, 0.0], [0.0, 1.0], [1.0, 1.0]]
+    )
+    group_b = group_a + np.array([10.0, 0.0])
+    df = pd.DataFrame(
+        np.vstack([group_a, group_b]),
+        columns=["F2", "F1"],
+    )
+    df["Label"] = ["a"] * len(group_a) + ["b"] * len(group_b)
+
+    result = calculate_pairwise_mahalanobis_distances(df)
+
+    cov_a = np.cov(group_a, rowvar=False, ddof=1)
+    cov_b = np.cov(group_b, rowvar=False, ddof=1)
+    pooled_cov = (
+        (len(group_a) - 1) * cov_a + (len(group_b) - 1) * cov_b
+    ) / (len(group_a) + len(group_b) - 2)
+    mean_diff = group_a.mean(axis=0) - group_b.mean(axis=0)
+    expected = float(
+        np.sqrt(mean_diff.T @ np.linalg.pinv(pooled_cov) @ mean_diff)
+    )
+
+    assert math.isclose(
+        result[("a", "b")]["distance"], expected, rel_tol=1e-12
+    )

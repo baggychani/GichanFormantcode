@@ -52,8 +52,14 @@ else:  # Linux 등
 
 LOGS_DIR = os.path.join(_default_appdata, "GichanFormant", "logs")
 
-# Sentry 플래그 파일 경로는 반드시 ROOT_DIR(exe가 있는 곳)로 설정해야 인스톨러가 만든 파일을 찾을 수 있습니다.
-SENTRY_FLAG_PATH = os.path.join(ROOT_DIR, "sentry_opt_in.config")
+# 배포본은 인스톨 디렉터리의 동의 파일을 사용하고, 소스 실행은
+# 저장소 내 파일로 암묵적 활성화되지 않도록 사용자 앱 데이터를 사용한다.
+_sentry_flag_dir = (
+    ROOT_DIR
+    if getattr(sys, "frozen", False)
+    else os.path.join(_default_appdata, "GichanFormant")
+)
+SENTRY_FLAG_PATH = os.path.join(_sentry_flag_dir, "sentry_opt_in.config")
 
 
 # =============================================================================

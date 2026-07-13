@@ -9,20 +9,18 @@ from PySide6.QtGui import QPixmap, QFont, QColor, QPainter
 from PySide6.QtCore import Qt
 
 import config
+from utils.sentry_consent import has_sentry_consent
 
 
 # Sentry 초기화 함수
 def init_sentry():
-    if os.path.exists(config.SENTRY_FLAG_PATH):
+    if has_sentry_consent(config.SENTRY_FLAG_PATH):
         sentry_sdk.init(
             dsn=config.SENTRY_DSN,
             send_default_pii=config.SENTRY_SEND_PII,
             environment=config.SENTRY_ENV,
             release=config.APP_VERSION,
         )
-    else:
-        # 동의 플래그가 없으면 Sentry를 초기화하지 않음
-        pass
 
 
 # 실행 시 Sentry 초기화 시도

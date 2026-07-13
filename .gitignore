@@ -257,12 +257,16 @@ dist/
 build/
 release/
 *.spec
+!GichanFormant.spec
 
 # Python env
 .venv/
 venv/
 __pycache__/
+.uv-cache/
+.tmp/
 
 # Log files
 *.log
 logs/
+sentry_opt_in.config

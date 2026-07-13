@@ -232,48 +232,49 @@ def watt_fabricius_normalization(df, variant="2m"):
     - 원본 문헌 (origW&F 기반): Watt, D.J.L., & Fabricius, A.H. (2002). Evaluation of a technique for improving the mapping of multiple speakers vowel spaces in the F1-F2 plane. Leeds Working Papers in Linguistics and Phonetics 9, 159-173. [cite: 186, 187]
     """
     df_norm = df.copy()
-    try:
-        vi = df["Vowel"] == "i"
-        va = df["Vowel"] == "a"
-        if not vi.any() or not va.any():
-            return df_norm
-
-        i_f1, i_f2 = df.loc[vi, "F1"].mean(), df.loc[vi, "F2"].mean()
-        a_f1, a_f2 = df.loc[va, "F1"].mean(), df.loc[va, "F2"].mean()
-
-        if np.isnan(i_f1) or np.isnan(i_f2) or np.isnan(a_f1) or np.isnan(a_f2):
-            return df_norm
-
-        if variant == "2m":
-            mean_f1_by_vowel = df.groupby("Vowel")["F1"].mean()
-            mean_f2_by_vowel = df.groupby("Vowel")["F2"].mean()
-            u_p_f1 = mean_f1_by_vowel.min()
-            u_p_f2 = mean_f2_by_vowel.min()
-        else:
-            u_p_f1 = i_f1
-            u_p_f2 = i_f2
-
-        s_f1 = (i_f1 + a_f1 + u_p_f1) / 3
-        s_f2 = (i_f2 + u_p_f2) / 2 if variant == "Im" else (i_f2 + a_f2 + u_p_f2) / 3
-
-        if (
-            s_f1 is None
-            or s_f1 == 0
-            or np.isnan(s_f1)
-            or s_f2 is None
-            or s_f2 == 0
-            or np.isnan(s_f2)
-        ):
-            return df_norm
-
-        df_norm["F1"] = (
-            (df_norm["F1"] / s_f1).replace([np.inf, -np.inf], np.nan).fillna(0)
-        )
-        df_norm["F2"] = (
-            (df_norm["F2"] / s_f2).replace([np.inf, -np.inf], np.nan).fillna(0)
-        )
-    except Exception:
+    vi = df["Vowel"] == "i"
+    va = df["Vowel"] == "a"
+    if not vi.any() or not va.any():
         return df_norm
+
+    i_f1, i_f2 = df.loc[vi, "F1"].mean(), df.loc[vi, "F2"].mean()
+    a_f1, a_f2 = df.loc[va, "F1"].mean(), df.loc[va, "F2"].mean()
+
+    if np.isnan(i_f1) or np.isnan(i_f2) or np.isnan(a_f1) or np.isnan(a_f2):
+        return df_norm
+
+    if variant == "2m":
+        mean_f1_by_vowel = df.groupby("Vowel")["F1"].mean()
+        mean_f2_by_vowel = df.groupby("Vowel")["F2"].mean()
+        u_p_f1 = mean_f1_by_vowel.min()
+        u_p_f2 = mean_f2_by_vowel.min()
+    else:
+        u_p_f1 = i_f1
+        u_p_f2 = i_f2
+
+    s_f1 = (i_f1 + a_f1 + u_p_f1) / 3
+    s_f2 = (
+        (i_f2 + u_p_f2) / 2
+        if variant == "Im"
+        else (i_f2 + a_f2 + u_p_f2) / 3
+    )
+
+    if (
+        s_f1 is None
+        or s_f1 == 0
+        or np.isnan(s_f1)
+        or s_f2 is None
+        or s_f2 == 0
+        or np.isnan(s_f2)
+    ):
+        return df_norm
+
+    df_norm["F1"] = (
+        (df_norm["F1"] / s_f1).replace([np.inf, -np.inf], np.nan).fillna(0)
+    )
+    df_norm["F2"] = (
+        (df_norm["F2"] / s_f2).replace([np.inf, -np.inf], np.nan).fillna(0)
+    )
     return df_norm
 
 
@@ -284,21 +285,18 @@ def bigham_normalization(df):
     - 원본 문헌: Bigham, D.S. (2008). Dialect Contact and Accommodation among Emerging Adults in a University setting. PhD Dissertation, University of Texas at Austin. [cite: 152, 153]
     """
     df_norm = df.copy()
-    try:
-        for col in ["F1", "F2"]:
-            if col not in df_norm.columns:
-                continue
-            f_min, f_max = df_norm[col].min(), df_norm[col].max()
-            if np.isnan(f_min) or np.isnan(f_max):
-                continue
-            s_f = (f_min + f_max) / 2
-            if s_f is None or s_f == 0 or np.isnan(s_f):
-                continue
-            df_norm[col] = (
-                (df_norm[col] / s_f).replace([np.inf, -np.inf], np.nan).fillna(0)
-            )
-    except Exception:
-        pass
+    for col in ["F1", "F2"]:
+        if col not in df_norm.columns:
+            continue
+        f_min, f_max = df_norm[col].min(), df_norm[col].max()
+        if np.isnan(f_min) or np.isnan(f_max):
+            continue
+        s_f = (f_min + f_max) / 2
+        if s_f is None or s_f == 0 or np.isnan(s_f):
+            continue
+        df_norm[col] = (
+            (df_norm[col] / s_f).replace([np.inf, -np.inf], np.nan).fillna(0)
+        )
     return df_norm
 
 
