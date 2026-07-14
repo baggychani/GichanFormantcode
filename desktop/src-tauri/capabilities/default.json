@@ -7,6 +7,16 @@
     "core:default",
     "core:event:default",
     "dialog:default",
-    "opener:default"
+    "opener:default",
+    {
+      "identifier": "shell:allow-spawn",
+      "allow": [
+        {
+          "name": "binaries/gichan-formant-sidecar",
+          "sidecar": true,
+          "args": ["--desktop"]
+        }
+      ]
+    }
   ]
 }

@@ -1,7 +1,7 @@
 mod sidecar;
 
 use sidecar::{sidecar_call, sidecar_ensure, sidecar_stop, SidecarState};
-use tauri::{Manager, RunEvent};
+use tauri::{AppHandle, Manager, RunEvent, WebviewUrl, WebviewWindowBuilder};
 
 const AUTO_MAXIMIZE_WIDTH: f64 = 1680.0;
 const AUTO_MAXIMIZE_HEIGHT: f64 = 1000.0;
@@ -29,11 +29,33 @@ fn prepare_main_window(app: &tauri::App) -> tauri::Result<()> {
     Ok(())
 }
 
+#[tauri::command]
+fn open_interactive_plot(app: AppHandle) -> Result<(), String> {
+    if let Some(window) = app.get_webview_window("single-plot") {
+        window.show().map_err(|err| err.to_string())?;
+        window.set_focus().map_err(|err| err.to_string())?;
+        return Ok(());
+    }
+
+    WebviewWindowBuilder::new(
+        &app,
+        "single-plot",
+        WebviewUrl::App("index.html#single-plot".into()),
+    )
+    .title("GichanFormant — 대화형 플롯")
+    .inner_size(1440.0, 860.0)
+    .min_inner_size(1120.0, 680.0)
+    .build()
+    .map_err(|err| err.to_string())?;
+    Ok(())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let app = tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_shell::init())
         .manage(SidecarState::new())
         .setup(|app| {
             prepare_main_window(app)?;
@@ -42,7 +64,8 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             sidecar_ensure,
             sidecar_call,
-            sidecar_stop
+            sidecar_stop,
+            open_interactive_plot
         ])
         .build(tauri::generate_context!())
         .expect("error while building GichanFormant");

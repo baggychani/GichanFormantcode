@@ -31,6 +31,7 @@ import {
 import type { ApplicationState, HealthStatus } from "../ipc/protocol";
 import appIconUrl from "../../assets/icon.ico";
 import { DataGuide } from "./components/DataGuide";
+import { InteractivePlotWindow } from "./components/InteractivePlotWindow";
 
 type SidecarEvent = {
   event: string;
@@ -174,7 +175,7 @@ function EmptyVisualization() {
   );
 }
 
-function App() {
+function MainWorkspace() {
   const [health, setHealth] = useState<HealthStatus | null>(null);
   const [state, setState] = useState<ApplicationState | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
@@ -402,7 +403,7 @@ function App() {
     setError(null);
     setBusy(true);
     try {
-      await callSidecar("open_single_plot");
+      await invoke("open_interactive_plot");
       pushStatus("새 포먼트 플롯 창을 열었습니다");
     } catch (err) {
       setError(String(err));
@@ -959,6 +960,13 @@ function App() {
       <DataGuide open={guideOpen} onClose={() => setGuideOpen(false)} />
     </div>
   );
+}
+
+function App() {
+  if (window.location.hash === "#single-plot") {
+    return <InteractivePlotWindow />;
+  }
+  return <MainWorkspace />;
 }
 
 export default App;

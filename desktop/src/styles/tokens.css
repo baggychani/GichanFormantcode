@@ -1,67 +1,6 @@
 /** GichanFormant desktop design tokens. */
 
-:root {
-  color-scheme: dark;
-
-  --gf-surface-shell: #07090d;
-  --gf-surface-header: rgba(10, 13, 19, 0.92);
-  --gf-surface-sidebar: #0b0f15;
-  --gf-surface-stage: #0e131b;
-  --gf-surface-panel: #101620;
-  --gf-surface-elevated: #161e2a;
-  --gf-surface-input: #0a0e14;
-  --gf-surface-hover: rgba(255, 255, 255, 0.035);
-
-  --gf-text-primary: #f3f6fb;
-  --gf-text-secondary: #a8b3c4;
-  --gf-text-tertiary: #68758a;
-  --gf-text-invert: #06110f;
-
-  --gf-accent: #78e8cd;
-  --gf-accent-hover: #9bf3de;
-  --gf-accent-muted: rgba(120, 232, 205, 0.1);
-  --gf-accent-border: rgba(120, 232, 205, 0.32);
-  --gf-accent-glow: rgba(120, 232, 205, 0.16);
-  --gf-blue: #74bfff;
-  --gf-blue-muted: rgba(116, 191, 255, 0.1);
-  --gf-violet: #9e9bff;
-  --gf-violet-muted: rgba(158, 155, 255, 0.1);
-
-  --gf-danger: #ff8796;
-  --gf-danger-muted: rgba(255, 135, 150, 0.1);
-  --gf-warning: #f6c56f;
-  --gf-warning-muted: rgba(246, 197, 111, 0.1);
-  --gf-success: #78e8a5;
-  --gf-success-muted: rgba(120, 232, 165, 0.1);
-
-  --gf-border-subtle: rgba(220, 231, 247, 0.075);
-  --gf-border-medium: rgba(220, 231, 247, 0.12);
-  --gf-border-strong: rgba(220, 231, 247, 0.19);
-  --gf-focus-ring: 0 0 0 2px var(--gf-surface-shell), 0 0 0 4px rgba(120, 232, 205, 0.42);
-
-  --gf-radius-xs: 6px;
-  --gf-radius-sm: 8px;
-  --gf-radius-md: 12px;
-  --gf-radius-lg: 16px;
-  --gf-radius-xl: 22px;
-  --gf-sidebar-width: 248px;
-  --gf-settings-width: 340px;
-
-  --gf-font-sans: "Pretendard Variable", "Pretendard", "Noto Sans KR", "Malgun Gothic", "Segoe UI Variable", "Segoe UI", sans-serif;
-  /* Latin mono first; Hangul must fall back to a real CJK face (never Gulim). */
-  --gf-font-mono: "Cascadia Code", "Cascadia Mono", Consolas, "Pretendard", "Noto Sans KR", "Malgun Gothic", monospace;
-  --gf-text-xs: 11px;
-  --gf-text-sm: 12px;
-  --gf-text-md: 13px;
-  --gf-text-lg: 15px;
-
-  --gf-ease: cubic-bezier(0.2, 0.75, 0.2, 1);
-  --gf-duration: 180ms;
-  --gf-shadow-card: 0 18px 52px rgba(0, 0, 0, 0.2);
-  --gf-shadow-float: 0 20px 70px rgba(0, 0, 0, 0.42);
-}
-
-html[data-theme="light"] {
+ :root {
   color-scheme: light;
 
   --gf-surface-shell: #e9eef3;
@@ -100,6 +39,67 @@ html[data-theme="light"] {
   --gf-border-strong: rgba(37, 55, 76, 0.23);
   --gf-focus-ring: 0 0 0 2px #ffffff, 0 0 0 4px rgba(8, 127, 112, 0.36);
 
+  --gf-radius-xs: 6px;
+  --gf-radius-sm: 8px;
+  --gf-radius-md: 12px;
+  --gf-radius-lg: 16px;
+  --gf-radius-xl: 22px;
+  --gf-sidebar-width: 248px;
+  --gf-settings-width: 340px;
+
+  --gf-font-sans: "Pretendard Variable", "Pretendard", "Noto Sans KR", "Malgun Gothic", "Segoe UI Variable", "Segoe UI", sans-serif;
+  /* Latin mono first; Hangul must fall back to a real CJK face (never Gulim). */
+  --gf-font-mono: "Cascadia Code", "Cascadia Mono", Consolas, "Pretendard", "Noto Sans KR", "Malgun Gothic", monospace;
+  --gf-text-xs: 11px;
+  --gf-text-sm: 12px;
+  --gf-text-md: 13px;
+  --gf-text-lg: 15px;
+
+  --gf-ease: cubic-bezier(0.2, 0.75, 0.2, 1);
+  --gf-duration: 180ms;
   --gf-shadow-card: 0 16px 40px rgba(39, 54, 70, 0.09);
   --gf-shadow-float: 0 24px 70px rgba(31, 43, 57, 0.2);
+}
+
+html[data-theme="dark"] {
+  color-scheme: dark;
+
+  --gf-surface-shell: #07090d;
+  --gf-surface-header: rgba(10, 13, 19, 0.92);
+  --gf-surface-sidebar: #0b0f15;
+  --gf-surface-stage: #0e131b;
+  --gf-surface-panel: #101620;
+  --gf-surface-elevated: #161e2a;
+  --gf-surface-input: #0a0e14;
+  --gf-surface-hover: rgba(255, 255, 255, 0.035);
+
+  --gf-text-primary: #f3f6fb;
+  --gf-text-secondary: #a8b3c4;
+  --gf-text-tertiary: #68758a;
+  --gf-text-invert: #06110f;
+
+  --gf-accent: #78e8cd;
+  --gf-accent-hover: #9bf3de;
+  --gf-accent-muted: rgba(120, 232, 205, 0.1);
+  --gf-accent-border: rgba(120, 232, 205, 0.32);
+  --gf-accent-glow: rgba(120, 232, 205, 0.16);
+  --gf-blue: #74bfff;
+  --gf-blue-muted: rgba(116, 191, 255, 0.1);
+  --gf-violet: #9e9bff;
+  --gf-violet-muted: rgba(158, 155, 255, 0.1);
+
+  --gf-danger: #ff8796;
+  --gf-danger-muted: rgba(255, 135, 150, 0.1);
+  --gf-warning: #f6c56f;
+  --gf-warning-muted: rgba(246, 197, 111, 0.1);
+  --gf-success: #78e8a5;
+  --gf-success-muted: rgba(120, 232, 165, 0.1);
+
+  --gf-border-subtle: rgba(220, 231, 247, 0.075);
+  --gf-border-medium: rgba(220, 231, 247, 0.12);
+  --gf-border-strong: rgba(220, 231, 247, 0.19);
+  --gf-focus-ring: 0 0 0 2px var(--gf-surface-shell), 0 0 0 4px rgba(120, 232, 205, 0.42);
+
+  --gf-shadow-card: 0 18px 52px rgba(0, 0, 0, 0.2);
+  --gf-shadow-float: 0 20px 70px rgba(0, 0, 0, 0.42);
 }
