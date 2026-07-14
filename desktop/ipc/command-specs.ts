@@ -15,6 +15,14 @@ export const COMMAND_SPECS = {
   "snapshot": {
     "params": {}
   },
+  "get_vowel_analysis": {
+    "params": {
+      "index": "int"
+    },
+    "required": [
+      "index"
+    ]
+  },
   "set_analysis_settings": {
     "params": {
       "settings": "object"
@@ -99,6 +107,16 @@ export const COMMAND_SPECS = {
       "options": "interactive_options"
     },
     "required": [
+      "options"
+    ]
+  },
+  "navigate_interactive_preview": {
+    "params": {
+      "index": "int",
+      "options": "interactive_options"
+    },
+    "required": [
+      "index",
       "options"
     ]
   }

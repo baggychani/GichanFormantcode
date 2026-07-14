@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { CSSProperties, PointerEvent as ReactPointerEvent } from "react";
+import type { CSSProperties, MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent } from "react";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { save } from "@tauri-apps/plugin-dialog";
 import {
   ArrowUpRight,
+  BarChart3,
   Bold,
   ChevronDown,
   ChevronLeft,
@@ -32,7 +33,7 @@ import {
   Unlock,
   X,
 } from "lucide-react";
-import type { ApplicationState } from "../../ipc/protocol";
+import type { ApplicationState, SourceInfo } from "../../ipc/protocol";
 import { callSidecar } from "../sidecarClient";
 import "./InteractivePlotWindow.css";
 
@@ -41,6 +42,19 @@ type Tool = "select" | "ruler" | "draw";
 type LeftPanel = "analysis" | "global-design";
 type RightPanel = "layers" | "drawing";
 type DrawTool = "text" | "line" | "area" | "reference";
+type VowelAnalysisPage = "formant" | "distance" | "pillai";
+type VowelAnalysisResult = {
+  index: number;
+  name: string;
+  x_label?: string;
+  y_label?: string;
+  statistics: Record<string, { x_mean: number; x_std: number; x_min: number; x_max: number; y_mean: number; y_std: number; y_min: number; y_max: number; count: number }>;
+  centroid_distances: Record<string, { distance_to_centroid: number }>;
+  pairwise_euclidean: Record<string, number>;
+  pairwise_mahalanobis: Record<string, number>;
+  pillai_scores: Record<string, { score: number | null; p_value: number | null }>;
+  metadata: { total_points?: number; vowel_count?: number };
+};
 type LayerVisibility = "ON" | "SEMI" | "OFF";
 type Ranges = { y_min: string; y_max: string; x_min: string; x_max: string };
 type DesignSettings = {
@@ -202,6 +216,113 @@ function PalettePicker({ label, value, onChange, allowTransparent = false, disab
   );
 }
 
+function FileSelectMenu({ sources, currentIndex, onNavigate, disabled = false }: { sources: SourceInfo[]; currentIndex: number; onNavigate: (index: number) => void; disabled?: boolean }) {
+  const [open, setOpen] = useState(false);
+  const rootRef = useRef<HTMLDivElement | null>(null);
+  const current = sources[currentIndex];
+
+  useEffect(() => {
+    if (!open) return;
+    const closeOnOutsidePointer = (event: PointerEvent) => {
+      if (!rootRef.current?.contains(event.target as Node)) setOpen(false);
+    };
+    window.addEventListener("pointerdown", closeOnOutsidePointer);
+    return () => window.removeEventListener("pointerdown", closeOnOutsidePointer);
+  }, [open]);
+
+  return (
+    <div className={`file-select-menu ${open ? "is-open" : ""}`} ref={rootRef}>
+      <button type="button" className="file-select-trigger" disabled={disabled} aria-haspopup="listbox" aria-expanded={open} onClick={() => setOpen((previous) => !previous)}>
+        <span>{current?.name ?? "데이터 파일을 불러오세요"}</span><ChevronDown size={14} />
+      </button>
+      {open ? <div className="file-option-menu" role="listbox" aria-label="파일 선택">
+        {sources.map((source, index) => <button type="button" role="option" aria-selected={index === currentIndex} className={index === currentIndex ? "is-selected" : ""} key={`${source.index}-${source.name}`} onClick={() => { setOpen(false); onNavigate(index); }}>{source.name}</button>)}
+      </div> : null}
+    </div>
+  );
+}
+
+function AnalysisFigure({ page }: { page: VowelAnalysisPage }) {
+  return (
+    <div className={`analysis-figure analysis-figure-${page}`} aria-label={`${page} 분석 시각화`}>
+      <svg viewBox="0 0 320 220" role="img">
+        <path className="figure-axis figure-axis-x" d="M35 186H285" /><path className="figure-axis figure-axis-y" d="M35 186V28" />
+        {page === "formant" ? <>
+          <ellipse className="figure-ellipse ellipse-a" cx="91" cy="82" rx="35" ry="51" /><ellipse className="figure-ellipse ellipse-b" cx="205" cy="104" rx="57" ry="35" />
+          <g className="figure-cloud cloud-a">{[[80, 72], [91, 81], [99, 93], [87, 101], [104, 78], [73, 91]].map(([cx, cy]) => <circle key={`${cx}-${cy}`} cx={cx} cy={cy} r="3" />)}</g>
+          <g className="figure-cloud cloud-b">{[[176, 100], [193, 111], [205, 98], [217, 91], [229, 108], [211, 119]].map(([cx, cy]) => <circle key={`${cx}-${cy}`} cx={cx} cy={cy} r="3" />)}</g>
+          <circle className="figure-centroid centroid-a" cx="91" cy="85" r="6" /><circle className="figure-centroid centroid-b" cx="205" cy="104" r="6" /><text x="80" y="55">i</text><text x="218" y="82">a</text>
+        </> : page === "distance" ? <>
+          <ellipse className="figure-ellipse distance-ellipse" cx="155" cy="108" rx="83" ry="48" />
+          <circle className="figure-centroid centroid-a" cx="91" cy="83" r="6" /><circle className="figure-centroid centroid-b" cx="224" cy="143" r="6" />
+          <path className="figure-distance-line" d="M91 83L224 143" /><path className="figure-distance-arrow" d="m213 132 11 11-15 2" /><text x="143" y="103">d(a, u)</text><text x="78" y="67">a</text><text x="229" y="160">u</text>
+        </> : <>
+          <g className="pillai-group pillai-group-a"><circle cx="73" cy="85" r="5" /><circle cx="89" cy="98" r="5" /><circle cx="80" cy="112" r="5" /><circle cx="101" cy="88" r="5" /></g>
+          <g className="pillai-group pillai-group-b"><circle cx="214" cy="77" r="5" /><circle cx="232" cy="91" r="5" /><circle cx="222" cy="109" r="5" /><circle cx="245" cy="83" r="5" /></g>
+          <path className="pillai-separation" d="M137 48V164" /><text x="61" y="54">/i, e/</text><text x="211" y="54">/a, u/</text><text x="143" y="38">Pillai</text>
+        </>}
+        <text className="figure-axis-label" x="276" y="204">F2</text><text className="figure-axis-label" x="14" y="34">F1</text>
+      </svg>
+      <span className="figure-caption">{page === "formant" ? "모음별 중심점과 분포" : page === "distance" ? "중심점 사이의 실제 거리" : "모음 조합 사이의 분리"}</span>
+    </div>
+  );
+}
+
+function VowelAnalysisShell({ currentSource, sources, currentIndex, onNavigate, onClose }: { currentSource: SourceInfo | undefined; sources: SourceInfo[]; currentIndex: number; onNavigate: (index: number) => void; onClose: () => void }) {
+  const [page, setPage] = useState<VowelAnalysisPage>("formant");
+  const [analysisData, setAnalysisData] = useState<VowelAnalysisResult | null>(null);
+  const analysisBodyRef = useRef<HTMLDivElement | null>(null);
+  const analysisScrollByFileRef = useRef(new Map<number, number>());
+  const previousAnalysisIndexRef = useRef(currentIndex);
+  useEffect(() => {
+    let active = true;
+    void callSidecar<VowelAnalysisResult>("get_vowel_analysis", { index: currentIndex }).then((result) => {
+      if (active) setAnalysisData(result);
+    }).catch(() => {
+      // Keep the previous file's result visible until the replacement is ready.
+    });
+    return () => { active = false; };
+  }, [currentIndex]);
+  useEffect(() => {
+    const body = analysisBodyRef.current;
+    const previousIndex = previousAnalysisIndexRef.current;
+    if (body && previousIndex !== currentIndex) analysisScrollByFileRef.current.set(previousIndex, body.scrollTop);
+    previousAnalysisIndexRef.current = currentIndex;
+    const frame = window.requestAnimationFrame(() => {
+      if (analysisBodyRef.current) analysisBodyRef.current.scrollTop = analysisScrollByFileRef.current.get(currentIndex) ?? 0;
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [currentIndex]);
+  const analysisPairs = analysisData ? Object.keys(analysisData.statistics).flatMap((left, index, vowels) => vowels.slice(index + 1).map((right) => ({ left, right, key: `${left}::${right}` }))) : [];
+  const pages: Array<{ id: VowelAnalysisPage; label: string; detail: string }> = [
+    { id: "formant", label: "모음별 통계", detail: "중심점과 분포" },
+    { id: "distance", label: "중심점 거리", detail: "Euclidean / Mahalanobis" },
+    { id: "pillai", label: "Pillai Score", detail: "모음 조합 비교" },
+  ];
+  const hero = page === "formant"
+    ? { kicker: "01 · FORMANT PROFILE", title: "모음 공간의 모양을 읽습니다", copy: "각 모음의 평균 위치와 개별 토큰의 퍼짐을 한 화면에서 확인하는 분석 공간입니다." }
+    : page === "distance"
+      ? { kicker: "02 · VOWEL DISTANCE", title: "모음 사이의 간격을 비교합니다", copy: "중심점 간 거리와 모음 내부 분산을 함께 살펴볼 수 있도록 준비 중입니다." }
+      : { kicker: "03 · GROUP SEPARATION", title: "모음 조합의 분리도를 확인합니다", copy: "선택한 모음 조합이 통계적으로 얼마나 분리되는지 보여주는 분석 페이지입니다." };
+
+  return (
+    <div className="vowel-analysis-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
+      <section className="vowel-analysis-shell" role="dialog" aria-modal="true" aria-labelledby="vowel-analysis-title">
+        <header className="vowel-analysis-header">
+          <div className="vowel-analysis-title"><div className="vowel-analysis-mark"><BarChart3 size={18} /></div><div><span className="section-eyebrow">모음 공간 분석실</span><h2 id="vowel-analysis-title">모음 상세 분석</h2><p>{currentSource?.name ?? "현재 데이터"}의 모음 공간을 수치와 분포로 읽습니다.</p></div></div>
+          <button type="button" className="vowel-analysis-close" onClick={onClose} aria-label="분석 창 닫기"><X size={18} /></button>
+        </header>
+        <div className="analysis-file-switcher"><button type="button" onClick={() => onNavigate(currentIndex - 1)} disabled={currentIndex <= 0} aria-label="이전 파일">‹</button><div><span>분석 파일</span><strong>{currentIndex + 1} / {sources.length}</strong><b title={currentSource?.name}>{currentSource?.name ?? "-"}</b></div><button type="button" onClick={() => onNavigate(currentIndex + 1)} disabled={currentIndex >= sources.length - 1} aria-label="다음 파일">›</button></div>
+        <nav className="vowel-analysis-tabs" aria-label="모음 분석 페이지">{pages.map((item) => <button key={item.id} type="button" className={page === item.id ? "is-active" : ""} onClick={() => setPage(item.id)}><strong>{item.label}</strong><small>{item.detail}</small></button>)}</nav>
+        <div className="vowel-analysis-body" ref={analysisBodyRef}>
+          <div className="vowel-analysis-hero"><div className="analysis-hero-copy"><span className="analysis-kicker">{hero.kicker}</span><h3>{hero.title}</h3><p>{hero.copy}</p></div><AnalysisFigure page={page} /></div>
+          <section className="analysis-detail-panel"><div className="analysis-detail-heading"><div><span className="analysis-kicker">RESULTS</span><h4>{page === "formant" ? "모음별 통계" : page === "distance" ? "선택 모음 간 거리" : "모음 조합별 Pillai Score"}</h4></div><span>{analysisData ? String(analysisData.metadata.total_points ?? 0) + " tokens" : "계산 중"}</span></div>{analysisData ? page === "formant" ? <div className="analysis-result-table analysis-formant-table"><div className="analysis-result-row analysis-result-head"><span>모음</span><span>F1 평균 ± SD</span><span>F1 범위</span><span>{analysisData.x_label ?? "F2"} 평균 ± SD</span><span>{analysisData.x_label ?? "F2"} 범위</span><span>중심 거리</span><span>n</span></div>{Object.entries(analysisData.statistics).map(([vowel, stat]) => <div className="analysis-result-row" key={vowel}><strong>{vowel}</strong><span>{stat.y_mean.toFixed(1)} ± {stat.y_std.toFixed(1)}</span><span>{stat.y_min.toFixed(1)}–{stat.y_max.toFixed(1)}</span><span>{stat.x_mean.toFixed(1)} ± {stat.x_std.toFixed(1)}</span><span>{stat.x_min.toFixed(1)}–{stat.x_max.toFixed(1)}</span><span>{(analysisData.centroid_distances[vowel]?.distance_to_centroid ?? 0).toFixed(1)}</span><span>{stat.count}</span></div>)}</div> : analysisPairs.length ? <div className="analysis-result-table"><div className="analysis-result-row analysis-result-head"><span>모음 조합</span><span>{page === "distance" ? "Euclidean" : "Pillai Score"}</span><span>{page === "distance" ? "Mahalanobis" : "p-value"}</span></div>{analysisPairs.map((pair) => { const euclidean = analysisData.pairwise_euclidean[pair.key]; const mahalanobis = analysisData.pairwise_mahalanobis[pair.key]; const pillai = analysisData.pillai_scores[pair.key]; return <div className="analysis-result-row" key={pair.key}><strong>{pair.left} - {pair.right}</strong><span>{page === "distance" ? (euclidean ?? 0).toFixed(3) : pillai?.score == null ? "N/A" : pillai.score.toFixed(4)}</span><span>{page === "distance" ? (mahalanobis ?? 0).toFixed(3) : pillai?.p_value == null ? "N/A" : pillai.p_value.toFixed(4)}</span></div>; })}</div> : <div className="analysis-result-empty">모음 두 개 이상을 선택하면 조합별 결과가 표시됩니다.</div> : <div className="analysis-result-empty">분석 데이터를 불러오는 중입니다.</div>}</section>
+        </div>
+      </section>
+    </div>
+  );
+}
+
 export function InteractivePlotWindow() {
   const [state, setState] = useState<ApplicationState | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
@@ -222,6 +343,8 @@ export function InteractivePlotWindow() {
   const [layerOverrides, setLayerOverrides] = useState<LayerOverrides>({});
   const [layerOrder, setLayerOrder] = useState<string[]>([]);
   const [selectedLayer, setSelectedLayer] = useState("");
+  const [selectedLayers, setSelectedLayers] = useState<Set<string>>(new Set());
+  const selectionAnchorRef = useRef("");
   const [expandedLayers, setExpandedLayers] = useState<Set<string>>(new Set());
   const [lockedLayers, setLockedLayers] = useState<Set<string>>(new Set());
   const [draggingLayer, setDraggingLayer] = useState<string | null>(null);
@@ -230,17 +353,24 @@ export function InteractivePlotWindow() {
   const [navigating, setNavigating] = useState(false);
   const [busy, setBusy] = useState(false);
   const [engineConnected, setEngineConnected] = useState(false);
+  const [vowelAnalysisOpen, setVowelAnalysisOpen] = useState(false);
   const [message, setMessage] = useState("분석 엔진과 연결하는 중입니다.");
   const layerRowRefs = useRef(new Map<string, HTMLDivElement>());
   const layerListRef = useRef<HTMLDivElement | null>(null);
   const layerOrderRef = useRef<string[]>([]);
   const dragStartOrderRef = useRef<string[]>([]);
+  const dragCandidateOrderRef = useRef<string[]>([]);
+  const draggedLayersRef = useRef<string[]>([]);
   const draggingLayerRef = useRef<string | null>(null);
   const dragMovedRef = useRef(false);
   const dragPointerYRef = useRef(0);
   const dragScrollFrameRef = useRef<number | null>(null);
   const flipFrameRef = useRef<number | null>(null);
-  const dragCaptureRef = useRef<{ element: HTMLButtonElement; pointerId: number } | null>(null);
+  const dragListenersRef = useRef<{
+    move: (event: PointerEvent) => void;
+    up: (event: PointerEvent) => void;
+    cancel: (event: PointerEvent) => void;
+  } | null>(null);
   const aliveRef = useRef(true);
   const navigatingRef = useRef(false);
   const currentIndexRef = useRef(0);
@@ -290,6 +420,11 @@ export function InteractivePlotWindow() {
         setPreviewUrl(null);
         setPreviewInfo("");
       } else if (payload.event === "state_changed") {
+        const reason = String(payload.payload.reason ?? "");
+        // Navigation returns the authoritative snapshot in its IPC response.
+        // Ignore the matching broadcast so controls do not reset once before
+        // the response applies the new file state.
+        if (navigatingRef.current && reason === "current_file_changed") return;
         const next = payload.payload.state as ApplicationState | undefined;
         if (next) setState(next);
       } else if (payload.event === "sidecar_shutting_down") {
@@ -335,15 +470,11 @@ export function InteractivePlotWindow() {
 
   useEffect(() => () => {
     if (renderTimerRef.current !== null) window.clearTimeout(renderTimerRef.current);
+    removeLayerDragListeners();
     if (dragScrollFrameRef.current !== null) cancelAnimationFrame(dragScrollFrameRef.current);
     if (flipFrameRef.current !== null) cancelAnimationFrame(flipFrameRef.current);
     dragScrollFrameRef.current = null;
     flipFrameRef.current = null;
-    const capture = dragCaptureRef.current;
-    dragCaptureRef.current = null;
-    if (capture?.element.hasPointerCapture(capture.pointerId)) {
-      capture.element.releasePointerCapture(capture.pointerId);
-    }
     draggingLayerRef.current = null;
   }, []);
 
@@ -400,6 +531,8 @@ export function InteractivePlotWindow() {
     setShowEllipse(session?.show_ellipse ?? true);
     setDesign(({ ...canonicalDesign, ...(session?.design_settings ?? {}) }) as DesignSettings);
     setSelectedLayer(defaultOrder[0] ?? "");
+    setSelectedLayers(new Set(defaultOrder[0] ? [defaultOrder[0]] : []));
+    selectionAnchorRef.current = defaultOrder[0] ?? "";
     setExpandedLayers(cached?.expanded ? new Set(cached.expanded) : new Set());
     setLockedLayers(sessionLocked ? new Set(sessionLocked) : cached ? new Set(cached.locked) : new Set());
     const storedOrder = sessionOrder ?? cached?.order ?? layerOrderRef.current;
@@ -451,14 +584,45 @@ export function InteractivePlotWindow() {
     }, 70);
   };
 
+  const selectLayer = (vowel: string, event: ReactMouseEvent<HTMLButtonElement>) => {
+    event.preventDefault();
+    const order = layerOrderRef.current;
+    const anchor = selectionAnchorRef.current;
+    const withRange = event.shiftKey && anchor && order.includes(anchor);
+    if (withRange) {
+      const start = order.indexOf(anchor);
+      const end = order.indexOf(vowel);
+      const range = order.slice(Math.min(start, end), Math.max(start, end) + 1);
+      setSelectedLayers((previous) => {
+        if (event.ctrlKey || event.metaKey) return new Set([...previous, ...range]);
+        return new Set(range);
+      });
+      setSelectedLayer(vowel);
+      return;
+    }
+    if (event.ctrlKey || event.metaKey) {
+      setSelectedLayers((previous) => {
+        const next = new Set(previous);
+        if (next.has(vowel)) next.delete(vowel);
+        else next.add(vowel);
+        const nextPrimary = next.has(vowel) ? vowel : [...next][0] ?? "";
+        setSelectedLayer(nextPrimary);
+        if (next.size) selectionAnchorRef.current = nextPrimary;
+        return next;
+      });
+      return;
+    }
+    setSelectedLayers(new Set([vowel]));
+    setSelectedLayer(vowel);
+    selectionAnchorRef.current = vowel;
+  };
+
   const navigateTo = useCallback(async (index: number) => {
     if (!sources.length || navigatingRef.current) return;
     const target = Math.max(0, Math.min(index, sources.length - 1));
     if (target === currentIndexRef.current) return;
     navigatingRef.current = true;
     ++renderRequestRef.current;
-    setPreviewUrl(null);
-    setPreviewInfo("");
     if (renderTimerRef.current !== null) {
       window.clearTimeout(renderTimerRef.current);
       renderTimerRef.current = null;
@@ -474,7 +638,18 @@ export function InteractivePlotWindow() {
           expanded: new Set(expandedLayers),
         });
       }
-      const next = await callSidecar<ApplicationState>("set_current_index", { index: target });
+      const requestId = ++renderRequestRef.current;
+      const response = await callSidecar<{ state: ApplicationState }>("navigate_interactive_preview", {
+        index: target,
+        options: {
+          ranges,
+          sigma,
+          show_ellipse: showEllipse,
+          design,
+          request_id: requestId,
+        },
+      });
+      const next = response.state;
       if (!aliveRef.current) return;
       currentIndexRef.current = target;
       const nextVowels = next.current_vowels ?? [];
@@ -509,27 +684,13 @@ export function InteractivePlotWindow() {
       setShowEllipse(nextShowEllipse);
       setState(next);
       setMessage(`${next.sources[target]?.name ?? "파일"}을 불러오는 중입니다.`);
-      const requestId = ++renderRequestRef.current;
-      await callSidecar("render_interactive_preview", {
-        options: {
-          ranges: nextRanges,
-          sigma: nextSigma,
-          show_ellipse: nextShowEllipse,
-          design: nextDesign,
-          filter_state: nextLayers,
-          layer_overrides: nextOverrides,
-          layer_order: nextOrder,
-          locked_layers: [...nextLocked],
-          request_id: requestId,
-        },
-      });
     } catch (err) {
       setMessage(`파일을 이동하지 못했습니다: ${String(err)}`);
     } finally {
       navigatingRef.current = false;
       if (aliveRef.current) setNavigating(false);
     }
-  }, [canonicalDesign, currentFileKey, defaultRanges, expandedLayers, layerOverrides, layerState, lockedLayers, sources.length]);
+  }, [canonicalDesign, currentFileKey, defaultRanges, design, expandedLayers, layerOverrides, layerState, lockedLayers, ranges, showEllipse, sigma, sources.length]);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -678,18 +839,49 @@ export function InteractivePlotWindow() {
     });
   };
 
+  const removeLayerDragListeners = () => {
+    const listeners = dragListenersRef.current;
+    if (!listeners) return;
+    window.removeEventListener("pointermove", listeners.move);
+    window.removeEventListener("pointerup", listeners.up);
+    window.removeEventListener("pointercancel", listeners.cancel);
+    dragListenersRef.current = null;
+  };
+
   const beginLayerDrag = (event: ReactPointerEvent<HTMLButtonElement>, vowel: string) => {
     if (event.button !== 0) return;
     event.preventDefault();
     stopLayerDragScroll();
     cancelFlipFrame();
     dragStartOrderRef.current = [...layerOrderRef.current];
+    dragCandidateOrderRef.current = [...layerOrderRef.current];
+    draggedLayersRef.current = selectedLayers.has(vowel) && selectedLayers.size > 1
+      ? layerOrderRef.current.filter((item) => selectedLayers.has(item))
+      : [vowel];
     draggingLayerRef.current = vowel;
     dragMovedRef.current = false;
     dragPointerYRef.current = event.clientY;
     setDraggingLayer(vowel);
-    event.currentTarget.setPointerCapture(event.pointerId);
-    dragCaptureRef.current = { element: event.currentTarget, pointerId: event.pointerId };
+    const pointerId = event.pointerId;
+    const onMove = (nativeEvent: PointerEvent) => {
+      if (nativeEvent.pointerId !== pointerId || !draggingLayerRef.current) return;
+      nativeEvent.preventDefault();
+      dragPointerYRef.current = nativeEvent.clientY;
+      repositionDraggedLayer(nativeEvent.clientY);
+    };
+    const onUp = (nativeEvent: PointerEvent) => {
+      if (nativeEvent.pointerId !== pointerId) return;
+      nativeEvent.preventDefault();
+      commitLayerDrag(nativeEvent);
+    };
+    const onCancel = (nativeEvent: PointerEvent) => {
+      if (nativeEvent.pointerId !== pointerId) return;
+      cancelLayerDrag();
+    };
+    dragListenersRef.current = { move: onMove, up: onUp, cancel: onCancel };
+    window.addEventListener("pointermove", onMove, { passive: false });
+    window.addEventListener("pointerup", onUp, { passive: false });
+    window.addEventListener("pointercancel", onCancel);
     const autoScroll = () => {
       const list = layerListRef.current;
       if (!aliveRef.current || !draggingLayerRef.current || !list) {
@@ -718,8 +910,9 @@ export function InteractivePlotWindow() {
     const source = draggingLayerRef.current;
     const list = layerListRef.current;
     if (!source || !list) return;
+    const dragged = draggedLayersRef.current.length ? draggedLayersRef.current : [source];
     const order = layerOrderRef.current;
-    const without = order.filter((vowel) => vowel !== source);
+    const without = order.filter((vowel) => !dragged.includes(vowel));
     const listBounds = list.getBoundingClientRect();
     const pointerY = clientY - listBounds.top + list.scrollTop;
     const visualRows = without
@@ -741,15 +934,15 @@ export function InteractivePlotWindow() {
     }
 
     const next = [...without];
-    next.splice(insertAt, 0, source);
-    if (next.join("\u0000") !== order.join("\u0000")) {
-      dragMovedRef.current = true;
-      animateLayerOrder(next);
-    }
+    next.splice(insertAt, 0, ...dragged);
+    dragCandidateOrderRef.current = next;
+    dragMovedRef.current = next.join("\u0000") !== dragStartOrderRef.current.join("\u0000");
   };
 
+  // Keep the local handler for browsers that continue dispatching to the
+  // handle, while the window listeners cover pointer movement outside it.
   const moveLayerDrag = (event: ReactPointerEvent<HTMLButtonElement>) => {
-    if (!draggingLayerRef.current || !event.currentTarget.hasPointerCapture(event.pointerId)) return;
+    if (!draggingLayerRef.current) return;
     event.preventDefault();
     dragPointerYRef.current = event.clientY;
     repositionDraggedLayer(event.clientY);
@@ -760,18 +953,19 @@ export function InteractivePlotWindow() {
     dragScrollFrameRef.current = null;
   };
 
-  const commitLayerDrag = (event: ReactPointerEvent<HTMLButtonElement>) => {
+  const commitLayerDrag = (event: { pointerId?: number; preventDefault?: () => void }) => {
     if (!draggingLayerRef.current) return;
-    event.preventDefault();
+    event.preventDefault?.();
     const moved = dragMovedRef.current;
-    const committedOrder = [...layerOrderRef.current];
+    const committedOrder = [...dragCandidateOrderRef.current];
     draggingLayerRef.current = null;
     dragMovedRef.current = false;
     stopLayerDragScroll();
     cancelFlipFrame();
-    dragCaptureRef.current = null;
-    if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
+    removeLayerDragListeners();
+    draggedLayersRef.current = [];
     if (moved) {
+      animateLayerOrder(committedOrder);
       setMessage("레이어 순서를 플롯에 반영했습니다.");
       void renderInteractive({ layerOrder: committedOrder });
     }
@@ -780,17 +974,12 @@ export function InteractivePlotWindow() {
   };
 
   const cancelLayerDrag = () => {
-    const shouldRestore = dragMovedRef.current && dragStartOrderRef.current.length > 0;
     cancelFlipFrame();
     draggingLayerRef.current = null;
     stopLayerDragScroll();
     dragMovedRef.current = false;
-    const capture = dragCaptureRef.current;
-    dragCaptureRef.current = null;
-    if (capture?.element.hasPointerCapture(capture.pointerId)) {
-      capture.element.releasePointerCapture(capture.pointerId);
-    }
-    if (shouldRestore) animateLayerOrder(dragStartOrderRef.current);
+    removeLayerDragListeners();
+    draggedLayersRef.current = [];
     setDraggingLayer(null);
     setDropTarget(null);
   };
@@ -901,7 +1090,7 @@ export function InteractivePlotWindow() {
       <aside className="plot-control-rail">
         <section className="file-navigator">
           <div className="navigator-topline"><div><span className="section-eyebrow">파일 탐색</span><strong>{fileCounter}</strong></div><button className="rail-collapse" aria-label="왼쪽 패널 접기" onClick={() => setLeftOpen(false)}><PanelLeftClose size={16} /></button></div>
-          <div className="file-select-row"><button aria-label="이전 파일" onClick={() => void navigateTo(currentIndex - 1)} disabled={navigating || !canNavigate || currentIndex === 0}><ChevronLeft size={17} /></button><label className="current-file-button" title={currentSource?.name}><select value={currentIndex} onChange={(event) => void navigateTo(Number(event.target.value))} disabled={!sources.length || navigating} aria-label="현재 파일">{sources.map((source, index) => <option key={`${source.index}-${source.name}`} value={index}>{source.name}</option>)}</select><ChevronDown size={14} /></label><button aria-label="다음 파일" onClick={() => void navigateTo(currentIndex + 1)} disabled={navigating || !canNavigate || currentIndex >= sources.length - 1}><ChevronRight size={17} /></button></div>
+          <div className="file-select-row"><button aria-label="이전 파일" onClick={() => void navigateTo(currentIndex - 1)} disabled={!canNavigate || currentIndex === 0}><ChevronLeft size={17} /></button><FileSelectMenu sources={sources} currentIndex={currentIndex} onNavigate={(index) => void navigateTo(index)} disabled={!sources.length} /><button aria-label="다음 파일" onClick={() => void navigateTo(currentIndex + 1)} disabled={!canNavigate || currentIndex >= sources.length - 1}><ChevronRight size={17} /></button></div>
         </section>
 
         <div className="control-tabs"><button className={leftPanel === "analysis" ? "is-active" : ""} onClick={() => setLeftPanel("analysis")}><SlidersHorizontal size={15} /> 분석 도구</button><button className={leftPanel === "global-design" ? "is-active" : ""} onClick={() => setLeftPanel("global-design")}><Palette size={15} /> 광역 디자인</button></div>
@@ -920,7 +1109,7 @@ export function InteractivePlotWindow() {
                 <div className="paired-actions"><button onClick={resetPlot}><RefreshCcw size={14} /> 초기화</button><button className="primary" onClick={() => void renderInteractive()} disabled={busy}><Sparkles size={14} /> 범위 적용</button></div>
               </section>
 
-              <section className="control-section"><div className="section-heading"><div><span>02</span><strong>분석 도구</strong></div></div><div className="tool-grid"><button onClick={() => void openLegacyPlot()} disabled={!sources.length}><ScanSearch size={17} /><span><strong>모음 상세 분석</strong><small>통계와 분포 보기</small></span></button><button onClick={() => void openLegacyPlot()} disabled={!sources.length}><Layers3 size={17} /><span><strong>다중 플롯 모드</strong><small>파일 비교 구성</small></span></button><button className={tool === "ruler" ? "is-active" : ""} onClick={() => setTool(tool === "ruler" ? "select" : "ruler")}><Ruler size={17} /><span><strong>눈금자</strong><small>R · 거리 측정</small></span></button><button className={tool === "draw" ? "is-active" : ""} onClick={() => { setTool("draw"); setRightPanel("drawing"); setRightOpen(true); }}><PenLine size={17} /><span><strong>그리기</strong><small>P · 주석 도구</small></span></button></div></section>
+              <section className="control-section"><div className="section-heading"><div><span>02</span><strong>분석 도구</strong></div></div><div className="tool-grid"><button onClick={() => setVowelAnalysisOpen(true)} disabled={!sources.length}><ScanSearch size={17} /><span><strong>모음 상세 분석</strong><small>통계와 분포 보기</small></span></button><button onClick={() => void openLegacyPlot()} disabled={!sources.length}><Layers3 size={17} /><span><strong>다중 플롯 모드</strong><small>파일 비교 구성</small></span></button><button className={tool === "ruler" ? "is-active" : ""} onClick={() => setTool(tool === "ruler" ? "select" : "ruler")}><Ruler size={17} /><span><strong>눈금자</strong><small>R · 거리 측정</small></span></button><button className={tool === "draw" ? "is-active" : ""} onClick={() => { setTool("draw"); setRightPanel("drawing"); setRightOpen(true); }}><PenLine size={17} /><span><strong>그리기</strong><small>P · 주석 도구</small></span></button></div></section>
 
               <section className="control-section export-section"><div className="section-heading"><div><span>03</span><strong>내보내기</strong></div></div><div className="format-buttons"><button onClick={() => exportRaster("jpg")} disabled={!previewUrl}>JPG</button><button onClick={() => exportRaster("png")} disabled={!previewUrl}>PNG</button><button onClick={() => void openLegacyPlot()} disabled={!sources.length}>SVG</button></div><button className="wide-action" onClick={() => void saveProject()} disabled={busy || !sources.length}><Save size={15} /> 프로젝트 저장</button><button className="wide-action primary" onClick={() => void openLegacyPlot()} disabled={busy || !sources.length}><Download size={15} /> 일괄 저장</button></section>
             </>
@@ -1036,7 +1225,7 @@ export function InteractivePlotWindow() {
               const expanded = effectKeys.length > 0 && expandedLayers.has(vowel);
               return (
                 <div
-                  className={`layer-row visibility-${visibility.toLowerCase()} ${selectedLayer === vowel ? "is-selected" : ""} ${draggingLayer === vowel ? "is-dragging" : ""} ${dropTarget?.vowel === vowel ? dropTarget.after ? "drop-after" : "drop-before" : ""}`}
+                  className={`layer-row visibility-${visibility.toLowerCase()} ${selectedLayers.has(vowel) ? "is-selected" : ""} ${draggingLayer === vowel ? "is-dragging" : ""} ${dropTarget?.vowel === vowel ? dropTarget.after ? "drop-after" : "drop-before" : ""}`}
                   key={vowel}
                   data-layer-vowel={vowel}
                   ref={(element) => { if (element) layerRowRefs.current.set(vowel, element); else layerRowRefs.current.delete(vowel); }}
@@ -1045,7 +1234,7 @@ export function InteractivePlotWindow() {
                     <button type="button" className="layer-drag-handle" onPointerDown={(event) => beginLayerDrag(event, vowel)} onPointerMove={moveLayerDrag} onPointerUp={commitLayerDrag} onPointerCancel={cancelLayerDrag} onKeyDown={(event) => { if (event.key === "ArrowUp" || event.key === "ArrowDown") { event.preventDefault(); moveLayerByStep(vowel, event.key === "ArrowUp" ? -1 : 1); } }} aria-label={`${vowel} 레이어 순서 이동`} title="끌어서 이동 · 방향키로 한 칸 이동"><GripVertical size={15} /></button>
                     <button type="button" className="layer-visibility" onClick={() => toggleLayerEye(vowel)} title={visibility === "OFF" ? "레이어 표시" : "레이어 숨기기"}>{visibility === "OFF" ? <EyeOff size={15} /> : <Eye size={15} />}</button>
                     <button type="button" className={`layer-semi ${visibility === "SEMI" ? "is-active" : ""}`} onClick={() => toggleLayerSemi(vowel)}>반투명</button>
-                    <button type="button" className="layer-name" onClick={() => setSelectedLayer(vowel)}><strong>{vowel}</strong></button>
+                    <button type="button" className="layer-name" onMouseDown={(event) => { if (event.button === 0) event.preventDefault(); }} onClick={(event) => selectLayer(vowel, event)}><strong>{vowel}</strong></button>
                     {effectKeys.length ? <button type="button" className={`layer-expand ${expanded ? "is-expanded" : ""}`} onClick={() => setExpandedLayers((previous) => { const next = new Set(previous); if (next.has(vowel)) next.delete(vowel); else next.add(vowel); return next; })} aria-label={`${vowel} 디자인 변경 내역 ${expanded ? "접기" : "펼치기"}`}><ChevronDown size={14} /><span>{effectKeys.length}</span></button> : null}
                     <button type="button" className="layer-lock" onClick={() => void toggleLock(vowel)} aria-label={locked ? `${vowel} 레이어 잠금 해제` : `${vowel} 레이어 잠금`}>{locked ? <Lock size={14} /> : <Unlock size={14} />}</button>
                   </div>
@@ -1097,6 +1286,7 @@ export function InteractivePlotWindow() {
         </div>
         )}
       </aside>
+      {vowelAnalysisOpen ? <VowelAnalysisShell currentSource={currentSource} sources={sources} currentIndex={currentIndex} onNavigate={(index) => void navigateTo(index)} onClose={() => setVowelAnalysisOpen(false)} /> : null}
     </main>
   );
 }

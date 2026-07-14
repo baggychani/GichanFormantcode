@@ -115,6 +115,12 @@ class _BlockingRenderService:
     def prepare_interactive_preview(self, options):
         return {"request_id": options.get("request_id")}
 
+    def prepare_interactive_navigation(self, index, options):
+        return {
+            "state": {"current_index": index},
+            "prepared": {"request_id": options.get("request_id")},
+        }
+
     def render_prepared_interactive_preview(self, prepared):
         self.started.set()
         self.release.wait(2)
@@ -144,6 +150,24 @@ def test_host_accepts_render_without_blocking_followup_health():
             host.handle_message('{"v":1,"id":"h","method":"health","params":{}}')
         )
         assert health["result"]["ok"] is True
+    finally:
+        service.release.set()
+        host.close()
+
+
+def test_host_accepts_navigate_interactive_preview():
+    service = _BlockingRenderService()
+    host = SidecarHost(service=service)
+    try:
+        response = json.loads(
+            host.handle_message(
+                '{"v":1,"id":"n","method":"navigate_interactive_preview",'
+                '"params":{"index":2,"options":{"request_id":5}}}'
+            )
+        )
+        assert response["result"]["state"]["current_index"] == 2
+        assert response["result"]["render"]["accepted"] is True
+        assert response["result"]["render"]["request_id"] == 5
     finally:
         service.release.set()
         host.close()

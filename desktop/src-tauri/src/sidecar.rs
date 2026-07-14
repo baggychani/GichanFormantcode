@@ -391,7 +391,7 @@ fn timeout_for_method(method: &str) -> Duration {
         // Preparation crosses the Qt executor and the isolated renderer may
         // need a cold font-cache start. Keep this aligned with Python's
         // renderer watchdog so a request cannot become an orphaned preview.
-        "render_interactive_preview" => Duration::from_secs(125),
+        "render_interactive_preview" | "navigate_interactive_preview" => Duration::from_secs(125),
         "ping" | "health" | "get_state" | "snapshot" => Duration::from_secs(8),
         _ => Duration::from_secs(15),
     }

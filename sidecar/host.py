@@ -144,6 +144,8 @@ class SidecarHost:
             return {"ok": True}
         if method in {"get_state", "snapshot"}:
             return self.service.snapshot()
+        if method == "get_vowel_analysis":
+            return self.service.get_vowel_analysis(int(params["index"]))
         if method == "set_analysis_settings":
             return self.service.set_analysis_settings(params["settings"])
         if method == "load_files":
@@ -183,29 +185,52 @@ class SidecarHost:
         if method == "update_interactive_session":
             return self.service.update_interactive_session(params["options"])
         if method == "render_interactive_preview":
+            prepared = self._prepare_interactive_render(params["options"])
+            return self._submit_interactive_render(prepared)
+        if method == "navigate_interactive_preview":
             try:
-                prepared = self.service.prepare_interactive_preview(params["options"])
+                result = self.service.prepare_interactive_navigation(
+                    int(params["index"]), params["options"]
+                )
+                prepared = result["prepared"]
             except Exception as exc:
-                # Preparation runs before the async renderer.  Surface errors
-                # through the same preview channel as worker failures so the
-                # React window never waits silently for an image that cannot
-                # be produced.
                 self.service.publish_preview_error(
                     str(exc),
                     target="interactive",
                     request_id=params["options"].get("request_id"),
                 )
                 raise
-            job_id = uuid.uuid4().hex
-            self._render_scheduler.submit(RenderJob(job_id, prepared))
             return {
-                "ok": True,
-                "accepted": True,
-                "job_id": job_id,
-                "request_id": prepared.get("request_id"),
-                "revision": prepared.get("revision"),
+                "state": result["state"],
+                "render": self._submit_interactive_render(prepared),
             }
         raise ProtocolError("unknown_method", f"unknown method {method!r}")
+
+    def _prepare_interactive_render(self, options: dict[str, Any]) -> dict[str, Any]:
+        try:
+            return self.service.prepare_interactive_preview(options)
+        except Exception as exc:
+            # Preparation runs before the async renderer.  Surface errors
+            # through the same preview channel as worker failures so the
+            # React window never waits silently for an image that cannot
+            # be produced.
+            self.service.publish_preview_error(
+                str(exc),
+                target="interactive",
+                request_id=options.get("request_id"),
+            )
+            raise
+
+    def _submit_interactive_render(self, prepared: dict[str, Any]) -> dict[str, Any]:
+        job_id = uuid.uuid4().hex
+        self._render_scheduler.submit(RenderJob(job_id, prepared))
+        return {
+            "ok": True,
+            "accepted": True,
+            "job_id": job_id,
+            "request_id": prepared.get("request_id"),
+            "revision": prepared.get("revision"),
+        }
 
     def _on_render_result(self, _job: RenderJob, result: Any) -> None:
         self.service.publish_interactive_render_result(result)

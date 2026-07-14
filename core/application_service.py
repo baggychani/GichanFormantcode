@@ -20,7 +20,10 @@ from core.interactive_plot_state import (
     PlotSessionState,
     validate_interactive_options,
 )
-from core.interactive_render_worker import IsolatedInteractiveRenderer
+from core.interactive_render_worker import InteractiveRenderer
+from utils.math_utils import compute_x_raw
+from utils.pillai_stats import calculate_pillai_score
+from utils.vowel_stats import analyze_vowels, calculate_pairwise_mahalanobis_distances
 
 
 class ApplicationService:
@@ -29,7 +32,7 @@ class ApplicationService:
     def __init__(self, controller, events: ApplicationEventBus | None = None):
         self.controller = controller
         self.events = events or ApplicationEventBus()
-        self._interactive_renderer = IsolatedInteractiveRenderer()
+        self._interactive_renderer = InteractiveRenderer()
         self._preview_dir = (
             Path(tempfile.gettempdir())
             / "GichanFormant"
@@ -89,6 +92,56 @@ class ApplicationService:
                 "can_compare": real_count >= 2,
                 "can_save_project": real_count > 0,
             },
+        }
+
+    def get_vowel_analysis(self, index: int) -> dict[str, Any]:
+        """Return structured vowel statistics for the React analysis surface."""
+        item = self.controller.get_data_item_at(index)
+        if item is None:
+            raise ApplicationError("file_not_found", "분석할 파일을 찾을 수 없습니다.")
+        dataframe = item.get("df")
+        if dataframe is None or dataframe.empty:
+            return {"index": index, "name": item.get("name", ""), "statistics": {}, "metadata": {"total_points": 0, "vowel_count": 0}}
+        label_col = "Label" if "Label" in dataframe.columns else "label"
+        if label_col not in dataframe.columns or "F1" not in dataframe.columns or "F2" not in dataframe.columns:
+            raise ApplicationError("analysis_columns_missing", "F1, F2, Label 열이 필요합니다.")
+        settings = self.controller.get_analysis_settings()
+        if settings.normalization and hasattr(self.controller, "_normalize_dataframe"):
+            dataframe = self.controller._normalize_dataframe(dataframe, settings.normalization, item)
+        x_values = compute_x_raw(dataframe, settings.plot_type)
+        working = dataframe[[label_col, "F1"]].copy()
+        working["analysis_x"] = x_values
+        result = analyze_vowels(working, x_col="analysis_x", y_col="F1", label_col=label_col)
+        statistics = result.get("statistics", {})
+        labels = [str(label) for label in statistics]
+        pairwise_euclidean = {}
+        for left_index, left in enumerate(labels):
+            for right in labels[left_index + 1 :]:
+                left_stat = statistics[left]
+                right_stat = statistics[right]
+                pairwise_euclidean[f"{left}::{right}"] = float(((left_stat["x_mean"] - right_stat["x_mean"]) ** 2 + (left_stat["y_mean"] - right_stat["y_mean"]) ** 2) ** 0.5)
+        pairwise_mahalanobis = calculate_pairwise_mahalanobis_distances(working, x_col="analysis_x", y_col="F1", label_col=label_col)
+        pillai_scores = {}
+        for left_index, left in enumerate(labels):
+            left_coords = working[working[label_col].astype(str) == left][["analysis_x", "F1"]].dropna().to_numpy(dtype=float)
+            for right in labels[left_index + 1 :]:
+                right_coords = working[working[label_col].astype(str) == right][["analysis_x", "F1"]].dropna().to_numpy(dtype=float)
+                score, p_value = calculate_pillai_score(left_coords, right_coords)
+                pillai_scores[f"{left}::{right}"] = {"score": score, "p_value": p_value}
+        return {
+            "index": index,
+            "name": item.get("name", ""),
+            "x_label": "F2" if settings.plot_type == "f1_f2" else settings.plot_type,
+            "y_label": "F1",
+            "normalization": settings.normalization,
+            "statistics": result.get("statistics", {}),
+            "centroid": list(result.get("centroid") or (None, None)),
+            "centroid_distances": result.get("centroid_distances", {}),
+            "pairwise_euclidean": pairwise_euclidean,
+            "pairwise_mahalanobis": {f"{left}::{right}": value.get("distance") for (left, right), value in pairwise_mahalanobis.items()},
+            "pillai_scores": pillai_scores,
+            "point_distances": result.get("point_distances", {}),
+            "metadata": result.get("metadata", {}),
         }
 
     def set_analysis_settings(self, raw: Mapping[str, Any]) -> dict[str, Any]:
@@ -161,6 +214,16 @@ class ApplicationService:
         self._plot_session().current_idx = self.controller.get_current_index()
         state = self._emit_state("current_file_changed")
         return state
+
+    def prepare_interactive_navigation(
+        self, index: int, raw: Mapping[str, Any]
+    ) -> dict[str, Any]:
+        """Move to a file and prepare its interactive render in one UI-thread hop."""
+        self.controller.set_current_index(index)
+        self._plot_session().current_idx = self.controller.get_current_index()
+        prepared = self.prepare_interactive_preview(raw)
+        state = self._emit_state("current_file_changed")
+        return {"state": state, "prepared": prepared}
 
     def reset(self) -> dict[str, Any]:
         self.controller.reset_data()
@@ -278,15 +341,7 @@ class ApplicationService:
             design["ell_color"] = None
             design["ell_fill_color"] = None
 
-        data_snapshot = {}
-        for key, value in current_data.items():
-            if hasattr(value, "copy"):
-                try:
-                    data_snapshot[key] = value.copy(deep=True)
-                except TypeError:
-                    data_snapshot[key] = deepcopy(value)
-            else:
-                data_snapshot[key] = value
+        data_snapshot = self._interactive_render_data(current_data)
         return {
             "empty": False,
             "current_data": data_snapshot,
@@ -311,6 +366,26 @@ class ApplicationService:
             "request_id": options.get("request_id"),
             "revision": session.revision,
         }
+
+    @staticmethod
+    def _interactive_render_data(current_data: Mapping[str, Any]) -> dict[str, Any]:
+        """Return only the fields the interactive renderer needs.
+
+        Carrying ``df_original`` across the preview boundary is unnecessary
+        for drawing and used to add an avoidable deep copy to navigation.
+        """
+        snapshot: dict[str, Any] = {}
+        for key in (
+            "name",
+            "df",
+            "has_f3",
+            "is_pre_lobanov",
+            "is_combined",
+            "combined_source_names",
+        ):
+            if key in current_data:
+                snapshot[key] = current_data[key]
+        return snapshot
 
     def render_prepared_interactive_preview(
         self, prepared: Mapping[str, Any]

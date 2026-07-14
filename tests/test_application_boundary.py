@@ -167,6 +167,31 @@ def test_preview_event_is_json_safe():
     service.close()
 
 
+def test_interactive_preview_preparation_sends_only_render_data():
+    controller, _view = _headless_controller()
+    service = ApplicationService(controller)
+    df = pd.DataFrame({"F1": [500.0], "F2": [1500.0], "Label": ["a"]})
+    controller.filepaths = ["C:/data/a.csv"]
+    controller.plot_data_list = [
+        {
+            "name": "a.csv",
+            "df": df,
+            "df_original": df.copy(),
+            "has_f3": False,
+            "is_pre_lobanov": False,
+        }
+    ]
+
+    prepared = service.prepare_interactive_preview({"request_id": 7})
+
+    current_data = prepared["current_data"]
+    assert current_data["df"] is df
+    assert "df_original" not in current_data
+    assert current_data["name"] == "a.csv"
+    assert prepared["request_id"] == 7
+    service.close()
+
+
 @pytest.mark.parametrize(
     ("method_name", "service_call", "error_code"),
     [
