@@ -25,6 +25,40 @@ type PendingRequest = (
     Arc<Mutex<PendingMap>>,
 );
 
+/// Incrementally split the sidecar's NDJSON stream.
+///
+/// `tauri-plugin-shell` delivers arbitrary stdout chunks, not logical lines.
+/// Parsing each chunk as JSON loses messages whenever a JSON document is split
+/// across chunks (or several documents arrive together), which in turn leaves
+/// pending IPC calls waiting until their timeout.
+#[derive(Default)]
+struct NdjsonChunkBuffer {
+    bytes: Vec<u8>,
+}
+
+impl NdjsonChunkBuffer {
+    fn push(&mut self, chunk: &[u8]) -> Vec<String> {
+        self.bytes.extend_from_slice(chunk);
+        let mut lines = Vec::new();
+        while let Some(newline) = self.bytes.iter().position(|byte| *byte == b'\n') {
+            let mut line: Vec<u8> = self.bytes.drain(..=newline).collect();
+            line.pop(); // newline
+            if line.last() == Some(&b'\r') {
+                line.pop();
+            }
+            match String::from_utf8(line) {
+                Ok(line) => lines.push(line),
+                Err(error) => lines.push(format!("{{\"event\":\"sidecar-log\",\"payload\":{{\"message\":\"invalid utf-8 stdout: {error}\"}}}}")),
+            }
+        }
+        // A malformed sidecar must not grow desktop memory without bound.
+        if self.bytes.len() > 8 * 1024 * 1024 {
+            self.bytes.clear();
+        }
+        lines
+    }
+}
+
 // Starting the desktop sidecar imports Python, PySide6, matplotlib, and the
 // application service.  On a first run (or a slower Windows machine) that can
 // exceed the old eight-second health check even though the child is healthy.
@@ -240,13 +274,14 @@ fn ensure_running(app: &AppHandle, state: &SidecarState) -> Result<(), String> {
         let reader_pending = Arc::clone(&pending);
         let reader_running = Arc::clone(&running);
         tauri::async_runtime::spawn(async move {
+            let mut stdout_buffer = NdjsonChunkBuffer::default();
             while let Some(event) = events.recv().await {
                 match event {
-                    CommandEvent::Stdout(bytes) => handle_sidecar_output(
-                        &reader_app,
-                        &String::from_utf8_lossy(&bytes),
-                        &reader_pending,
-                    ),
+                    CommandEvent::Stdout(bytes) => {
+                        for line in stdout_buffer.push(&bytes) {
+                            handle_sidecar_output(&reader_app, &line, &reader_pending);
+                        }
+                    }
                     CommandEvent::Stderr(bytes) => {
                         let line = String::from_utf8_lossy(&bytes).trim().to_string();
                         if !line.is_empty() {
@@ -349,6 +384,54 @@ fn call_sidecar(
     }
 }
 
+fn timeout_for_method(method: &str) -> Duration {
+    match method {
+        "load_files" | "load_project" | "save_project" => Duration::from_secs(120),
+        "open_single_plot" | "open_compare" | "open_guide" => Duration::from_secs(30),
+        // Preparation crosses the Qt executor and the isolated renderer may
+        // need a cold font-cache start. Keep this aligned with Python's
+        // renderer watchdog so a request cannot become an orphaned preview.
+        "render_interactive_preview" => Duration::from_secs(125),
+        "ping" | "health" | "get_state" | "snapshot" => Duration::from_secs(8),
+        _ => Duration::from_secs(15),
+    }
+}
+
+fn is_idempotent_method(method: &str) -> bool {
+    matches!(method, "ping" | "health" | "get_state" | "snapshot")
+}
+
+fn is_transport_error(error: &str) -> bool {
+    error.contains("sidecar output closed")
+        || error.contains("sidecar is not running")
+        || error.contains("failed to write")
+        || error.contains("timed out waiting")
+}
+
+fn call_with_recovery(
+    app: &AppHandle,
+    state: &SidecarState,
+    method: &str,
+    params: Value,
+) -> Result<Value, String> {
+    ensure_running(app, state)?;
+    let timeout = timeout_for_method(method);
+    match call_sidecar(state, method, params.clone(), timeout) {
+        Ok(value) => Ok(value),
+        Err(first_error) if is_idempotent_method(method) && is_transport_error(&first_error) => {
+            state.stop()?;
+            ensure_running(app, state)?;
+            call_sidecar(state, method, params, timeout).map_err(|retry_error| {
+                format!(
+                    "sidecar method '{method}' failed after one safe restart; \
+                     initial attempt: {first_error}; retry: {retry_error}"
+                )
+            })
+        }
+        Err(error) => Err(error),
+    }
+}
+
 fn ensure_healthy(app: &AppHandle, state: &SidecarState) -> Result<Value, String> {
     ensure_running(app, state)?;
     match call_sidecar(state, "health", json!({}), SIDECAR_STARTUP_TIMEOUT) {
@@ -388,12 +471,11 @@ pub async fn sidecar_call(
     let worker_app = app.clone();
     tauri::async_runtime::spawn_blocking(move || {
         let state = worker_app.state::<SidecarState>();
-        ensure_running(&worker_app, &state)?;
-        call_sidecar(
+        call_with_recovery(
+            &worker_app,
             &state,
             &method,
             params.unwrap_or_else(|| json!({})),
-            Duration::from_secs(60),
         )
     })
     .await
@@ -456,5 +538,20 @@ impl WaitTimeout for Child {
             }
             thread::sleep(Duration::from_millis(50));
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::NdjsonChunkBuffer;
+
+    #[test]
+    fn reconstructs_split_and_coalesced_ndjson_chunks() {
+        let mut buffer = NdjsonChunkBuffer::default();
+        assert!(buffer.push(br#"{"id":"a","res"#).is_empty());
+        assert_eq!(
+            buffer.push(b"ult\":1}\n{\"id\":\"b\"}\n"),
+            vec![r#"{"id":"a","result":1}"#, r#"{"id":"b"}"#]
+        );
     }
 }

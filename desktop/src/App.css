@@ -591,6 +591,64 @@ input:disabled {
   line-height: 1.15;
 }
 
+.interactive-headline {
+  cursor: default;
+}
+
+.headline-reel {
+  position: relative;
+  display: block;
+  overflow: hidden;
+  height: 1.15em;
+}
+
+.reel-line {
+  display: block;
+  white-space: nowrap;
+}
+
+.reel-line.is-outgoing {
+  position: absolute;
+  inset: 0 auto auto 0;
+}
+
+.reel-char {
+  display: inline-block;
+  transform-origin: center bottom;
+}
+
+.headline-reel.is-animating .reel-line.is-outgoing .reel-char {
+  animation: headline-reel-out 420ms cubic-bezier(0.22, 1, 0.36, 1) forwards;
+  animation-delay: calc(var(--reel-i) * 22ms);
+}
+
+.headline-reel.is-animating .reel-line.is-incoming .reel-char {
+  animation: headline-reel-in 420ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation-delay: calc(var(--reel-i) * 22ms);
+}
+
+@keyframes headline-reel-out {
+  from {
+    transform: translateY(0);
+    opacity: 1;
+  }
+  to {
+    transform: translateY(118%);
+    opacity: 0;
+  }
+}
+
+@keyframes headline-reel-in {
+  from {
+    transform: translateY(-118%);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
 .intro-copy p {
   max-width: 480px;
   margin: 0;
@@ -1274,11 +1332,13 @@ html[data-theme="light"] .orbit-b {
 
 .field-grid {
   display: grid;
-  gap: 8px;
+  gap: 10px;
 }
 
-.field-grid.two-up {
-  grid-template-columns: 1fr 1fr;
+.scale-field {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
 }
 
 .select-field {
@@ -1292,18 +1352,22 @@ html[data-theme="light"] .orbit-b {
   color: var(--gf-text-tertiary);
   font-size: 11px;
   font-weight: 620;
+  line-height: 1.35;
+  white-space: nowrap;
 }
 
 .select-field select {
   width: 100%;
-  height: 39px;
-  padding: 0 28px 0 9px;
+  min-width: 0;
+  height: 40px;
+  box-sizing: border-box;
+  padding: 0 30px 0 11px;
   border: 1px solid var(--gf-border-subtle);
   border-radius: var(--gf-radius-sm);
   outline: none;
   background: var(--gf-surface-input);
   color: var(--gf-text-secondary);
-  font-size: 12px;
+  font-size: 12.5px;
 }
 
 .select-field select:hover:not(:disabled) {

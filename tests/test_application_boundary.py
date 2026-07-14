@@ -1,5 +1,5 @@
 import json
-import base64
+from pathlib import Path
 
 import pandas as pd
 import pytest
@@ -41,6 +41,17 @@ def test_analysis_settings_roundtrip_and_plot_params():
     params = settings.to_plot_params()
     assert params["type"] == "f1_f3"
     assert params["f1_unit"] == "Bark"
+    assert params["f2_unit"] == "Hz"
+
+
+def test_default_axis_scales_keep_bark_scale_but_display_hz():
+    settings = AnalysisSettings.from_mapping({})
+
+    assert settings.f1_scale == "linear"
+    assert settings.f2_scale == "bark"
+    assert settings.use_bark_units is False
+    params = settings.to_plot_params()
+    assert params["f1_unit"] == "Hz"
     assert params["f2_unit"] == "Hz"
 
 
@@ -150,9 +161,10 @@ def test_preview_event_is_json_safe():
     service.publish_preview(b"png-data", "speaker\nF1 / F2")
 
     payload = previews[-1].payload
-    assert base64.b64decode(payload["png_base64"]) == b"png-data"
+    assert Path(payload["png_path"]).read_bytes() == b"png-data"
     assert payload["info"] == "speaker\nF1 / F2"
     json.dumps(previews[-1].to_dict(), ensure_ascii=False)
+    service.close()
 
 
 @pytest.mark.parametrize(

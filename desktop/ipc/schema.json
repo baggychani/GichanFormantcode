@@ -42,6 +42,14 @@
         "index"
       ]
     },
+    "set_current_index": {
+      "params": {
+        "index": "int"
+      },
+      "required": [
+        "index"
+      ]
+    },
     "reset": {
       "params": {}
     },
@@ -77,7 +85,25 @@
       "params": {}
     },
     "request_preview": {
-      "params": {}
+      "params": {
+        "request_id": "int"
+      }
+    },
+    "update_interactive_session": {
+      "params": {
+        "options": "interactive_options"
+      },
+      "required": [
+        "options"
+      ]
+    },
+    "render_interactive_preview": {
+      "params": {
+        "options": "interactive_options"
+      },
+      "required": [
+        "options"
+      ]
     }
   },
   "events": [
@@ -89,6 +115,7 @@
     "preview_ready",
     "preview_cleared",
     "preview_failed",
+    "plot_session_changed",
     "window_requested",
     "operation_failed",
     "sidecar_ready",
@@ -129,6 +156,9 @@
       "normalization"
     ],
     "current_index": "int",
+    "current_vowels": "string[]",
+    "design_defaults": "object",
+    "plot_session": "object",
     "sources": [
       "index",
       "name",

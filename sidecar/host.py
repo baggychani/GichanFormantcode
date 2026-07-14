@@ -25,6 +25,7 @@ from core.ipc.protocol import (
     validate_params,
 )
 from core.runtime_port import HeadlessRuntime
+from core.render_scheduler import LatestRenderScheduler, RenderJob
 from core.view_port import NullMainView
 
 
@@ -60,15 +61,26 @@ class SidecarHost:
             service = controller.application_service
         self.service = service
         self._unsubscribe = self.service.events.subscribe("*", self._on_event)
+        self._render_scheduler = LatestRenderScheduler(
+            self.service.render_prepared_interactive_preview,
+            self._on_render_result,
+            self._on_render_error,
+        )
 
     @classmethod
     def create_headless(cls, **kwargs: Any) -> "SidecarHost":
         return cls(headless=True, **kwargs)
 
     def close(self) -> None:
+        if self._render_scheduler is not None:
+            self._render_scheduler.close()
+            self._render_scheduler = None
         if self._unsubscribe is not None:
             self._unsubscribe()
             self._unsubscribe = None
+        close_service = getattr(self.service, "close", None)
+        if callable(close_service):
+            close_service()
 
     def health(self) -> dict[str, Any]:
         return {
@@ -138,13 +150,17 @@ class SidecarHost:
             return self.service.load_files(list(params["paths"]))
         if method == "remove_file":
             return self.service.remove_file(int(params["index"]))
+        if method == "set_current_index":
+            return self.service.set_current_index(int(params["index"]))
         if method == "reset":
             return self.service.reset()
         if method == "save_project":
             self.service.save_project(str(params["path"]))
             return {"ok": True, "path": params["path"]}
         if method == "load_project":
-            return self.service.load_project(str(params["path"]))
+            return self.service.load_project(
+                str(params["path"]), restore_windows=False
+            )
         if method == "open_single_plot":
             self.service.open_single_plot()
             return {"ok": True}
@@ -158,13 +174,49 @@ class SidecarHost:
             self.service.open_guide()
             return {"ok": True}
         if method == "request_preview":
-            self.service.request_preview()
+            self.service.request_preview(params.get("request_id"))
             runtime = getattr(self.service.controller, "runtime", None)
             for debouncer in getattr(runtime, "debouncers", []):
                 if hasattr(debouncer, "fire"):
                     debouncer.fire()
             return {"ok": True}
+        if method == "update_interactive_session":
+            return self.service.update_interactive_session(params["options"])
+        if method == "render_interactive_preview":
+            try:
+                prepared = self.service.prepare_interactive_preview(params["options"])
+            except Exception as exc:
+                # Preparation runs before the async renderer.  Surface errors
+                # through the same preview channel as worker failures so the
+                # React window never waits silently for an image that cannot
+                # be produced.
+                self.service.publish_preview_error(
+                    str(exc),
+                    target="interactive",
+                    request_id=params["options"].get("request_id"),
+                )
+                raise
+            job_id = uuid.uuid4().hex
+            self._render_scheduler.submit(RenderJob(job_id, prepared))
+            return {
+                "ok": True,
+                "accepted": True,
+                "job_id": job_id,
+                "request_id": prepared.get("request_id"),
+                "revision": prepared.get("revision"),
+            }
         raise ProtocolError("unknown_method", f"unknown method {method!r}")
+
+    def _on_render_result(self, _job: RenderJob, result: Any) -> None:
+        self.service.publish_interactive_render_result(result)
+
+    def _on_render_error(self, job: RenderJob, error: Exception) -> None:
+        request_id = None
+        if isinstance(job.payload, dict):
+            request_id = job.payload.get("request_id")
+        self.service.publish_preview_error(
+            str(error), target="interactive", request_id=request_id
+        )
 
     def emit_raw(self, name: str, payload: dict[str, Any] | None = None) -> None:
         self._write_line(encode_event(name, payload))

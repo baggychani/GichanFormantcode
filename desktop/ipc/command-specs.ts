@@ -39,6 +39,14 @@ export const COMMAND_SPECS = {
       "index"
     ]
   },
+  "set_current_index": {
+    "params": {
+      "index": "int"
+    },
+    "required": [
+      "index"
+    ]
+  },
   "reset": {
     "params": {}
   },
@@ -74,6 +82,24 @@ export const COMMAND_SPECS = {
     "params": {}
   },
   "request_preview": {
-    "params": {}
+    "params": {
+      "request_id": "int"
+    }
+  },
+  "update_interactive_session": {
+    "params": {
+      "options": "interactive_options"
+    },
+    "required": [
+      "options"
+    ]
+  },
+  "render_interactive_preview": {
+    "params": {
+      "options": "interactive_options"
+    },
+    "required": [
+      "options"
+    ]
   }
 } as const;

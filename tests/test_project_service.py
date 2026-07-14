@@ -7,6 +7,7 @@ from core.controller import MainController
 from core.application_state import AnalysisSettings
 from core.compare_series import CompareSession
 from core.project_service import load_project, save_project
+from core.interactive_plot_state import PlotSessionState
 from draw.draw_common import LineObject
 
 
@@ -171,6 +172,31 @@ def test_project_save_load_roundtrip(tmp_path):
     assert project["single_plot"]["vowel_filter_state_by_file"][0]["a"] == "ON"
     assert project["single_plot"]["layer_locked_vowels_by_file"][0] == ["a"]
     assert project["single_plot"]["draw_objects_by_file"][0][0].type == "line"
+
+
+def test_project_save_without_popup_persists_canonical_plot_session(tmp_path):
+    controller = _FakeController()
+    controller.plot_session_state = PlotSessionState()
+    controller.plot_session_state.apply(
+        {
+            "sigma": "3",
+            "design": {"lbl_size": 22},
+            "filter_state": {"a": "OFF"},
+            "layer_order": ["a"],
+            "locked_layers": ["a"],
+        },
+        0,
+    )
+    path = tmp_path / "react-session.gfproj"
+
+    save_project(str(path), controller)
+    project = load_project(str(path))
+    restored = PlotSessionState.from_project_dict(project["single_plot"])
+
+    assert restored.sigma == "3"
+    assert restored.design_settings["lbl_size"] == 22
+    assert restored.vowel_filter_state_by_file[0]["a"] == "OFF"
+    assert restored.layer_locked_vowels_by_file[0] == ["a"]
 
 
 def test_compare_session_save_load_roundtrip(tmp_path):

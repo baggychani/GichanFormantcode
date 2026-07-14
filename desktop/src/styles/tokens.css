@@ -1,5 +1,37 @@
 /** GichanFormant desktop design tokens. */
 
+@font-face {
+  font-family: "Charis SIL";
+  src: url("/fonts/CharisSIL-Regular.ttf") format("truetype");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Charis SIL";
+  src: url("/fonts/CharisSIL-Bold.ttf") format("truetype");
+  font-weight: 600 700;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Andika";
+  src: url("/fonts/Andika-Regular.ttf") format("truetype");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Andika";
+  src: url("/fonts/Andika-SemiBold.ttf") format("truetype");
+  font-weight: 600;
+  font-style: normal;
+  font-display: swap;
+}
+
  :root {
   color-scheme: light;
 
@@ -48,6 +80,8 @@
   --gf-settings-width: 340px;
 
   --gf-font-sans: "Pretendard Variable", "Pretendard", "Noto Sans KR", "Malgun Gothic", "Segoe UI Variable", "Segoe UI", sans-serif;
+  /* IPA-capable stack (bundled Charis SIL / Andika — same as plot labels). */
+  --gf-font-ipa: "Charis SIL", "Andika", "Noto Sans", "Segoe UI Symbol", "Lucida Sans Unicode", "Arial Unicode MS", sans-serif;
   /* Latin mono first; Hangul must fall back to a real CJK face (never Gulim). */
   --gf-font-mono: "Cascadia Code", "Cascadia Mono", Consolas, "Pretendard", "Noto Sans KR", "Malgun Gothic", monospace;
   --gf-text-xs: 11px;

@@ -1,0 +1,13 @@
+# Keep cross-platform source diffs meaningful.  Git may check files out with
+# platform defaults, but these repository formats are always stored as LF.
+*.py       text eol=lf
+*.toml     text eol=lf
+*.lock     text eol=lf
+*.json     text eol=lf
+*.ts       text eol=lf
+*.tsx      text eol=lf
+*.css      text eol=lf
+*.rs       text eol=lf
+*.md       text eol=lf
+*.yml      text eol=lf
+*.yaml     text eol=lf

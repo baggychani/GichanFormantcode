@@ -1,9 +1,9 @@
 import "./App.css";
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { invoke } from "@tauri-apps/api/core";
-import { listen } from "@tauri-apps/api/event";
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { convertFileSrc, invoke } from "@tauri-apps/api/core";
+import { emit, listen } from "@tauri-apps/api/event";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
-import { open } from "@tauri-apps/plugin-dialog";
+import { open, save } from "@tauri-apps/plugin-dialog";
 import {
   Activity,
   ArrowUpRight,
@@ -22,6 +22,7 @@ import {
   PanelRightOpen,
   Plus,
   RotateCcw,
+  Save,
   SlidersHorizontal,
   Sparkles,
   Sun,
@@ -29,9 +30,14 @@ import {
   X,
 } from "lucide-react";
 import type { ApplicationState, HealthStatus } from "../ipc/protocol";
+import { callSidecar } from "./sidecarClient";
 import appIconUrl from "../../assets/icon.ico";
 import { DataGuide } from "./components/DataGuide";
-import { InteractivePlotWindow } from "./components/InteractivePlotWindow";
+
+const InteractivePlotWindow = lazy(async () => {
+  const module = await import("./components/InteractivePlotWindow");
+  return { default: module.InteractivePlotWindow };
+});
 
 type SidecarEvent = {
   event: string;
@@ -64,7 +70,7 @@ const PLOT_TYPES: Array<{
     id: "f1_f2_minus_f1",
     label: "청각적 거리",
     description: "F2−F1 차이로 모음 사이의 거리를 살펴봅니다.",
-    short: "F2−F1",
+    short: "F1·F2−F1",
   },
   {
     id: "f1_f3",
@@ -77,14 +83,14 @@ const PLOT_TYPES: Array<{
     id: "f1_f2_prime",
     label: "유효 F2 공간",
     description: "F2′ 값을 사용해 지각적 모음 공간을 그립니다.",
-    short: "F2′",
+    short: "F1·F2′",
     needsF3: true,
   },
   {
     id: "f1_f2_prime_minus_f1",
     label: "유효 F2 거리",
     description: "F2′−F1 차이로 지각적 거리를 살펴봅니다.",
-    short: "F2′−F1",
+    short: "F1·F2′−F1",
     needsF3: true,
   },
 ];
@@ -102,13 +108,6 @@ const scaleLabel = (value?: string) => {
   if (value === "bark") return "Bark";
   return "선형";
 };
-
-async function callSidecar<T>(
-  method: string,
-  params: Record<string, unknown> = {},
-): Promise<T> {
-  return invoke<T>("sidecar_call", { method, params });
-}
 
 function EmptyVisualization() {
   return (
@@ -175,7 +174,65 @@ function EmptyVisualization() {
   );
 }
 
+function ReelLine({
+  text,
+  tone,
+}: {
+  text: string;
+  tone: "static" | "incoming" | "outgoing";
+}) {
+  return (
+    <span className={`reel-line is-${tone}`} aria-hidden={tone !== "static"}>
+      {Array.from(text).map((character, index) => (
+        <span
+          key={`${tone}-${character}-${index}`}
+          className="reel-char"
+          style={{ ["--reel-i" as string]: index }}
+        >
+          {character === " " ? "\u00a0" : character}
+        </span>
+      ))}
+    </span>
+  );
+}
+
+function InteractiveHeadline({ text }: { text: string }) {
+  const [current, setCurrent] = useState(text);
+  const [outgoing, setOutgoing] = useState<string | null>(null);
+  const currentRef = useRef(text);
+
+  useEffect(() => {
+    if (text === currentRef.current) return;
+
+    const previous = currentRef.current;
+    currentRef.current = text;
+    setOutgoing(previous);
+    setCurrent(text);
+
+    const staggerMs = 22;
+    const duration = 380 + Math.max(previous.length, text.length) * staggerMs;
+    const done = window.setTimeout(() => setOutgoing(null), duration);
+    return () => window.clearTimeout(done);
+  }, [text]);
+
+  return (
+    <h1 className="interactive-headline" aria-label={text}>
+      <span className={`headline-reel ${outgoing ? "is-animating" : ""}`}>
+        {outgoing ? (
+          <>
+            <ReelLine text={current} tone="incoming" />
+            <ReelLine text={outgoing} tone="outgoing" />
+          </>
+        ) : (
+          <ReelLine text={current} tone="static" />
+        )}
+      </span>
+    </h1>
+  );
+}
+
 function MainWorkspace() {
+  const aliveRef = useRef(true);
   const [health, setHealth] = useState<HealthStatus | null>(null);
   const [state, setState] = useState<ApplicationState | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
@@ -183,6 +240,8 @@ function MainWorkspace() {
   const [status, setStatus] = useState("분석 엔진을 연결하고 있습니다");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const busyCountRef = useRef(0);
+  const previewRequestRef = useRef(0);
   const [dragOver, setDragOver] = useState(false);
   const [inspectorOpen, setInspectorOpen] = useState(true);
   const [guideOpen, setGuideOpen] = useState(false);
@@ -223,70 +282,100 @@ function MainWorkspace() {
     setStatus(message);
   }, []);
 
-  const refresh = useCallback(async () => {
+  const beginBusy = useCallback(() => {
+    busyCountRef.current += 1;
     setBusy(true);
+  }, []);
+  const endBusy = useCallback(() => {
+    busyCountRef.current = Math.max(0, busyCountRef.current - 1);
+    setBusy(busyCountRef.current > 0);
+  }, []);
+
+  const refresh = useCallback(async () => {
+    beginBusy();
     setError(null);
     try {
       const nextHealth = await invoke<HealthStatus>("sidecar_ensure");
+      if (!aliveRef.current) return;
       setHealth(nextHealth);
       const nextState = await callSidecar<ApplicationState>("get_state");
+      if (!aliveRef.current) return;
       setState(nextState);
       pushStatus(`엔진 연결됨 · GichanFormant ${nextHealth.version}`);
       if (nextState.capabilities.can_plot) {
-        await callSidecar("request_preview");
+        await callSidecar("request_preview", { request_id: ++previewRequestRef.current });
       }
     } catch (err) {
+      if (!aliveRef.current) return;
       setError(String(err));
       pushStatus("분석 엔진 연결 실패");
     } finally {
-      setBusy(false);
+      if (aliveRef.current) endBusy();
     }
-  }, [pushStatus]);
+  }, [beginBusy, endBusy, pushStatus]);
 
   const loadPaths = useCallback(
     async (paths: string[]) => {
       if (!paths.length) return;
-      setBusy(true);
+      beginBusy();
       setError(null);
       try {
         await callSidecar("load_files", { paths });
-        await callSidecar("request_preview");
+        await callSidecar("request_preview", { request_id: ++previewRequestRef.current });
+        if (!aliveRef.current) return;
         pushStatus(`${paths.length}개 소스를 작업 공간에 추가했습니다`);
       } catch (err) {
-        setError(String(err));
+        if (aliveRef.current) setError(String(err));
       } finally {
-        setBusy(false);
+        if (aliveRef.current) endBusy();
       }
     },
-    [pushStatus],
+    [beginBusy, endBusy, pushStatus],
   );
 
   useEffect(() => {
+    aliveRef.current = true;
     void refresh();
-    const unlistenEvent = listen<SidecarEvent>("sidecar-event", (event) => {
+    let disposed = false;
+    let disposeEvent: (() => void) | undefined;
+    let disposeDrag: (() => void) | undefined;
+    void listen<SidecarEvent>("sidecar-event", (event) => {
+      if (disposed || !aliveRef.current) return;
       const { event: name, payload } = event.payload;
-      if (name === "state_changed" || name === "files_changed") {
+      if (name === "state_changed") {
         const next = payload.state as ApplicationState | undefined;
         if (next) setState(next);
       }
-      if (name === "preview_ready") {
-        setPreviewUrl(
-          `data:image/png;base64,${String(payload.png_base64 ?? "")}`,
-        );
+      if (name === "operation_progress") {
+        const operation = String(payload.operation ?? "작업");
+        const progress = payload.status === "completed" ? "완료" : "처리 중";
+        pushStatus(`${operation} ${progress}`);
+      }
+      if (name === "preview_ready" && (payload.target ?? "main") === "main") {
+        const requestId = Number(payload.request_id ?? 0);
+        if (requestId && requestId < previewRequestRef.current) return;
+        const imagePath = String(payload.png_path ?? "");
+        const image = String(payload.png_base64 ?? "");
+        setPreviewUrl(imagePath ? convertFileSrc(imagePath) : image ? `data:image/png;base64,${image}` : null);
         setPreviewInfo(String(payload.info ?? ""));
       }
-      if (name === "preview_cleared") {
+      if (name === "preview_cleared" && (payload.target ?? "main") === "main") {
         setPreviewUrl(null);
         setPreviewInfo("");
       }
-      if (name === "preview_failed" || name === "operation_failed") {
+      if ((name === "preview_failed" && (payload.target ?? "main") === "main") || name === "operation_failed") {
         setError(String(payload.message ?? "작업을 완료하지 못했습니다"));
       }
+    }).then((dispose) => {
+      if (disposed) dispose();
+      else disposeEvent = dispose;
+    }).catch((err) => {
+      if (!disposed && aliveRef.current) setError(String(err));
     });
 
-    let unlistenDrag: (() => void) | undefined;
     void getCurrentWebview()
       .onDragDropEvent((event) => {
+        if (disposed || !aliveRef.current) return;
         if (event.payload.type === "over") setDragOver(true);
         if (event.payload.type === "leave") setDragOver(false);
         if (event.payload.type === "drop") {
@@ -295,12 +384,18 @@ function MainWorkspace() {
         }
       })
       .then((fn) => {
-        unlistenDrag = fn;
+        if (disposed) fn();
+        else disposeDrag = fn;
+      })
+      .catch((err) => {
+        if (!disposed && aliveRef.current) setError(String(err));
       });
 
     return () => {
-      void unlistenEvent.then((fn) => fn());
-      unlistenDrag?.();
+      disposed = true;
+      aliveRef.current = false;
+      disposeEvent?.();
+      disposeDrag?.();
     };
   }, [refresh, loadPaths]);
 
@@ -314,6 +409,7 @@ function MainWorkspace() {
     document.documentElement.dataset.theme = theme;
     document.documentElement.style.colorScheme = theme;
     window.localStorage.setItem("gichanformant-theme", theme);
+    void emit("gichan-theme", theme);
   }, [theme]);
 
   const openFiles = async () => {
@@ -346,21 +442,21 @@ function MainWorkspace() {
         filters: [{ name: "GichanFormant Project", extensions: ["gfproj"] }],
       });
       if (!selected || Array.isArray(selected)) return;
-      setBusy(true);
+      beginBusy();
       await callSidecar("load_project", { path: selected });
-      await callSidecar("request_preview");
+        await callSidecar("request_preview", { request_id: ++previewRequestRef.current });
       pushStatus("프로젝트를 불러왔습니다");
     } catch (err) {
       setError(String(err));
     } finally {
-      setBusy(false);
+      endBusy();
     }
   };
 
   const resetWorkspace = async () => {
     if (!window.confirm("모든 데이터와 설정을 초기화하시겠습니까?")) return;
     setError(null);
-    setBusy(true);
+    beginBusy();
     try {
       await callSidecar("reset");
       setPreviewUrl(null);
@@ -369,46 +465,68 @@ function MainWorkspace() {
     } catch (err) {
       setError(String(err));
     } finally {
-      setBusy(false);
+      endBusy();
     }
   };
 
   const removeFile = async (index: number, name: string) => {
     if (!window.confirm(`'${name}' 파일을 삭제하시겠습니까?`)) return;
     setError(null);
-    setBusy(true);
+    beginBusy();
     try {
       await callSidecar("remove_file", { index });
-      await callSidecar("request_preview");
+      await callSidecar("request_preview", { request_id: ++previewRequestRef.current });
     } catch (err) {
       setError(String(err));
     } finally {
-      setBusy(false);
+      endBusy();
     }
   };
 
-  const patchSettings = async (patch: Record<string, unknown>) => {
+  const settingsPatchRef = useRef<Record<string, unknown>>({});
+  const settingsTimerRef = useRef<number | null>(null);
+  const patchSettings = (patch: Record<string, unknown>) => {
     setError(null);
+    settingsPatchRef.current = { ...settingsPatchRef.current, ...patch };
+    if (settingsTimerRef.current !== null) window.clearTimeout(settingsTimerRef.current);
+    settingsTimerRef.current = window.setTimeout(() => {
+      const settings = settingsPatchRef.current;
+      settingsPatchRef.current = {};
+      settingsTimerRef.current = null;
+      void callSidecar<ApplicationState>("set_analysis_settings", { settings })
+        .then(setState)
+        .catch((err) => setError(String(err)));
+    }, 90);
+  };
+
+  const saveProject = async () => {
+    const selected = await save({
+      title: "프로젝트 저장",
+      defaultPath: "analysis.gfproj",
+      filters: [{ name: "GichanFormant Project", extensions: ["gfproj"] }],
+    });
+    if (!selected) return;
+    beginBusy();
     try {
-      const next = await callSidecar<ApplicationState>("set_analysis_settings", {
-        settings: patch,
-      });
-      setState(next);
+      await callSidecar("save_project", { path: selected });
+      pushStatus("프로젝트를 저장했습니다");
     } catch (err) {
       setError(String(err));
+    } finally {
+      endBusy();
     }
   };
 
   const createPlot = async () => {
     setError(null);
-    setBusy(true);
+    beginBusy();
     try {
       await invoke("open_interactive_plot");
       pushStatus("새 포먼트 플롯 창을 열었습니다");
     } catch (err) {
       setError(String(err));
     } finally {
-      setBusy(false);
+      endBusy();
     }
   };
 
@@ -535,6 +653,15 @@ function MainWorkspace() {
           <button
             type="button"
             className="project-link"
+            onClick={() => void saveProject()}
+            disabled={busy || !hasFiles}
+          >
+            <Save size={15} />
+            프로젝트 저장
+          </button>
+          <button
+            type="button"
+            className="project-link"
             onClick={() => void openProject()}
             disabled={busy}
           >
@@ -557,7 +684,9 @@ function MainWorkspace() {
         <div className="workspace-stage">
           <div className="intro-copy">
             <span className="section-kicker accent-text">분석 작업 공간</span>
-            <h1>{hasFiles ? "모음 공간을 살펴볼 준비가 됐습니다." : "모음 공간을 더 선명하게 살펴보세요."}</h1>
+            <InteractiveHeadline
+              text={hasFiles ? "모음 공간을 살펴볼 준비가 됐습니다." : "모음 공간을 더 선명하게 살펴보세요."}
+            />
             <p>
               {hasFiles
                 ? "현재 분석 조건을 확인하고 필요한 설정만 다듬은 뒤 대화형 플롯을 열어 보세요."
@@ -760,35 +889,71 @@ function MainWorkspace() {
                   <small>눈금과 좌표 방향을 정합니다</small>
                 </div>
               </div>
-              <div className="field-grid two-up">
-                <label className="select-field">
-                  <span>F1 눈금</span>
-                  <select
-                    value={analysis?.f1_scale ?? "linear"}
-                    disabled={busy || !hasFiles}
-                    onChange={(event) =>
-                      void patchSettings({ f1_scale: event.target.value })
-                    }
-                  >
-                    <option value="linear">선형</option>
-                    <option value="log">로그</option>
-                    <option value="bark">Bark</option>
-                  </select>
-                </label>
-                <label className="select-field">
-                  <span>{X_AXIS_LABEL[plotType]} 눈금</span>
-                  <select
-                    value={analysis?.f2_scale ?? "linear"}
-                    disabled={busy || !hasFiles}
-                    onChange={(event) =>
-                      void patchSettings({ f2_scale: event.target.value })
-                    }
-                  >
-                    <option value="linear">선형</option>
-                    <option value="log">로그</option>
-                    <option value="bark">Bark</option>
-                  </select>
-                </label>
+              <div className="field-grid">
+                <div className="scale-field">
+                  <span className="field-caption">F1 눈금</span>
+                  <div className="segmented-control three">
+                    <button
+                      type="button"
+                      className={(analysis?.f1_scale ?? "linear") === "linear" ? "active" : ""}
+                      disabled={busy || !hasFiles}
+                      onClick={() => void patchSettings({ f1_scale: "linear" })}
+                      aria-pressed={(analysis?.f1_scale ?? "linear") === "linear"}
+                    >
+                      선형
+                    </button>
+                    <button
+                      type="button"
+                      className={analysis?.f1_scale === "log" ? "active" : ""}
+                      disabled={busy || !hasFiles}
+                      onClick={() => void patchSettings({ f1_scale: "log" })}
+                      aria-pressed={analysis?.f1_scale === "log"}
+                    >
+                      로그
+                    </button>
+                    <button
+                      type="button"
+                      className={analysis?.f1_scale === "bark" ? "active" : ""}
+                      disabled={busy || !hasFiles}
+                      onClick={() => void patchSettings({ f1_scale: "bark" })}
+                      aria-pressed={analysis?.f1_scale === "bark"}
+                    >
+                      Bark
+                    </button>
+                  </div>
+                </div>
+                <div className="scale-field">
+                  <span className="field-caption">{X_AXIS_LABEL[plotType]} 눈금</span>
+                  <div className="segmented-control three">
+                    <button
+                      type="button"
+                      className={(analysis?.f2_scale ?? "bark") === "linear" ? "active" : ""}
+                      disabled={busy || !hasFiles}
+                      onClick={() => void patchSettings({ f2_scale: "linear" })}
+                      aria-pressed={(analysis?.f2_scale ?? "bark") === "linear"}
+                    >
+                      선형
+                    </button>
+                    <button
+                      type="button"
+                      className={analysis?.f2_scale === "log" ? "active" : ""}
+                      disabled={busy || !hasFiles}
+                      onClick={() => void patchSettings({ f2_scale: "log" })}
+                      aria-pressed={analysis?.f2_scale === "log"}
+                    >
+                      로그
+                    </button>
+                    <button
+                      type="button"
+                      className={(analysis?.f2_scale ?? "bark") === "bark" ? "active" : ""}
+                      disabled={busy || !hasFiles}
+                      onClick={() => void patchSettings({ f2_scale: "bark" })}
+                      aria-pressed={(analysis?.f2_scale ?? "bark") === "bark"}
+                    >
+                      Bark
+                    </button>
+                  </div>
+                </div>
               </div>
               <label className="select-field wide">
                 <span>좌표 원점</span>
@@ -810,7 +975,7 @@ function MainWorkspace() {
                 </span>
                 <input
                   type="checkbox"
-                  checked={Boolean(analysis?.use_bark_units)}
+                  checked={analysis?.use_bark_units ?? false}
                   disabled={busy || !hasFiles}
                   onChange={(event) =>
                     void patchSettings({ use_bark_units: event.target.checked })
@@ -964,7 +1129,11 @@ function MainWorkspace() {
 
 function App() {
   if (window.location.hash === "#single-plot") {
-    return <InteractivePlotWindow />;
+    return (
+      <Suspense fallback={<div className="window-loading">플롯 창을 여는 중…</div>}>
+        <InteractivePlotWindow />
+      </Suspense>
+    );
   }
   return <MainWorkspace />;
 }

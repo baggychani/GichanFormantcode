@@ -37,6 +37,12 @@ COMMANDS: dict[str, dict[str, Any]] = {
         },
         "required": ["index"],
     },
+    "set_current_index": {
+        "params": {
+            "index": "int",
+        },
+        "required": ["index"],
+    },
     "reset": {"params": {}},
     "save_project": {
         "params": {
@@ -59,7 +65,19 @@ COMMANDS: dict[str, dict[str, Any]] = {
         "required": ["source_groups"],
     },
     "open_guide": {"params": {}},
-    "request_preview": {"params": {}},
+    "request_preview": {"params": {"request_id": "int"}},
+    "update_interactive_session": {
+        "params": {
+            "options": "interactive_options",
+        },
+        "required": ["options"],
+    },
+    "render_interactive_preview": {
+        "params": {
+            "options": "interactive_options",
+        },
+        "required": ["options"],
+    },
 }
 
 EVENTS: tuple[str, ...] = (
@@ -71,6 +89,7 @@ EVENTS: tuple[str, ...] = (
     "preview_ready",
     "preview_cleared",
     "preview_failed",
+    "plot_session_changed",
     "window_requested",
     "operation_failed",
     "sidecar_ready",
@@ -229,6 +248,9 @@ def protocol_manifest() -> dict[str, Any]:
                 "normalization",
             ],
             "current_index": "int",
+            "current_vowels": "string[]",
+            "design_defaults": "object",
+            "plot_session": "object",
             "sources": [
                 "index",
                 "name",
@@ -264,6 +286,17 @@ def _check_type(method: str, key: str, expected: str, value: Any) -> None:
                 for item in group
             )
         )
+    elif expected == "interactive_options":
+        from core.interactive_plot_state import (
+            InteractiveOptionsError,
+            validate_interactive_options,
+        )
+
+        try:
+            validate_interactive_options(value)
+            ok = True
+        except InteractiveOptionsError:
+            ok = False
     else:
         raise ProtocolError(
             "internal_error",

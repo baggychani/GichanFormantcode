@@ -19,8 +19,10 @@ class AnalysisSettings:
 
     plot_type: str = "f1_f2"
     f1_scale: str = "linear"
-    f2_scale: str = "linear"
+    f2_scale: str = "bark"
     origin: str = "top_right"
+    # The Bark axis scale is independent from the displayed unit.  Keep the
+    # latter in Hz until the user explicitly enables the unit switch.
     use_bark_units: bool = False
     outlier_mode: str | None = None
     outlier_scope: str | None = None
@@ -32,7 +34,7 @@ class AnalysisSettings:
         return cls(
             plot_type=str(data.get("type") or data.get("plot_type") or "f1_f2"),
             f1_scale=str(data.get("f1_scale") or "linear"),
-            f2_scale=str(data.get("f2_scale") or "linear"),
+            f2_scale=str(data.get("f2_scale") or "bark"),
             origin=str(data.get("origin") or "top_right"),
             use_bark_units=bool(data.get("use_bark_units", False)),
             outlier_mode=data.get("outlier_mode"),

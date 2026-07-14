@@ -29,24 +29,46 @@ fn prepare_main_window(app: &tauri::App) -> tauri::Result<()> {
     Ok(())
 }
 
+fn sync_plot_window_size(app: &AppHandle, plot: &tauri::WebviewWindow) -> Result<(), String> {
+    let Some(main) = app.get_webview_window("main") else {
+        return Ok(());
+    };
+    if main.is_maximized().map_err(|err| err.to_string())? {
+        plot.maximize().map_err(|err| err.to_string())?;
+    } else {
+        if plot.is_maximized().map_err(|err| err.to_string())? {
+            plot.unmaximize().map_err(|err| err.to_string())?;
+        }
+        let size = main.inner_size().map_err(|err| err.to_string())?;
+        plot.set_size(size).map_err(|err| err.to_string())?;
+        plot.center().map_err(|err| err.to_string())?;
+    }
+    Ok(())
+}
+
+// Windows: sync command에서 WebviewWindowBuilder::build() 호출 시 WebView2 데드락
+// → 흰 화면 + 닫기 불가. 반드시 async 명령으로 창을 만든다.
 #[tauri::command]
-fn open_interactive_plot(app: AppHandle) -> Result<(), String> {
+async fn open_interactive_plot(app: AppHandle) -> Result<(), String> {
     if let Some(window) = app.get_webview_window("single-plot") {
+        sync_plot_window_size(&app, &window)?;
         window.show().map_err(|err| err.to_string())?;
         window.set_focus().map_err(|err| err.to_string())?;
         return Ok(());
     }
 
-    WebviewWindowBuilder::new(
+    let window = WebviewWindowBuilder::new(
         &app,
         "single-plot",
         WebviewUrl::App("index.html#single-plot".into()),
     )
     .title("GichanFormant — 대화형 플롯")
-    .inner_size(1440.0, 860.0)
-    .min_inner_size(1120.0, 680.0)
+    .inner_size(1560.0, 880.0)
+    .min_inner_size(1200.0, 720.0)
+    .background_color(tauri::window::Color(0x07, 0x09, 0x0c, 0xff))
     .build()
     .map_err(|err| err.to_string())?;
+    sync_plot_window_size(&app, &window)?;
     Ok(())
 }
 

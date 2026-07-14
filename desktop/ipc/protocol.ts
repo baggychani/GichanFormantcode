@@ -20,6 +20,7 @@ export const EVENTS = [
   "preview_ready",
   "preview_cleared",
   "preview_failed",
+  "plot_session_changed",
   "window_requested",
   "operation_failed",
   "sidecar_ready",
@@ -51,6 +52,21 @@ export type SourceInfo = {
 export type ApplicationState = {
   analysis: AnalysisSettings;
   current_index: number;
+  current_vowels: string[];
+  design_defaults: Record<string, unknown>;
+  plot_session: {
+    revision: number;
+    active: boolean;
+    current_idx: number;
+    ranges: Record<string, string>;
+    sigma: string;
+    show_ellipse: boolean;
+    design_settings: Record<string, unknown>;
+    vowel_filter_state_by_file: Record<string, Record<string, "ON" | "SEMI" | "OFF">>;
+    layer_design_overrides_by_file: Record<string, Record<string, Record<string, unknown>>>;
+    layer_locked_vowels_by_file: Record<string, string[]>;
+    layer_order_by_file: Record<string, string[]>;
+  };
   sources: SourceInfo[];
   capabilities: {
     can_plot: boolean;
@@ -102,9 +118,11 @@ export type IpcEventMessage = {
 
 export type IpcMessage = IpcRequest | IpcResponse | IpcErrorMessage | IpcEventMessage;
 
-type ParamToken = "object" | "string" | "string|null" | "int" | "string[]" | "int[][]";
+type ParamToken = "object" | "interactive_options" | "string" | "string|null" | "int" | "string[]" | "int[][]";
 type ParamValue<Token extends ParamToken> = Token extends "object"
   ? Record<string, unknown>
+  : Token extends "interactive_options"
+    ? Record<string, unknown>
   : Token extends "string"
     ? string
     : Token extends "string|null"

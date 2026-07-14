@@ -2,11 +2,25 @@
 
 from __future__ import annotations
 
-import base64
+from collections import deque
+from copy import deepcopy
+import os
+from pathlib import Path
+import shutil
+import tempfile
+import time
+import threading
+import uuid
 from typing import Any, Mapping
 
 from core.application_events import ApplicationError, ApplicationEventBus
 from core.application_state import AnalysisSettings
+from core.design_defaults import get_single_design_defaults
+from core.interactive_plot_state import (
+    PlotSessionState,
+    validate_interactive_options,
+)
+from core.interactive_render_worker import IsolatedInteractiveRenderer
 
 
 class ApplicationService:
@@ -15,6 +29,17 @@ class ApplicationService:
     def __init__(self, controller, events: ApplicationEventBus | None = None):
         self.controller = controller
         self.events = events or ApplicationEventBus()
+        self._interactive_renderer = IsolatedInteractiveRenderer()
+        self._preview_dir = (
+            Path(tempfile.gettempdir())
+            / "GichanFormant"
+            / "previews"
+            / str(os.getpid())
+        )
+        self._cleanup_stale_preview_dirs()
+        self._preview_dir.mkdir(parents=True, exist_ok=True)
+        self._preview_files: deque[Path] = deque()
+        self._preview_file_lock = threading.Lock()
 
     def _emit_state(self, reason: str) -> dict[str, Any]:
         state = self.snapshot()
@@ -42,9 +67,22 @@ class ApplicationService:
                 }
             )
         real_count = sum(not source["is_combined"] for source in sources)
+        current_data, _current_index = self.controller.get_current_file_data()
+        current_vowels: list[str] = []
+        if current_data is not None:
+            dataframe = current_data.get("df")
+            if dataframe is not None:
+                label_column = "Label" if "Label" in dataframe.columns else "label"
+                if label_column in dataframe.columns:
+                    current_vowels = sorted(
+                        dataframe[label_column].dropna().astype(str).unique().tolist()
+                    )
         return {
             "analysis": self.controller.get_analysis_settings().to_dict(),
             "current_index": self.controller.get_current_index(),
+            "current_vowels": current_vowels,
+            "design_defaults": get_single_design_defaults(),
+            "plot_session": self._plot_session().to_public_dict(),
             "sources": sources,
             "capabilities": {
                 "can_plot": bool(sources),
@@ -111,12 +149,22 @@ class ApplicationService:
             )
             self.events.emit("operation_failed", error.to_dict())
             raise error
+        self._plot_session().remove_file(index)
         state = self._emit_state("file_removed")
         self.events.emit("files_changed", {"action": "remove", "state": state})
         return state
 
+    def set_current_index(self, index: int) -> dict[str, Any]:
+        self.controller.set_current_index(index)
+        # Keep the project/session cursor coherent even when navigation comes
+        # from the React plot rather than the legacy popup.
+        self._plot_session().current_idx = self.controller.get_current_index()
+        state = self._emit_state("current_file_changed")
+        return state
+
     def reset(self) -> dict[str, Any]:
         self.controller.reset_data()
+        self.controller.plot_session_state = PlotSessionState()
         state = self._emit_state("workspace_reset")
         self.events.emit("files_changed", {"action": "reset", "state": state})
         return state
@@ -135,9 +183,12 @@ class ApplicationService:
         else:
             self.events.emit("project_saved", {"path": path})
 
-    def load_project(self, path: str) -> dict[str, Any]:
+    def load_project(self, path: str, *, restore_windows: bool = True) -> dict[str, Any]:
         try:
-            self.controller.load_project_document(path)
+            if restore_windows:
+                self.controller.load_project_document(path)
+            else:
+                self.controller.load_project_document(path, restore_windows=False)
         except Exception as exc:
             error = ApplicationError(
                 code="project_load_failed",
@@ -170,23 +221,207 @@ class ApplicationService:
     def apply_outlier_settings(self) -> None:
         self.controller.on_outlier_mode_changed()
 
-    def request_preview(self) -> None:
+    def request_preview(self, request_id: int | None = None) -> None:
+        self._main_preview_request_id = request_id
         self.controller.update_live_preview()
 
-    def publish_preview(self, png_data: bytes, info: str) -> None:
-        self.events.emit(
-            "preview_ready",
-            {
-                "png_base64": base64.b64encode(png_data).decode("ascii"),
-                "info": info,
-            },
+    def _plot_session(self) -> PlotSessionState:
+        session = getattr(self.controller, "plot_session_state", None)
+        if not isinstance(session, PlotSessionState):
+            session = PlotSessionState(current_idx=self.controller.get_current_index())
+            self.controller.plot_session_state = session
+        return session
+
+    def update_interactive_session(self, raw: Mapping[str, Any]) -> dict[str, Any]:
+        options = validate_interactive_options(raw)
+        session = self._plot_session()
+        session.apply(options, self.controller.get_current_index())
+        payload = session.to_public_dict()
+        # Do not emit a broad state_changed here: that snapshot can overwrite
+        # in-progress local React controls. Consumers that need the durable
+        # session receive this narrow event and compare revisions instead.
+        self.events.emit("plot_session_changed", {"plot_session": payload})
+        return payload
+
+    def prepare_interactive_preview(self, raw: Mapping[str, Any]) -> dict[str, Any]:
+        """Capture a validated immutable-enough render snapshot on the UI thread."""
+        options = validate_interactive_options(raw)
+        session = self._plot_session()
+        current_index = self.controller.get_current_index()
+        session.apply(options, current_index)
+        current_data, _index = self.controller.get_current_file_data()
+        if current_data is None:
+            return {
+                "empty": True,
+                "request_id": options.get("request_id"),
+                "revision": session.revision,
+            }
+
+        params = self.controller._get_main_ui_plot_params()
+        params["sigma"] = float(session.sigma)
+        session.fixed_plot_params = dict(params)
+
+        normalization = params.get("normalization")
+        if normalization:
+            ranges = self.controller._norm_ranges_for_widgets(normalization)
+        else:
+            ranges = self.controller.get_smart_ranges_for_params(
+                params["type"],
+                params.get("use_bark_units", False),
+                params.get("f1_scale"),
+                params.get("f2_scale"),
+            )
+        ranges.update(session.ranges)
+
+        design = deepcopy(session.design_settings)
+        if not session.show_ellipse:
+            design["ell_color"] = None
+            design["ell_fill_color"] = None
+
+        data_snapshot = {}
+        for key, value in current_data.items():
+            if hasattr(value, "copy"):
+                try:
+                    data_snapshot[key] = value.copy(deep=True)
+                except TypeError:
+                    data_snapshot[key] = deepcopy(value)
+            else:
+                data_snapshot[key] = value
+        return {
+            "empty": False,
+            "current_data": data_snapshot,
+            "params": dict(params),
+            "ranges": dict(ranges),
+            "design": design,
+            "filter_state": deepcopy(
+                session.vowel_filter_state_by_file.get(current_index)
+            ),
+            "layer_overrides": deepcopy(
+                session.layer_design_overrides_by_file.get(current_index)
+            ),
+            "layer_order": list(
+                session.layer_order_by_file.get(current_index, [])
+            ),
+            "custom_label_offsets": deepcopy(
+                getattr(self.controller, "custom_label_offsets", {}).get(
+                    (current_index, params.get("type", "f1_f2")), {}
+                )
+            ),
+            "filename": str(current_data.get("name", "")),
+            "request_id": options.get("request_id"),
+            "revision": session.revision,
+        }
+
+    def render_prepared_interactive_preview(
+        self, prepared: Mapping[str, Any]
+    ) -> dict[str, Any]:
+        """Render a prepared snapshot; safe to call on the dedicated render worker."""
+        if prepared.get("empty"):
+            return dict(prepared)
+        return self._interactive_renderer.render(prepared)
+
+    def publish_interactive_render_result(self, result: Mapping[str, Any]) -> None:
+        if result.get("empty"):
+            self.publish_empty_preview(
+                target="interactive", request_id=result.get("request_id")
+            )
+            return
+        self.publish_preview(
+            result["png_data"],
+            str(result.get("filename", "")),
+            target="interactive",
+            request_id=result.get("request_id"),
+            revision=result.get("revision"),
         )
 
-    def publish_empty_preview(self) -> None:
-        self.events.emit("preview_cleared", {})
+    def close(self) -> None:
+        self._interactive_renderer.close()
+        with self._preview_file_lock:
+            try:
+                shutil.rmtree(self._preview_dir, ignore_errors=True)
+            finally:
+                self._preview_files.clear()
 
-    def publish_preview_error(self, message: str) -> None:
-        self.events.emit("preview_failed", {"message": message})
+    def render_interactive_preview(self, raw: Mapping[str, Any]) -> None:
+        """Synchronous compatibility entry point used outside the desktop scheduler."""
+        prepared = self.prepare_interactive_preview(raw)
+        self.publish_interactive_render_result(
+            self.render_prepared_interactive_preview(prepared)
+        )
+
+    def publish_preview(
+        self,
+        png_data: bytes,
+        info: str,
+        *,
+        target: str = "main",
+        request_id: Any | None = None,
+        revision: Any | None = None,
+    ) -> None:
+        preview_path = self._write_preview_asset(png_data, revision=revision)
+        payload = {
+            "png_path": str(preview_path),
+            "info": info,
+            "target": target,
+        }
+        if request_id is not None:
+            payload["request_id"] = request_id
+        if revision is not None:
+            payload["revision"] = revision
+        self.events.emit(
+            "preview_ready",
+            payload,
+        )
+
+    def _write_preview_asset(
+        self, png_data: bytes, *, revision: Any | None = None
+    ) -> Path:
+        filename = f"preview-{revision}-{uuid.uuid4().hex}.png"
+        preview_path = self._preview_dir / filename
+        with self._preview_file_lock:
+            preview_path.write_bytes(png_data)
+            self._preview_files.append(preview_path)
+            while len(self._preview_files) > 3:
+                stale = self._preview_files.popleft()
+                try:
+                    stale.unlink(missing_ok=True)
+                except OSError:
+                    pass
+        return preview_path
+
+    @staticmethod
+    def _cleanup_stale_preview_dirs() -> None:
+        """Remove abandoned crash leftovers without touching another live run."""
+        root = Path(tempfile.gettempdir()) / "GichanFormant" / "previews"
+        if not root.exists():
+            return
+        cutoff = time.time() - 24 * 60 * 60
+        for child in root.iterdir():
+            try:
+                if child.is_dir() and child.stat().st_mtime < cutoff:
+                    shutil.rmtree(child, ignore_errors=True)
+            except OSError:
+                continue
+
+    def publish_empty_preview(
+        self, *, target: str = "main", request_id: Any | None = None
+    ) -> None:
+        payload: dict[str, Any] = {"target": target}
+        if request_id is not None:
+            payload["request_id"] = request_id
+        self.events.emit("preview_cleared", payload)
+
+    def publish_preview_error(
+        self,
+        message: str,
+        *,
+        target: str = "main",
+        request_id: Any | None = None,
+    ) -> None:
+        payload = {"message": message, "target": target}
+        if request_id is not None:
+            payload["request_id"] = request_id
+        self.events.emit("preview_failed", payload)
 
     def get_initial_open_dir(self) -> str:
         return self.controller.get_initial_open_dir()

@@ -271,6 +271,8 @@ def collect_project_document(controller: Any, popup_window: Any | None = None) -
                 getattr(popup_window, "_draw_objects_by_file", {})
             ),
         }
+    elif getattr(getattr(controller, "plot_session_state", None), "active", False):
+        single_plot = controller.plot_session_state.to_project_dict()
 
     return {
         "schema_version": PROJECT_SCHEMA_VERSION,

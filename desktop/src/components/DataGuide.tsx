@@ -10,8 +10,9 @@ import {
   Upload,
   X,
 } from "lucide-react";
-import appIconUrl from "../../../assets/icon.ico";
 import "./DataGuide.css";
+
+const appIconUrl = "/icon.ico";
 
 type DataGuideProps = {
   open: boolean;

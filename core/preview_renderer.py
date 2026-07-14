@@ -19,6 +19,11 @@ class PreviewRenderer:
         params: dict[str, Any],
         ranges: dict[str, str],
         design_settings: dict[str, Any],
+        *,
+        filter_state: dict[str, str] | None = None,
+        layer_overrides: dict[str, dict[str, Any]] | None = None,
+        layer_order: list[str] | None = None,
+        custom_label_offsets: dict[str, tuple[float, float]] | None = None,
     ) -> bytes:
         self.figure.clear()
         normalization = params.get("normalization")
@@ -33,8 +38,13 @@ class PreviewRenderer:
                 dataframe,
                 normalization,
                 manual_ranges=ranges,
+                filter_state=filter_state,
                 design_settings=design_settings,
+                sigma=float(params.get("sigma", 2.0)),
+                custom_label_offsets=custom_label_offsets,
+                layer_overrides=layer_overrides,
                 plot_params=params,
+                layer_order=layer_order,
             )
         else:
             self.plot_engine.draw_plot(
@@ -42,7 +52,11 @@ class PreviewRenderer:
                 current_data["df"],
                 params,
                 manual_ranges=ranges,
+                filter_state=filter_state,
                 design_settings=design_settings,
+            layer_overrides=layer_overrides,
+            layer_order=layer_order,
+            custom_label_offsets=custom_label_offsets,
             )
 
         buffer = BytesIO()
