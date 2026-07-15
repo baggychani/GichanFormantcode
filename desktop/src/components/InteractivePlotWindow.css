@@ -212,17 +212,18 @@
 .navigator-topline strong { color: var(--gf-accent); font-size: 11px; }
 .rail-collapse { display: grid; place-items: center; width: 28px; height: 28px; border: 1px solid transparent; border-radius: 7px; background: transparent; color: var(--gf-text-tertiary); cursor: pointer; }
 .rail-collapse:hover { border-color: var(--gf-border-medium); background: var(--gf-surface-hover); color: var(--gf-text-primary); }
-.file-select-row { min-width: 0; width: 100%; gap: 6px; }
+.file-navigator { position: relative; z-index: 20; min-width: 0; max-width: 100%; overflow: visible; box-sizing: border-box; }
+.file-select-row { position: relative; min-width: 0; max-width: 100%; width: 100%; gap: 6px; overflow: visible; }
 .file-select-row > button { display: grid; flex: 0 0 auto; place-items: center; width: 34px; height: 34px; border: 1px solid var(--gf-border-medium); border-radius: var(--gf-radius-sm); background: var(--gf-surface-elevated); color: var(--gf-text-secondary); cursor: pointer; }
 .file-select-row .current-file-button { display: flex; min-width: 0; flex: 1; align-items: center; justify-content: space-between; width: auto; height: 34px; padding: 0 10px; border: 1px solid var(--gf-border-medium); border-radius: var(--gf-radius-sm); background: var(--gf-surface-elevated); color: var(--gf-text-secondary); }
-.file-select-menu { position: relative; min-width: 0; max-width: 100%; flex: 1 1 auto; }
+.file-select-menu { position: relative; min-width: 0; width: auto; max-width: 100%; flex: 1 1 0%; }
 .file-select-trigger { display: flex; align-items: center; justify-content: space-between; width: 100%; min-width: 0; max-width: 100%; box-sizing: border-box; height: 34px; padding: 0 10px; border: 1px solid var(--gf-border-medium); border-radius: var(--gf-radius-sm); background: var(--gf-surface-elevated); color: var(--gf-text-primary); cursor: pointer; font-size: 11px; font-weight: 640; text-align: left; }
 .file-select-trigger > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .file-select-trigger > svg { flex: 0 0 auto; color: var(--gf-text-secondary); transition: transform 140ms ease; }
 .file-select-menu.is-open .file-select-trigger { border-color: var(--gf-accent); box-shadow: var(--gf-focus-ring); }
 .file-select-menu.is-open .file-select-trigger > svg { transform: rotate(180deg); }
-.file-option-menu { position: absolute; z-index: 30; top: calc(100% + 5px); right: 0; left: 0; display: grid; max-height: 260px; overflow-y: auto; padding: 4px; border: 1px solid var(--gf-border-medium); border-radius: var(--gf-radius-sm); background: var(--gf-surface-elevated); box-shadow: var(--gf-shadow-float); }
-.file-option-menu button { min-width: 0; max-width: 100%; overflow: hidden; padding: 8px 9px; border: 0; border-radius: 5px; background: transparent; color: var(--gf-text-secondary); cursor: pointer; font-size: 10px; text-align: left; text-overflow: ellipsis; white-space: nowrap; }
+.file-option-menu { position: absolute; z-index: 50; top: calc(100% + 5px); right: 0; left: 0; display: grid; max-height: 260px; overflow-x: hidden; overflow-y: auto; padding: 4px; border: 1px solid var(--gf-border-medium); border-radius: var(--gf-radius-sm); background: var(--gf-surface-elevated); box-shadow: var(--gf-shadow-float); }
+.file-option-menu button { min-width: 0; max-width: 100%; overflow: hidden; padding: 8px 9px; border: 0; border-radius: 5px; background: transparent; color: var(--gf-text-secondary); cursor: pointer; font-size: 11px; text-align: left; text-overflow: ellipsis; white-space: nowrap; }
 .file-option-menu button:hover,
 .file-option-menu button.is-selected { background: var(--gf-accent-muted); color: var(--gf-accent); }
 .current-file-button select { min-width: 0; max-width: 100%; flex: 1 1 auto; height: 100%; border: 0; outline: 0; appearance: none; -webkit-appearance: none; background: transparent; color: var(--gf-text-primary); cursor: pointer; font-size: 11px; font-weight: 640; overflow: hidden; text-overflow: ellipsis; }
@@ -311,6 +312,7 @@
 .tool-grid button.is-active strong { color: var(--gf-accent); }
 
 .format-buttons { grid-template-columns: repeat(3, 1fr); margin-bottom: 7px; }
+.format-buttons.has-txt { grid-template-columns: repeat(4, 1fr); }
 .format-buttons button,
 .segmented-row button { height: 31px; font-size: 10px; font-weight: 650; }
 .wide-action { width: 100%; margin-top: 7px; }
@@ -427,8 +429,8 @@
 .plot-paper { width: 100%; height: 100%; min-width: 0; min-height: 0; overflow: hidden; }
 .plot-paper img { display: block; width: 100%; height: 100%; border: 0; background: #fff; object-fit: contain; object-position: center; filter: drop-shadow(0 12px 24px rgba(39,54,70,.08)); }
 .plot-paper { position: relative; }
-.ruler-overlay { position: absolute; inset: 0; z-index: 3; pointer-events: none; }
-.tool-ruler .ruler-overlay, .tool-label .ruler-overlay { pointer-events: auto; cursor: crosshair; }
+.ruler-overlay { position: absolute; inset: 0; z-index: 3; pointer-events: none; touch-action: none; user-select: none; }
+.tool-ruler .ruler-overlay, .tool-label .ruler-overlay { pointer-events: auto; cursor: default; }
 .ruler-measurement, .ruler-line-layer, .ruler-guide-layer { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; pointer-events: none; }
 .ruler-line-layer line, .ruler-line-layer polyline { fill: none; stroke: #263b4a; stroke-width: 1.5; stroke-dasharray: 5 4; vector-effect: non-scaling-stroke; }
 .ruler-guide-layer line { stroke: rgba(38,59,74,.55); stroke-width: 1; stroke-dasharray: 3 4; vector-effect: non-scaling-stroke; }
@@ -446,7 +448,11 @@
 .ruler-tooltip { position: absolute; padding: 4px 6px; border-radius: 4px; background: #1f3542; color: #fff; font-size: 10px; pointer-events: none; white-space: nowrap; }
 .tool-label .plot-paper img { cursor: grab; }
 .tool-label .plot-paper:active { cursor: grabbing; }
-.plot-label-hit-target { position: absolute; z-index: 5; width: 34px; height: 30px; transform: translate(-50%, -50%); border: 0; border-radius: 6px; background: transparent; cursor: grab; pointer-events: auto; }
+.plot-label-hit-target { position: absolute; z-index: 5; display: inline-grid; place-items: center; width: max-content; height: max-content; padding: 2px 4px; border: 1px solid transparent; border-radius: 8px; background: transparent; cursor: grab; pointer-events: auto; touch-action: none; user-select: none; }
+.plot-label-hit-text { opacity: 0; white-space: nowrap; pointer-events: none; }
+.plot-label-hit-target.is-hovered { border-color: color-mix(in srgb, var(--gf-accent) 72%, transparent); background: rgba(119, 242, 210, .08); }
+.plot-label-hit-target.is-dragging { border-color: var(--gf-accent); background: rgba(119, 242, 210, .16); box-shadow: 0 0 0 4px rgba(119, 242, 210, .12), 0 5px 16px rgba(18, 80, 78, .16); }
+.plot-label-drag-preview { position: absolute; left: 50%; top: 50%; display: block; width: max-content; transform: translate(-50%, -50%); text-shadow: 0 1px 2px rgba(255,255,255,.72); pointer-events: none; }
 .plot-label-hit-target:active { cursor: grabbing; }
 .tool-ruler .plot-paper img { cursor: crosshair; }
 .tool-draw .plot-paper img { cursor: cell; }

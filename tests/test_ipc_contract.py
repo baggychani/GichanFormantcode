@@ -133,6 +133,9 @@ def test_health_and_unknown_method():
     )
     assert health["result"]["ok"] is True
     assert health["result"]["protocol_version"] == 1
+    assert health["result"]["python_version"]
+    assert health["result"]["python_executable"]
+    assert health["result"]["working_directory"]
     err = json.loads(
         host.handle_message('{"v":1,"id":"x","method":"nope","params":{}}')
     )

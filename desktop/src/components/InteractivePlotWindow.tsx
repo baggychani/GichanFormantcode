@@ -40,7 +40,7 @@ import "./InteractivePlotWindow.css";
 type SidecarEvent = { event: string; payload: Record<string, unknown> };
 type Tool = "select" | "ruler" | "label" | "draw";
 type RulerPoint = { x: number; y: number; px: number; py: number; type: "raw" | "mean"; label: string; color: string; raw_f1?: number; raw_f2?: number };
-type PlotLabel = { vowel: string; cx: number; cy: number; lx: number; ly: number; px: number; py: number; lpx: number; lpy: number };
+type PlotLabel = { vowel: string; display_vowel?: string; cx: number; cy: number; lx: number; ly: number; px: number; py: number; lpx: number; lpy: number; bbox?: { left: number; top: number; width: number; height: number } | null; fontsize?: number; ha?: "left" | "center" | "right"; va?: "bottom" | "center" | "top"; lbl_color?: string; lbl_bold?: boolean | string; lbl_italic?: boolean };
 type RulerContext = { image_width: number; image_height: number; axes_bbox: { left: number; bottom: number; width: number; height: number }; points: RulerPoint[]; labels: PlotLabel[]; xlim: [number, number]; ylim: [number, number]; params: { normalization?: string | null; use_bark_units?: boolean; f2_scale?: string } };
 type RulerMeasurement = { p1: RulerPoint; p2: RulerPoint; labelX: number; labelY: number; distance: string };
 type RulerGeometryMode = "direct" | "right-triangle";
@@ -353,7 +353,9 @@ export function InteractivePlotWindow() {
   const [rulerMeasurements, setRulerMeasurements] = useState<RulerMeasurement[]>([]);
   const [draggingRulerLabel, setDraggingRulerLabel] = useState<number | null>(null);
   const [draggingPlotLabel, setDraggingPlotLabel] = useState<string | null>(null);
+  const [hoveredPlotLabel, setHoveredPlotLabel] = useState<string | null>(null);
   const [plotLabelPointer, setPlotLabelPointer] = useState<{ x: number; y: number } | null>(null);
+  const [plotLabelPreviewVowel, setPlotLabelPreviewVowel] = useState<string | null>(null);
   const [tool, setTool] = useState<Tool>("select");
   const [leftPanel, setLeftPanel] = useState<LeftPanel>("analysis");
   const [rightPanel, setRightPanel] = useState<RightPanel>("layers");
@@ -407,6 +409,7 @@ export function InteractivePlotWindow() {
   const layerSessionsRef = useRef(new Map<string, LayerSession>());
   const plotPaperRef = useRef<HTMLDivElement | null>(null);
   const plotImageRef = useRef<HTMLImageElement | null>(null);
+  const plotLabelFrameRef = useRef<number | null>(null);
 
   const refresh = useCallback(async () => {
     try {
@@ -438,6 +441,8 @@ export function InteractivePlotWindow() {
         const image = String(payload.payload.png_base64 ?? "");
         setPreviewUrl(imagePath ? convertFileSrc(imagePath) : image ? `data:image/png;base64,${image}` : null);
         setRulerContext((payload.payload.ruler_context as RulerContext | undefined) ?? null);
+        setPlotLabelPreviewVowel(null);
+        setPlotLabelPointer(null);
         setRulerStart(null);
         setRulerHover(null);
         setRulerMeasurements([]);
@@ -540,6 +545,7 @@ export function InteractivePlotWindow() {
   const sources = state?.sources ?? [];
   const currentIndex = Math.min(state?.current_index ?? 0, Math.max(0, sources.length - 1));
   const currentSource = sources[currentIndex];
+  const hasCombined = currentSource?.is_combined === true;
   const currentFileKey = currentSource ? String(currentSource.path ?? `${currentSource.index}:${currentSource.name}`) : "";
   const currentVowels = state?.current_vowels ?? [];
   const plotType = analysis?.type ?? "f1_f2";
@@ -1222,6 +1228,25 @@ export function InteractivePlotWindow() {
     }
   };
 
+  const exportCombinedTxt = async () => {
+    if (!hasCombined) return;
+    const path = await save({
+      title: "결합 데이터 TXT 저장",
+      defaultPath: "Combined.txt",
+      filters: [{ name: "GichanFormant TXT", extensions: ["txt"] }],
+    });
+    if (!path) return;
+    setBusy(true);
+    try {
+      await callSidecar("export_combined_txt", { path });
+      setMessage("결합 데이터를 TXT로 저장했습니다.");
+    } catch (err) {
+      setMessage(`TXT 저장 실패: ${String(err)}`);
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const chooseBatchDirectory = async () => {
     const selected = await open({ directory: true, multiple: false, title: "일괄 저장 폴더 선택" });
     if (typeof selected === "string") setBatchExportDirectory(selected);
@@ -1268,6 +1293,17 @@ export function InteractivePlotWindow() {
     return { x: geometry.left + label.lpx * geometry.scale, y: geometry.top + (rulerContext.image_height - label.lpy) * geometry.scale };
   };
 
+  const plotLabelBoxClient = (label: PlotLabel) => {
+    const geometry = rulerImageGeometry();
+    if (!geometry || !rulerContext || !label.bbox) return null;
+    return {
+      left: geometry.left + label.bbox.left * geometry.scale,
+      top: geometry.top + label.bbox.top * geometry.scale,
+      width: label.bbox.width * geometry.scale,
+      height: label.bbox.height * geometry.scale,
+    };
+  };
+
   const plotDataFromClient = (clientX: number, clientY: number) => {
     const geometry = rulerImageGeometry();
     if (!geometry || !rulerContext) return null;
@@ -1283,6 +1319,8 @@ export function InteractivePlotWindow() {
     let nearest: PlotLabel | null = null;
     let best = 28 * 28;
     for (const label of rulerContext.labels) {
+      const box = plotLabelBoxClient(label);
+      if (box && clientX >= box.left - 8 && clientX <= box.left + box.width + 8 && clientY >= box.top - 8 && clientY <= box.top + box.height + 8) return label;
       const screen = plotLabelClient(label);
       if (!screen) continue;
       const distance = (screen.x - clientX) ** 2 + (screen.y - clientY) ** 2;
@@ -1311,7 +1349,17 @@ export function InteractivePlotWindow() {
 
   const handleRulerMove = (event: ReactPointerEvent<HTMLDivElement>) => {
     if (tool === "label" && draggingPlotLabel) {
-      setPlotLabelPointer(rulerLocalPoint(event.clientX, event.clientY));
+      const local = rulerLocalPoint(event.clientX, event.clientY);
+      if (local && plotLabelFrameRef.current === null) {
+        plotLabelFrameRef.current = requestAnimationFrame(() => {
+          plotLabelFrameRef.current = null;
+          setPlotLabelPointer(local);
+        });
+      }
+      return;
+    }
+    if (tool === "label") {
+      setHoveredPlotLabel(nearestPlotLabel(event.clientX, event.clientY)?.vowel ?? null);
       return;
     }
     if (tool !== "ruler") return;
@@ -1326,9 +1374,13 @@ export function InteractivePlotWindow() {
 
   const handleRulerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
     if (tool === "label" && event.button === 0) {
+      event.preventDefault();
+      event.stopPropagation();
       const label = nearestPlotLabel(event.clientX, event.clientY);
       if (label) {
         setDraggingPlotLabel(label.vowel);
+        setPlotLabelPreviewVowel(label.vowel);
+        setHoveredPlotLabel(label.vowel);
         setPlotLabelPointer(rulerLocalPoint(event.clientX, event.clientY));
         event.currentTarget.setPointerCapture(event.pointerId);
       }
@@ -1349,6 +1401,18 @@ export function InteractivePlotWindow() {
     setRulerStart(null);
   };
 
+  const resetPlotLabel = (event: React.MouseEvent<HTMLDivElement>) => {
+    if (tool !== "label") return;
+    event.preventDefault();
+    const label = nearestPlotLabel(event.clientX, event.clientY);
+    if (!label) return;
+    void renderInteractive({ labelOffsets: { [label.vowel]: [0, 0] } });
+    setDraggingPlotLabel(null);
+    setPlotLabelPreviewVowel(null);
+    setPlotLabelPointer(null);
+    setMessage(`${label.vowel} 라벨을 기본 위치로 되돌렸습니다.`);
+  };
+
   const handleRulerUp = (event: ReactPointerEvent<HTMLDivElement>) => {
     if (tool === "label" && draggingPlotLabel && rulerContext) {
       const label = rulerContext.labels.find((item) => item.vowel === draggingPlotLabel);
@@ -1359,7 +1423,12 @@ export function InteractivePlotWindow() {
         setMessage(`${label.vowel} 라벨 위치를 저장했습니다.`);
       }
       setDraggingPlotLabel(null);
-      setPlotLabelPointer(null);
+      // Keep the optimistic preview in place until preview_ready replaces the image.
+      setPlotLabelPreviewVowel(label?.vowel ?? null);
+    }
+    if (plotLabelFrameRef.current !== null) {
+      cancelAnimationFrame(plotLabelFrameRef.current);
+      plotLabelFrameRef.current = null;
     }
     if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
     setDraggingRulerLabel(null);
@@ -1434,6 +1503,7 @@ export function InteractivePlotWindow() {
     }
     if (tool !== "label") {
       setDraggingPlotLabel(null);
+      setHoveredPlotLabel(null);
       setPlotLabelPointer(null);
     }
   }, [tool]);
@@ -1479,7 +1549,7 @@ export function InteractivePlotWindow() {
 
               <section className="control-section"><div className="section-heading"><div><span>02</span><strong>분석 도구</strong></div></div><div className="tool-grid"><button onClick={() => setVowelAnalysisOpen(true)} disabled={!sources.length}><ScanSearch size={17} /><span><strong>모음 상세 분석</strong><small>통계와 분포 보기</small></span></button><button onClick={() => void openLegacyPlot()} disabled={!sources.length}><Layers3 size={17} /><span><strong>다중 플롯 모드</strong><small>파일 비교 구성</small></span></button><button className={tool === "ruler" ? "is-active" : ""} onClick={() => setTool(tool === "ruler" ? "select" : "ruler")}><Ruler size={17} /><span><strong>눈금자</strong><small>R · 거리 측정</small></span></button><button className={tool === "draw" ? "is-active" : ""} onClick={() => { setTool("draw"); setRightPanel("drawing"); setRightOpen(true); }}><PenLine size={17} /><span><strong>그리기</strong><small>P · 주석 도구</small></span></button></div></section>
 
-              <section className="control-section export-section"><div className="section-heading"><div><span>03</span><strong>내보내기</strong></div></div><div className="format-buttons"><button onClick={() => void exportInteractive("jpg")} disabled={!previewUrl}>JPG</button><button onClick={() => void exportInteractive("png")} disabled={!previewUrl}>PNG</button><button onClick={() => void exportInteractive("svg")} disabled={!sources.length}>SVG</button></div><button className="wide-action" onClick={() => void saveProject()} disabled={busy || !sources.length}><Save size={15} /> 프로젝트 저장</button><button className="wide-action primary" onClick={() => setBatchExportOpen(true)} disabled={busy || !sources.length}><Download size={15} /> 일괄 저장</button></section>
+              <section className="control-section export-section"><div className="section-heading"><div><span>03</span><strong>내보내기</strong></div></div><div className={`format-buttons ${hasCombined ? "has-txt" : ""}`}><button onClick={() => void exportInteractive("jpg")} disabled={!previewUrl}>JPG</button><button onClick={() => void exportInteractive("png")} disabled={!previewUrl}>PNG</button><button onClick={() => void exportInteractive("svg")} disabled={!sources.length}>SVG</button>{hasCombined ? <button onClick={() => void exportCombinedTxt()} disabled={busy}>TXT</button> : null}</div><button className="wide-action" onClick={() => void saveProject()} disabled={busy || !sources.length}><Save size={15} /> 프로젝트 저장</button><button className="wide-action primary" onClick={() => setBatchExportOpen(true)} disabled={busy || !sources.length}><Download size={15} /> 일괄 저장</button></section>
             </>
           ) : (
             <>
@@ -1532,8 +1602,8 @@ export function InteractivePlotWindow() {
 
       <section className={`interactive-plot-stage tool-${tool}`}>
         <div className="plot-toolbar"><div className="toolbar-leading">{!leftOpen ? <button className="sidebar-reopen" onClick={() => setLeftOpen(true)}><PanelLeftOpen size={16} /> 도구</button> : null}<div className="toolbar-group"><button className={tool === "select" ? "is-active" : ""} onClick={() => setTool("select")}><MousePointer2 size={16} /> 선택</button><div className="ruler-tool-cluster"><button className={tool === "ruler" ? "is-active" : ""} onClick={() => setTool("ruler")}><Ruler size={16} /> 눈금자</button><button type="button" className={`tool-settings-button ${rulerSettingsOpen ? "is-active" : ""}`} onClick={() => setRulerSettingsOpen((previous) => !previous)} aria-label="눈금자 설정" title="눈금자 설정"><SlidersHorizontal size={14} /></button>{rulerSettingsOpen ? <div className="ruler-settings-popover"><div className="ruler-settings-header"><strong>눈금자 설정</strong><span>측정 방식</span></div><div className="ruler-mode-choices"><button type="button" className={`ruler-mode-choice ${rulerGeometryMode === "direct" ? "is-active" : ""}`} onClick={() => setRulerGeometryMode("direct")}><svg viewBox="0 0 44 22" aria-hidden><line x1="5" y1="17" x2="39" y2="5" /><circle cx="5" cy="17" r="2" /><circle cx="39" cy="5" r="2" /></svg><span>직선</span></button><button type="button" className={`ruler-mode-choice ${rulerGeometryMode === "right-triangle" ? "is-active" : ""}`} onClick={() => setRulerGeometryMode("right-triangle")}><svg viewBox="0 0 44 22" aria-hidden><path d="M5 17H39V5" /><line className="hypotenuse" x1="5" y1="17" x2="39" y2="5" /><path className="right-angle" d="M34 17v-5h5" /></svg><span>Δx · Δy</span></button></div><div className="ruler-unit-row"><span>표시 단위</span><div className="ruler-unit-toggles"><button type="button" className={`ruler-unit-toggle ${rulerDisplayMode === "hz" ? "is-on" : ""}`} aria-pressed={rulerDisplayMode === "hz"} onClick={() => setRulerDisplayMode("hz")}>Hz</button><button type="button" className={`ruler-unit-toggle ${rulerDisplayMode === "bark" ? "is-on" : ""}`} aria-pressed={rulerDisplayMode === "bark"} onClick={() => setRulerDisplayMode("bark")}>Bark</button></div></div></div> : null}</div><button className={tool === "label" ? "is-active" : ""} onClick={() => { setTool("label"); setMessage("라벨 이동 모드 · 라벨을 드래그하세요."); }}><MousePointer2 size={16} /> 라벨 이동</button><button className={tool === "draw" ? "is-active" : ""} onClick={() => { setTool("draw"); setRightPanel("drawing"); setRightOpen(true); }}><PenLine size={16} /> 그리기</button></div></div><div className="toolbar-context"><span>{analysis?.normalization ?? "정규화 없음"}</span><span>{analysis?.origin === "top_right" ? "Praat 좌표" : "수학 좌표"}</span>{!rightOpen ? <button className="sidebar-reopen" onClick={() => setRightOpen(true)}>레이어 <PanelRightOpen size={16} /></button> : null}</div></div>
-        <div className="plot-canvas-shell"><div className="plot-paper" ref={plotPaperRef}>{previewUrl ? <><img ref={plotImageRef} src={previewUrl} alt={`${currentSource?.name ?? "현재 파일"} 포먼트 플롯`} /><div className="ruler-overlay" onPointerMove={handleRulerMove} onPointerDown={handleRulerDown} onPointerUp={handleRulerUp} onContextMenu={handleRulerContextMenu}>
-          {tool === "label" && rulerContext ? rulerContext.labels.map((label) => { const screen = plotLabelClient(label); const paper = plotPaperRef.current?.getBoundingClientRect(); if (!screen || !paper) return null; const isDragging = draggingPlotLabel === label.vowel && plotLabelPointer; const left = isDragging ? plotLabelPointer.x : screen.x - paper.left; const top = isDragging ? plotLabelPointer.y : screen.y - paper.top; return <span className="plot-label-hit-target" key={`label-${label.vowel}`} style={{ left, top }} title={`${label.vowel} 라벨 이동`} />; }) : null}
+        <div className="plot-canvas-shell"><div className="plot-paper" ref={plotPaperRef}>{previewUrl ? <><img ref={plotImageRef} src={previewUrl} alt={`${currentSource?.name ?? "현재 파일"} 포먼트 플롯`} draggable={false} /><div className="ruler-overlay" onPointerMove={handleRulerMove} onPointerDown={handleRulerDown} onPointerUp={handleRulerUp} onPointerCancel={handleRulerUp} onDoubleClick={resetPlotLabel} onContextMenu={tool === "label" ? resetPlotLabel : handleRulerContextMenu}>
+          {tool === "label" && rulerContext ? rulerContext.labels.map((label) => { const screen = plotLabelClient(label); const box = plotLabelBoxClient(label); const paper = plotPaperRef.current?.getBoundingClientRect(); if (!screen || !paper) return null; const isDragging = draggingPlotLabel === label.vowel && plotLabelPointer !== null; const isPreviewing = plotLabelPreviewVowel === label.vowel && plotLabelPointer !== null; const isHovered = hoveredPlotLabel === label.vowel; const anchorOffsetX = box ? box.left - screen.x : 0; const anchorOffsetY = box ? box.top - screen.y : 0; const left = isPreviewing ? plotLabelPointer.x + anchorOffsetX : box ? box.left - paper.left : screen.x - paper.left; const top = isPreviewing ? plotLabelPointer.y + anchorOffsetY : box ? box.top - paper.top : screen.y - paper.top; const labelDesign = { ...design, ...(layerOverrides[label.vowel] ?? {}) }; const rawBold = String(labelDesign.lbl_bold); const isBold = rawBold === "true" || rawBold === "bold" || rawBold === "medium"; const previewStyle = { color: String(label.lbl_color ?? labelDesign.lbl_color ?? "#ff0000"), fontSize: `${Number(label.fontsize ?? labelDesign.lbl_size ?? 18)}pt`, fontWeight: isBold ? 700 : 400, fontStyle: label.lbl_italic ?? labelDesign.lbl_italic ? "italic" as const : "normal" as const, fontFamily: labelDesign.font_style === "sans" ? "var(--gf-font-sans)" : "var(--gf-font-serif)" }; const boxStyle = box ? { width: box.width, height: box.height } : {}; return <span className={`plot-label-hit-target ${isDragging ? "is-dragging" : ""} ${isHovered ? "is-hovered" : ""}`} key={`label-${label.vowel}`} style={{ left, top, ...boxStyle }} title={`${label.vowel} 라벨 이동`}><span className="plot-label-hit-text" style={previewStyle}>{label.display_vowel ?? label.vowel}</span>{isPreviewing ? <span className="plot-label-drag-preview" style={previewStyle}>{label.display_vowel ?? label.vowel}</span> : null}</span>; }) : null}
          {tool === "ruler" ? rulerMeasurements.map((measurement, index) => { const a = rulerPointClient(measurement.p1); const b = rulerPointClient(measurement.p2); const paper = plotPaperRef.current?.getBoundingClientRect(); if (!a || !b || !paper) return null; const x1 = a.x - paper.left; const y1 = a.y - paper.top; const x2 = b.x - paper.left; const y2 = b.y - paper.top; const triangleLabels = rulerGeometryMode === "right-triangle" ? rulerTriangleLabels(measurement.p1, measurement.p2) : null; return <div className="ruler-measurement" key={`${measurement.p1.x}-${measurement.p2.x}-${index}`}><svg className="ruler-line-layer" aria-hidden>{rulerGeometryMode === "right-triangle" ? <><polyline points={`${x1},${y1} ${x2},${y1} ${x2},${y2}`} /><line x1={x1} y1={y1} x2={x2} y2={y2} /></> : <line x1={x1} y1={y1} x2={x2} y2={y2} />}</svg><span className="ruler-point ruler-point-start" style={{ left: x1, top: y1, borderColor: measurement.p1.color }} /><span className="ruler-point ruler-point-end" style={{ left: x2, top: y2, borderColor: measurement.p2.color }} />{triangleLabels ? <><span className="ruler-side-label ruler-side-label-horizontal" style={{ left: (x1 + x2) / 2, top: y1 }}>{triangleLabels.horizontal}</span><span className="ruler-side-label ruler-side-label-vertical" style={{ left: x2, top: (y1 + y2) / 2 }}>{triangleLabels.vertical}</span><span className="ruler-side-label ruler-side-label-hypotenuse" style={{ left: (x1 + x2) / 2, top: (y1 + y2) / 2 }}>{triangleLabels.hypotenuse}</span></> : <button type="button" tabIndex={-1} aria-label={`거리 ${measurement.distance}`} className="ruler-label" style={{ left: measurement.labelX, top: measurement.labelY }} onPointerDown={(event) => { event.stopPropagation(); setDraggingRulerLabel(index); event.currentTarget.setPointerCapture(event.pointerId); }}>{measurement.distance}</button>}</div>; }) : null}
           {tool === "ruler" && rulerStart ? (() => { const screen = rulerPointClient(rulerStart); const paper = plotPaperRef.current?.getBoundingClientRect(); return screen && paper ? <span className={`ruler-snap-marker ${rulerStart.type === "mean" ? "is-mean" : "is-raw"}`} style={{ left: screen.x - paper.left, top: screen.y - paper.top, borderColor: rulerStart.color }} /> : null; })() : null}
           {tool === "ruler" && rulerStart && rulerPointer ? <svg className="ruler-guide-layer" aria-hidden><line x1={rulerPointClient(rulerStart) ? (rulerPointClient(rulerStart)!.x - (plotPaperRef.current?.getBoundingClientRect().left ?? 0)) : 0} y1={rulerPointClient(rulerStart) ? (rulerPointClient(rulerStart)!.y - (plotPaperRef.current?.getBoundingClientRect().top ?? 0)) : 0} x2={rulerPointer.x} y2={rulerPointer.y} /></svg> : null}

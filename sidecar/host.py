@@ -90,6 +90,9 @@ class SidecarHost:
             "version": config.APP_VERSION,
             "protocol_version": protocol_manifest()["protocol_version"],
             "headless": self.headless,
+            "python_executable": sys.executable,
+            "python_version": sys.version.split()[0],
+            "working_directory": os.getcwd(),
             "commands": sorted(COMMANDS),
         }
 

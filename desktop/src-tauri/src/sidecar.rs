@@ -1,6 +1,6 @@
 //! NDJSON bridge to the Python analysis sidecar (`python -m sidecar`).
 
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 use std::io::{BufRead, BufReader, Write};
 use std::path::PathBuf;
 use std::process::{Child, ChildStderr, ChildStdin, ChildStdout, Command, Stdio};
@@ -71,6 +71,7 @@ pub struct SidecarState {
 struct SidecarInner {
     process: Option<SidecarProcess>,
     pending: Arc<Mutex<PendingMap>>,
+    diagnostics: Arc<Mutex<VecDeque<String>>>,
 }
 
 enum SidecarProcess {
@@ -90,6 +91,7 @@ impl SidecarState {
             inner: Mutex::new(SidecarInner {
                 process: None,
                 pending: Arc::new(Mutex::new(HashMap::new())),
+                diagnostics: Arc::new(Mutex::new(VecDeque::with_capacity(32))),
             }),
         }
     }
@@ -222,16 +224,39 @@ fn fail_pending(pending: &Arc<Mutex<PendingMap>>, reason: &str) {
     }
 }
 
-fn start_stderr_reader(app: AppHandle, stderr: ChildStderr) {
+fn record_diagnostic(diagnostics: &Arc<Mutex<VecDeque<String>>>, line: String) {
+    if let Ok(mut entries) = diagnostics.lock() {
+        if entries.len() >= 32 {
+            entries.pop_front();
+        }
+        entries.push_back(line);
+    }
+}
+
+fn recent_diagnostics(diagnostics: &Arc<Mutex<VecDeque<String>>>) -> String {
+    diagnostics
+        .lock()
+        .map(|entries| entries.iter().cloned().collect::<Vec<_>>().join(" | "))
+        .unwrap_or_default()
+}
+
+fn start_stderr_reader(
+    app: AppHandle,
+    stderr: ChildStderr,
+    diagnostics: Arc<Mutex<VecDeque<String>>>,
+) {
     thread::spawn(move || {
         for line in BufReader::new(stderr).lines() {
             match line {
                 Ok(line) if !line.trim().is_empty() => {
+                    record_diagnostic(&diagnostics, line.clone());
                     let _ = app.emit("sidecar-log", line);
                 }
                 Ok(_) => {}
                 Err(err) => {
-                    let _ = app.emit("sidecar-log", format!("stderr read failed: {err}"));
+                    let message = format!("stderr read failed: {err}");
+                    record_diagnostic(&diagnostics, message.clone());
+                    let _ = app.emit("sidecar-log", message);
                     break;
                 }
             }
@@ -263,7 +288,7 @@ fn ensure_running(app: &AppHandle, state: &SidecarState) -> Result<(), String> {
     if use_development_sidecar() {
         let (child, stdin, stdout, stderr) = spawn_development_sidecar()?;
         start_stdout_reader(app.clone(), stdout, pending);
-        start_stderr_reader(app.clone(), stderr);
+        start_stderr_reader(app.clone(), stderr, Arc::clone(&inner.diagnostics));
         inner.process = Some(SidecarProcess::Development { child, stdin });
     } else {
         let (mut events, child) = app
@@ -277,6 +302,7 @@ fn ensure_running(app: &AppHandle, state: &SidecarState) -> Result<(), String> {
         let reader_app = app.clone();
         let reader_pending = Arc::clone(&pending);
         let reader_running = Arc::clone(&running);
+        let diagnostics = Arc::clone(&inner.diagnostics);
         tauri::async_runtime::spawn(async move {
             let mut stdout_buffer = NdjsonChunkBuffer::default();
             while let Some(event) = events.recv().await {
@@ -289,6 +315,7 @@ fn ensure_running(app: &AppHandle, state: &SidecarState) -> Result<(), String> {
                     CommandEvent::Stderr(bytes) => {
                         let line = String::from_utf8_lossy(&bytes).trim().to_string();
                         if !line.is_empty() {
+                            record_diagnostic(&diagnostics, line.clone());
                             let _ = reader_app.emit("sidecar-log", line);
                         }
                     }
@@ -383,8 +410,20 @@ fn call_sidecar(
             if let Ok(mut map) = pending.lock() {
                 map.remove(&id);
             }
+            let diagnostics = recent_diagnostics(
+                &state
+                    .inner
+                    .lock()
+                    .map_err(|_| "sidecar lock poisoned")?
+                    .diagnostics,
+            );
+            let suffix = if diagnostics.is_empty() {
+                String::new()
+            } else {
+                format!("; recent sidecar stderr: {diagnostics}")
+            };
             Err(format!(
-                "timed out waiting for sidecar method '{method}' after {}s",
+                "timed out waiting for sidecar method '{method}' after {}s{suffix}",
                 timeout.as_secs()
             ))
         }

@@ -88,6 +88,9 @@ export type HealthStatus = {
   version: string;
   protocol_version: number;
   headless: boolean;
+  python_executable?: string;
+  python_version?: string;
+  working_directory?: string;
   commands: string[];
 };
 

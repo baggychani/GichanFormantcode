@@ -546,6 +546,7 @@ class PlotEngine:
                 label_data.append(
                     {
                         "vowel": vowel,
+                        "display_vowel": display_vowel,
                         "cx": mean_x,
                         "cy": mean_y,
                         "lx": label_x,

@@ -129,7 +129,11 @@ class PreviewRenderer:
             labels = []
             x_min, x_max = ax.get_xlim()
             y_min, y_max = ax.get_ylim()
-            for source in label_data:
+            label_artists = []
+            if isinstance(draw_result, tuple) and len(draw_result) >= 4:
+                label_artists = draw_result[3] or []
+            renderer = self.figure.canvas.get_renderer()
+            for index, source in enumerate(label_data):
                 try:
                     cx, cy = float(source["cx"]), float(source["cy"])
                     lx, ly = float(source["lx"]), float(source["ly"])
@@ -139,7 +143,37 @@ class PreviewRenderer:
                     continue
                 if not all(math.isfinite(value) for value in (cx, cy, lx, ly, cpx, cpy, lpx, lpy)):
                     continue
-                labels.append({"vowel": str(source.get("vowel", "")), "cx": cx, "cy": cy, "lx": lx, "ly": ly, "px": float(cpx), "py": float(cpy), "lpx": float(lpx), "lpy": float(lpy)})
+                bbox = None
+                if index < len(label_artists):
+                    try:
+                        artist_bbox = label_artists[index].get_window_extent(renderer)
+                        bbox = {
+                            "left": float(artist_bbox.x0),
+                            "top": float(image_height - artist_bbox.y1),
+                            "width": float(artist_bbox.width),
+                            "height": float(artist_bbox.height),
+                        }
+                    except (AttributeError, TypeError, ValueError):
+                        bbox = None
+                labels.append({
+                    "vowel": str(source.get("vowel", "")),
+                    "display_vowel": str(source.get("display_vowel", source.get("vowel", ""))),
+                    "cx": cx,
+                    "cy": cy,
+                    "lx": lx,
+                    "ly": ly,
+                    "px": float(cpx),
+                    "py": float(cpy),
+                    "lpx": float(lpx),
+                    "lpy": float(lpy),
+                    "bbox": bbox,
+                    "fontsize": source.get("fontsize"),
+                    "ha": source.get("ha", "left"),
+                    "va": source.get("va", "bottom"),
+                    "lbl_color": source.get("lbl_color"),
+                    "lbl_bold": source.get("lbl_bold"),
+                    "lbl_italic": source.get("lbl_italic"),
+                })
         else:
             axes_bbox = {"left": 0.0, "bottom": 0.0, "width": 0.0, "height": 0.0}
             labels = []
