@@ -152,6 +152,25 @@ def test_application_service_load_files_updates_headless_view(monkeypatch, tmp_p
     json.dumps(response, ensure_ascii=False)
 
 
+def test_application_service_rejects_unsupported_data_files_before_loading(monkeypatch, tmp_path):
+    controller, view = _headless_controller()
+    service = ApplicationService(controller)
+    source = tmp_path / "not-data.pdf"
+    source.write_bytes(b"%PDF-1.7")
+
+    def fail_load(_paths):
+        raise AssertionError("unsupported files should not reach the data loader")
+
+    monkeypatch.setattr(controller, "load_files", fail_load)
+
+    response = service.load_files([str(source)])
+
+    assert response["load_result"]["success_count"] == 0
+    assert response["load_result"]["failed"][0]["name"] == source.name
+    assert response["state"]["capabilities"]["can_plot"] is False
+    assert view.file_count == 0
+
+
 def test_preview_event_is_json_safe():
     controller, _view = _headless_controller()
     service = ApplicationService(controller)

@@ -44,6 +44,22 @@ type SidecarEvent = {
   payload: Record<string, unknown>;
 };
 
+type LoadFilesResponse = {
+  load_result: {
+    success_count: number;
+    failed: Array<{ name: string; errors: Array<{ path: string; message: string }> }>;
+  };
+  state: ApplicationState;
+};
+
+const SUPPORTED_DATA_EXTENSIONS = new Set(["txt", "csv", "tsv", "xlsx", "xls"]);
+
+const isSupportedDataPath = (path: string) => {
+  const leaf = path.split(/[\\/]/).pop() ?? path;
+  const extension = leaf.includes(".") ? leaf.split(".").pop()?.toLowerCase() : "";
+  return extension ? SUPPORTED_DATA_EXTENSIONS.has(extension) : false;
+};
+
 type PlotType =
   | "f1_f2"
   | "f1_f2_minus_f1"
@@ -291,6 +307,12 @@ function MainWorkspace() {
     setBusy(busyCountRef.current > 0);
   }, []);
 
+  const requestMainPreview = useCallback(() => {
+    void callSidecar("request_preview", { request_id: ++previewRequestRef.current }).catch((err) => {
+      if (aliveRef.current) setError(String(err));
+    });
+  }, []);
+
   const refresh = useCallback(async () => {
     beginBusy();
     setError(null);
@@ -303,7 +325,7 @@ function MainWorkspace() {
       setState(nextState);
       pushStatus(`엔진 연결됨 · GichanFormant ${nextHealth.version}`);
       if (nextState.capabilities.can_plot) {
-        await callSidecar("request_preview", { request_id: ++previewRequestRef.current });
+        requestMainPreview();
       }
     } catch (err) {
       if (!aliveRef.current) return;
@@ -312,17 +334,31 @@ function MainWorkspace() {
     } finally {
       if (aliveRef.current) endBusy();
     }
-  }, [beginBusy, endBusy, pushStatus]);
+  }, [beginBusy, endBusy, pushStatus, requestMainPreview]);
 
   const loadPaths = useCallback(
     async (paths: string[]) => {
       if (!paths.length) return;
+      const loadablePaths = paths.filter(isSupportedDataPath);
+      const skippedCount = paths.length - loadablePaths.length;
+      if (!loadablePaths.length) {
+        setError("지원하지 않는 파일 형식입니다. TXT, CSV, TSV, XLSX, XLS 파일만 불러올 수 있습니다.");
+        return;
+      }
       beginBusy();
       setError(null);
       try {
-        await callSidecar("load_files", { paths });
-        await callSidecar("request_preview", { request_id: ++previewRequestRef.current });
+        const response = await callSidecar<LoadFilesResponse>("load_files", { paths: loadablePaths });
         if (!aliveRef.current) return;
+        setState(response.state);
+        if (response.load_result.success_count > 0 || response.state.capabilities.can_plot) {
+          requestMainPreview();
+        }
+        if (!aliveRef.current) return;
+        if (response.load_result.failed.length > 0 || skippedCount > 0) {
+          const failedCount = response.load_result.failed.length + skippedCount;
+          setError(`${failedCount} files were skipped because they are not valid data files.`);
+        }
         pushStatus(`${paths.length}개 소스를 작업 공간에 추가했습니다`);
       } catch (err) {
         if (aliveRef.current) setError(String(err));
@@ -330,7 +366,7 @@ function MainWorkspace() {
         if (aliveRef.current) endBusy();
       }
     },
-    [beginBusy, endBusy, pushStatus],
+    [beginBusy, endBusy, pushStatus, requestMainPreview],
   );
 
   useEffect(() => {
@@ -444,7 +480,7 @@ function MainWorkspace() {
       if (!selected || Array.isArray(selected)) return;
       beginBusy();
       await callSidecar("load_project", { path: selected });
-        await callSidecar("request_preview", { request_id: ++previewRequestRef.current });
+      requestMainPreview();
       pushStatus("프로젝트를 불러왔습니다");
     } catch (err) {
       setError(String(err));
@@ -475,7 +511,7 @@ function MainWorkspace() {
     beginBusy();
     try {
       await callSidecar("remove_file", { index });
-      await callSidecar("request_preview", { request_id: ++previewRequestRef.current });
+      requestMainPreview();
     } catch (err) {
       setError(String(err));
     } finally {

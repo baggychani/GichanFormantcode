@@ -15,6 +15,10 @@ from typing import Any, Mapping
 
 from core.application_events import ApplicationError, ApplicationEventBus
 from core.application_state import AnalysisSettings
+from core.data_loading_service import (
+    UNSUPPORTED_DATA_FILE_MESSAGE,
+    is_supported_data_path,
+)
 from core.design_defaults import get_single_design_defaults
 from core.interactive_plot_state import (
     PlotSessionState,
@@ -160,6 +164,15 @@ class ApplicationService:
         return self._emit_state("analysis_settings_changed")
 
     def load_files(self, paths: list[str]) -> dict[str, Any]:
+        valid_paths = [path for path in paths if is_supported_data_path(path)]
+        skipped_failed = [
+            (
+                os.path.basename(str(path)) or str(path),
+                [(str(path), UNSUPPORTED_DATA_FILE_MESSAGE)],
+            )
+            for path in paths
+            if not is_supported_data_path(path)
+        ]
         self.events.emit(
             "operation_progress",
             {
@@ -168,7 +181,25 @@ class ApplicationService:
                 "total": len(paths),
             },
         )
-        result = self.controller.load_files(paths)
+        if valid_paths:
+            if getattr(self.controller.view, "native_window", None) is None:
+                result = self.controller.workspace_service.add_files(
+                    valid_paths, loader=self.controller._load_file_item
+                )
+                self.controller._sync_pre_lobanov_ui()
+            else:
+                result = self.controller.load_files(valid_paths)
+            if skipped_failed:
+                result = dict(result)
+                result["failed"] = [*skipped_failed, *result.get("failed", [])]
+        else:
+            result = {
+                "success_count": 0,
+                "failed": skipped_failed,
+                "has_f3_all": False,
+                "total_files": len(self.controller.filepaths),
+                "row_dropped": [],
+            }
         state = self._emit_state("files_loaded")
         self.events.emit(
             "files_changed",

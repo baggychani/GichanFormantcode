@@ -38,4 +38,6 @@ class FileLoadPresentationService:
             if host.all_real_items_pre_lobanov():
                 app_logger.info(config.LOG_MSG["LOBANOV_FILE_DETECTED"])
             host._sync_pre_lobanov_ui()
+            if getattr(host.view, "native_window", None) is None:
+                return
             host.update_live_preview()

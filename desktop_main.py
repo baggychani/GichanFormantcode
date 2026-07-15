@@ -49,6 +49,9 @@ def main() -> int:
 
     env = os.environ.copy()
     env.setdefault("PYTHONUNBUFFERED", "1")
+    # Keep uv's cache inside the project. A broken/shared user cache can make
+    # the development sidecar fail before it can answer IPC requests.
+    env.setdefault("UV_CACHE_DIR", str(ROOT / ".uv-cache"))
 
     print("GichanFormant Tauri/React 파일럿을 시작합니다.")
     print(f"  경로: {DESKTOP}")

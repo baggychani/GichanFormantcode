@@ -133,6 +133,12 @@ class SidecarHost:
             )
 
     def dispatch(self, method: str, params: dict[str, Any]) -> Any:
+        # File parsing and workspace mutation are framework-free. Running this
+        # command through Qt's synchronous executor blocks the IPC worker until
+        # the GUI thread finishes the whole load, which can turn a small input
+        # into a 120-second sidecar timeout.
+        if method == "load_files":
+            return self._dispatch_command(method, params)
         return self._execute_command(lambda: self._dispatch_command(method, params))
 
     def _dispatch_command(self, method: str, params: dict[str, Any]) -> Any:

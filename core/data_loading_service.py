@@ -11,6 +11,15 @@ import config
 from core.plot_data_types import PlotDataItem
 from model.data_processor import DataProcessor
 
+SUPPORTED_DATA_EXTENSIONS = frozenset({".txt", ".csv", ".tsv", ".xlsx", ".xls"})
+UNSUPPORTED_DATA_FILE_MESSAGE = (
+    "지원하지 않는 데이터 파일 형식입니다. TXT, CSV, TSV, XLSX, XLS만 불러올 수 있습니다."
+)
+
+
+def is_supported_data_path(path: str) -> bool:
+    return os.path.splitext(str(path))[1].lower() in SUPPORTED_DATA_EXTENSIONS
+
 
 def make_plot_item(
     *,
