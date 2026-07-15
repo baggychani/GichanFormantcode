@@ -60,6 +60,12 @@ COMMANDS: dict[str, dict[str, Any]] = {
         },
         "required": ["path"],
     },
+    "export_combined_txt": {
+        "params": {
+            "path": "string",
+        },
+        "required": ["path"],
+    },
     "open_single_plot": {"params": {}},
     "open_compare": {
         "params": {

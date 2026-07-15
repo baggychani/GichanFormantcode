@@ -74,6 +74,14 @@ export const COMMAND_SPECS = {
       "path"
     ]
   },
+  "export_combined_txt": {
+    "params": {
+      "path": "string"
+    },
+    "required": [
+      "path"
+    ]
+  },
   "open_single_plot": {
     "params": {}
   },

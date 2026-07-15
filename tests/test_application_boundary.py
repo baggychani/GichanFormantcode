@@ -152,6 +152,28 @@ def test_application_service_load_files_updates_headless_view(monkeypatch, tmp_p
     json.dumps(response, ensure_ascii=False)
 
 
+def test_application_service_exports_combined_txt_from_headless_state(tmp_path):
+    controller, _view = _headless_controller()
+    service = ApplicationService(controller)
+    controller.plot_data_list = [
+        {
+            "name": "Combined (2)",
+            "is_combined": True,
+            "has_f3": False,
+            "df": pd.DataFrame(
+                {"Label": ["a"], "F1": [500.0], "F2": [1500.0]}
+            ),
+        }
+    ]
+
+    result = service.export_combined_txt(str(tmp_path / "combined"))
+
+    assert result["ok"] is True
+    output = tmp_path / "combined.txt"
+    assert output.exists()
+    assert "a" in output.read_text(encoding="utf-8")
+
+
 def test_application_service_rejects_unsupported_data_files_before_loading(monkeypatch, tmp_path):
     controller, view = _headless_controller()
     service = ApplicationService(controller)

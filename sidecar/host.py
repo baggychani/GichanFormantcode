@@ -175,6 +175,8 @@ class SidecarHost:
             return self.service.load_project(
                 str(params["path"]), restore_windows=False
             )
+        if method == "export_combined_txt":
+            return self.service.export_combined_txt(str(params["path"]))
         if method == "open_single_plot":
             self.service.open_single_plot()
             return {"ok": True}

@@ -25,6 +25,7 @@ from core.interactive_plot_state import (
     validate_interactive_options,
 )
 from core.interactive_render_worker import InteractiveRenderer
+from core.export_service import export_combined_txt_file
 from utils.math_utils import compute_x_raw
 from utils.pillai_stats import calculate_pillai_score
 from utils.vowel_stats import analyze_vowels, calculate_pairwise_mahalanobis_distances
@@ -227,6 +228,27 @@ class ApplicationService:
             "load_result": self._serialize_load_result(result),
             "state": state,
         }
+
+    def export_combined_txt(self, path: str) -> dict[str, Any]:
+        """Export the derived combined source through the headless boundary."""
+        combined = next(
+            (item for item in self.controller.get_plot_data_list() if item.get("is_combined")),
+            None,
+        )
+        target = Path(path).expanduser()
+        if target.suffix.lower() != ".txt":
+            target = target.with_suffix(".txt")
+        ok, message = export_combined_txt_file(combined, str(target))
+        if not ok:
+            raise ApplicationError(
+                "combined_export_failed",
+                message,
+                {"path": str(target)},
+            )
+        set_last_save_dir = getattr(self.controller, "set_last_save_dir", None)
+        if callable(set_last_save_dir):
+            set_last_save_dir(str(target.parent))
+        return {"ok": True, "path": str(target), "format": "txt"}
 
     def remove_file(self, index: int) -> dict[str, Any]:
         removed = self.controller.remove_file(index)

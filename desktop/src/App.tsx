@@ -14,6 +14,7 @@ import {
   CircleDot,
   Database,
   FilePlus2,
+  FileText,
   FolderOpen,
   Gauge,
   Layers3,
@@ -288,6 +289,7 @@ function MainWorkspace() {
   const sources = state?.sources ?? [];
   const hasFiles = sources.length > 0;
   const hasF3 = sources.some((source) => source.has_f3);
+  const hasCombined = sources.some((source) => source.is_combined);
   const canPlot = state?.capabilities.can_plot ?? false;
   const plotType = (analysis?.type as PlotType) || "f1_f2";
   const activePlot =
@@ -563,6 +565,25 @@ function MainWorkspace() {
     }
   };
 
+  const saveCombinedTxt = async () => {
+    if (!hasCombined) return;
+    const selected = await save({
+      title: "결합 데이터 TXT 저장",
+      defaultPath: "Combined.txt",
+      filters: [{ name: "GichanFormant TXT", extensions: ["txt"] }],
+    });
+    if (!selected) return;
+    beginBusy();
+    try {
+      await callSidecar("export_combined_txt", { path: selected });
+      pushStatus("결합 데이터를 TXT로 저장했습니다");
+    } catch (err) {
+      setError(String(err));
+    } finally {
+      endBusy();
+    }
+  };
+
   const createPlot = async () => {
     setError(null);
     beginBusy();
@@ -705,6 +726,17 @@ function MainWorkspace() {
             <Save size={15} />
             프로젝트 저장
           </button>
+          {hasCombined ? (
+            <button
+              type="button"
+              className="project-link"
+              onClick={() => void saveCombinedTxt()}
+              disabled={busy}
+            >
+              <FileText size={15} />
+              결합 데이터 TXT 저장
+            </button>
+          ) : null}
           <button
             type="button"
             className="project-link"
