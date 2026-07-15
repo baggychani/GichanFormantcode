@@ -104,3 +104,62 @@ def test_qt_executor_marshals_worker_commands_to_main_thread():
 
     assert not worker.is_alive()
     assert result == [True]
+
+
+def test_load_files_bypasses_qt_executor_to_avoid_transport_timeout(monkeypatch):
+    host = SidecarHost.create_headless()
+    calls = []
+
+    def fail_if_executed(_command):
+        calls.append(True)
+        raise AssertionError("load_files must not wait on a GUI executor")
+
+    host._execute_command = fail_if_executed
+    monkeypatch.setattr(
+        host.service,
+        "load_files",
+        lambda _paths: {
+            "load_result": {
+                "success_count": 0,
+                "failed": [],
+            },
+            "state": host.service.snapshot(),
+        },
+    )
+
+    response = json.loads(
+        host.handle_message(
+            '{"v":1,"id":"load","method":"load_files",'
+            '"params":{"paths":["a.csv"]}}'
+        )
+    )
+
+    assert "error" not in response
+    assert calls == []
+    host.close()
+
+
+def test_host_returns_protocol_error_for_non_object_params():
+    host = SidecarHost.create_headless()
+    response = json.loads(
+        host.handle_message(
+            '{"v":1,"id":"bad","method":"load_files","params":[]}'
+        )
+    )
+    assert response["error"]["code"] == "invalid_params"
+    assert "JSON object" in response["error"]["message"]
+    host.close()
+
+
+def test_host_measure_distance_returns_ruler_geometry():
+    host = SidecarHost.create_headless()
+    response = json.loads(
+        host.handle_message(
+            '{"v":1,"id":"ruler","method":"measure_distance",'
+            '"params":{"x1":0,"y1":0,"x2":3,"y2":4}}'
+        )
+    )
+    assert response["result"]["distance"] == 5.0
+    assert response["result"]["dx"] == 3.0
+    assert response["result"]["dy"] == 4.0
+    host.close()

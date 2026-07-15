@@ -108,7 +108,9 @@ class SidecarHost:
             method = message.get("method")
             if not isinstance(method, str):
                 raise ProtocolError("invalid_envelope", "method must be a string")
-            params = validate_params(method, message.get("params") or {})
+            # Preserve malformed values (for example an array) so the
+            # protocol validator can return a precise invalid_params error.
+            params = validate_params(method, message.get("params"))
             result = self.dispatch(method, params)
             if method == "shutdown":
                 # Response is written before the run loop exits.
@@ -126,10 +128,14 @@ class SidecarHost:
                 exc.details,
             )
         except Exception as exc:  # noqa: BLE001 - transport must never die silently
+            # Keep the response useful to Tauri while avoiding a traceback on
+            # stdout, which would corrupt the NDJSON transport.
+            method_name = message.get("method") if "message" in locals() else None
             return encode_error(
                 str(request_id) if request_id else None,
                 "internal_error",
                 str(exc),
+                {"method": method_name} if method_name else None,
             )
 
     def dispatch(self, method: str, params: dict[str, Any]) -> Any:
@@ -188,6 +194,23 @@ class SidecarHost:
                 if hasattr(debouncer, "fire"):
                     debouncer.fire()
             return {"ok": True}
+        if method == "measure_distance":
+            from core.ruler_service import measure_distance
+
+            return measure_distance(
+                float(params["x1"]),
+                float(params["y1"]),
+                float(params["x2"]),
+                float(params["y2"]),
+            )
+        if method == "export_interactive_preview":
+            return self.service.export_interactive_preview(
+                str(params["path"]), str(params["format"]), params["options"]
+            )
+        if method == "export_interactive_batch":
+            return self.service.export_interactive_batch(
+                str(params["directory"]), str(params["format"]), params["options"]
+            )
         if method == "update_interactive_session":
             return self.service.update_interactive_session(params["options"])
         if method == "render_interactive_preview":

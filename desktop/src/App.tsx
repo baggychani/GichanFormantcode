@@ -274,6 +274,16 @@ function MainWorkspace() {
     return initialTheme;
   });
 
+  useEffect(() => {
+    const media = window.matchMedia("(prefers-color-scheme: dark)");
+    const syncSystemTheme = (event: MediaQueryListEvent) => {
+      if (window.localStorage.getItem("gichanformant-theme")) return;
+      setTheme(event.matches ? "dark" : "light");
+    };
+    media.addEventListener?.("change", syncSystemTheme);
+    return () => media.removeEventListener?.("change", syncSystemTheme);
+  }, []);
+
   const analysis = state?.analysis;
   const sources = state?.sources ?? [];
   const hasFiles = sources.length > 0;

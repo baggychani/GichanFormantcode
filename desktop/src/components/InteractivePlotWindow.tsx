@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { CSSProperties, MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent } from "react";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import { save } from "@tauri-apps/plugin-dialog";
+import { open, save } from "@tauri-apps/plugin-dialog";
 import {
   ArrowUpRight,
   BarChart3,
@@ -38,7 +38,13 @@ import { callSidecar } from "../sidecarClient";
 import "./InteractivePlotWindow.css";
 
 type SidecarEvent = { event: string; payload: Record<string, unknown> };
-type Tool = "select" | "ruler" | "draw";
+type Tool = "select" | "ruler" | "label" | "draw";
+type RulerPoint = { x: number; y: number; px: number; py: number; type: "raw" | "mean"; label: string; color: string; raw_f1?: number; raw_f2?: number };
+type PlotLabel = { vowel: string; cx: number; cy: number; lx: number; ly: number; px: number; py: number; lpx: number; lpy: number };
+type RulerContext = { image_width: number; image_height: number; axes_bbox: { left: number; bottom: number; width: number; height: number }; points: RulerPoint[]; labels: PlotLabel[]; xlim: [number, number]; ylim: [number, number]; params: { normalization?: string | null; use_bark_units?: boolean; f2_scale?: string } };
+type RulerMeasurement = { p1: RulerPoint; p2: RulerPoint; labelX: number; labelY: number; distance: string };
+type RulerGeometryMode = "direct" | "right-triangle";
+type RulerDisplayMode = "hz" | "bark";
 type LeftPanel = "analysis" | "global-design";
 type RightPanel = "layers" | "drawing";
 type DrawTool = "text" | "line" | "area" | "reference";
@@ -275,11 +281,12 @@ function VowelAnalysisShell({ currentSource, sources, currentIndex, onNavigate, 
   const analysisScrollByFileRef = useRef(new Map<number, number>());
   const previousAnalysisIndexRef = useRef(currentIndex);
   useEffect(() => {
+    setAnalysisData(null);
     let active = true;
     void callSidecar<VowelAnalysisResult>("get_vowel_analysis", { index: currentIndex }).then((result) => {
       if (active) setAnalysisData(result);
     }).catch(() => {
-      // Keep the previous file's result visible until the replacement is ready.
+      // Keep the shell hidden when the replacement analysis cannot be loaded.
     });
     return () => { active = false; };
   }, [currentIndex]);
@@ -293,6 +300,7 @@ function VowelAnalysisShell({ currentSource, sources, currentIndex, onNavigate, 
     });
     return () => window.cancelAnimationFrame(frame);
   }, [currentIndex]);
+  if (!analysisData) return null;
   const analysisPairs = analysisData ? Object.keys(analysisData.statistics).flatMap((left, index, vowels) => vowels.slice(index + 1).map((right) => ({ left, right, key: `${left}::${right}` }))) : [];
   const pages: Array<{ id: VowelAnalysisPage; label: string; detail: string }> = [
     { id: "formant", label: "모음별 통계", detail: "중심점과 분포" },
@@ -327,6 +335,25 @@ export function InteractivePlotWindow() {
   const [state, setState] = useState<ApplicationState | null>(null);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [previewInfo, setPreviewInfo] = useState("");
+  const [batchExportOpen, setBatchExportOpen] = useState(false);
+  const [batchExportFormat, setBatchExportFormat] = useState<"png" | "jpg" | "svg">("png");
+  const [batchExportDirectory, setBatchExportDirectory] = useState("");
+  const [batchExportBusy, setBatchExportBusy] = useState(false);
+  const [rulerSettingsOpen, setRulerSettingsOpen] = useState(false);
+  const [rulerGeometryMode, setRulerGeometryMode] = useState<RulerGeometryMode>("direct");
+  const [rulerDisplayMode, setRulerDisplayMode] = useState<RulerDisplayMode>("hz");
+  const [batchApplyGlobalDesign, setBatchApplyGlobalDesign] = useState(true);
+  const [batchApplyLayerDesign, setBatchApplyLayerDesign] = useState(true);
+  const [batchApplyVisibility, setBatchApplyVisibility] = useState(true);
+  const [batchApplyLabelPositions, setBatchApplyLabelPositions] = useState(true);
+  const [rulerContext, setRulerContext] = useState<RulerContext | null>(null);
+  const [rulerStart, setRulerStart] = useState<RulerPoint | null>(null);
+  const [rulerHover, setRulerHover] = useState<RulerPoint | null>(null);
+  const [rulerPointer, setRulerPointer] = useState<{ x: number; y: number } | null>(null);
+  const [rulerMeasurements, setRulerMeasurements] = useState<RulerMeasurement[]>([]);
+  const [draggingRulerLabel, setDraggingRulerLabel] = useState<number | null>(null);
+  const [draggingPlotLabel, setDraggingPlotLabel] = useState<string | null>(null);
+  const [plotLabelPointer, setPlotLabelPointer] = useState<{ x: number; y: number } | null>(null);
   const [tool, setTool] = useState<Tool>("select");
   const [leftPanel, setLeftPanel] = useState<LeftPanel>("analysis");
   const [rightPanel, setRightPanel] = useState<RightPanel>("layers");
@@ -378,6 +405,8 @@ export function InteractivePlotWindow() {
   const renderRequestRef = useRef(0);
   const renderTimerRef = useRef<number | null>(null);
   const layerSessionsRef = useRef(new Map<string, LayerSession>());
+  const plotPaperRef = useRef<HTMLDivElement | null>(null);
+  const plotImageRef = useRef<HTMLImageElement | null>(null);
 
   const refresh = useCallback(async () => {
     try {
@@ -408,6 +437,10 @@ export function InteractivePlotWindow() {
         const imagePath = String(payload.payload.png_path ?? "");
         const image = String(payload.payload.png_base64 ?? "");
         setPreviewUrl(imagePath ? convertFileSrc(imagePath) : image ? `data:image/png;base64,${image}` : null);
+        setRulerContext((payload.payload.ruler_context as RulerContext | undefined) ?? null);
+        setRulerStart(null);
+        setRulerHover(null);
+        setRulerMeasurements([]);
         setPreviewInfo(String(payload.payload.info ?? ""));
         setMessage("현재 설정을 플롯에 반영했습니다.");
       } else if (payload.event === "preview_failed" && payload.payload.target === "interactive") {
@@ -418,6 +451,9 @@ export function InteractivePlotWindow() {
         const requestId = Number(payload.payload.request_id ?? 0);
         if (requestId && requestId < renderRequestRef.current) return;
         setPreviewUrl(null);
+        setRulerContext(null);
+        setRulerStart(null);
+        setRulerMeasurements([]);
         setPreviewInfo("");
       } else if (payload.event === "state_changed") {
         const reason = String(payload.payload.reason ?? "");
@@ -442,6 +478,28 @@ export function InteractivePlotWindow() {
       disposeEvent?.();
     };
   }, [refresh]);
+
+  useEffect(() => {
+    if (!batchExportOpen) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape" || batchExportBusy) return;
+      event.preventDefault();
+      setBatchExportOpen(false);
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [batchExportBusy, batchExportOpen]);
+
+  useEffect(() => {
+    if (!vowelAnalysisOpen) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      setVowelAnalysisOpen(false);
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [vowelAnalysisOpen]);
 
   useEffect(() => {
     const applySharedTheme = () => {
@@ -550,6 +608,7 @@ export function InteractivePlotWindow() {
     showEllipse?: boolean;
     layerOverrides?: LayerOverrides;
     layerOrder?: string[];
+    labelOffsets?: Record<string, [number, number]>;
   } = {}) => {
     if (!state?.capabilities.can_plot) return;
     if (renderTimerRef.current !== null) {
@@ -568,6 +627,7 @@ export function InteractivePlotWindow() {
           layer_overrides: overrides.layerOverrides ?? layerOverrides,
           layer_order: overrides.layerOrder ?? layerOrder,
           locked_layers: [...lockedLayers],
+          ...(overrides.labelOffsets ? { label_offsets: overrides.labelOffsets } : {}),
           request_id: requestId,
         },
       });
@@ -610,6 +670,12 @@ export function InteractivePlotWindow() {
         if (next.size) selectionAnchorRef.current = nextPrimary;
         return next;
       });
+      return;
+    }
+    if (selectedLayer === vowel) {
+      setSelectedLayer("");
+      setSelectedLayers(new Set());
+      selectionAnchorRef.current = "";
       return;
     }
     setSelectedLayers(new Set([vowel]));
@@ -694,17 +760,94 @@ export function InteractivePlotWindow() {
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "s") {
+        const target = event.target as HTMLElement | null;
+        if (!target?.closest("input, textarea, select, [contenteditable='true']")) {
+          event.preventDefault();
+          void saveProject();
+        }
+        return;
+      }
       if (event.altKey || event.ctrlKey || event.metaKey) return;
       const target = event.target as HTMLElement | null;
       if (target?.closest("input, textarea, select, [contenteditable='true']")) return;
+      if (event.key.toLowerCase() === "a") {
+        event.preventDefault();
+        setLeftPanel("analysis");
+        return;
+      }
+      if (event.key.toLowerCase() === "d") {
+        event.preventDefault();
+        setLeftPanel("global-design");
+        return;
+      }
+      if (event.key.toLowerCase() === "m") {
+        if (sources.length < 2) return;
+        event.preventDefault();
+        void callSidecar("open_compare", { source_groups: sources.map((source) => [source.index]), normalization: analysis?.normalization ?? null });
+        return;
+      }
+      if (event.key === "Tab") {
+        event.preventDefault();
+        setLeftOpen((previous) => !previous);
+        setRightOpen((previous) => !previous);
+        return;
+      }
+      if (event.key.toLowerCase() === "r") {
+        event.preventDefault();
+        setTool((previous) => previous === "ruler" ? "select" : "ruler");
+        return;
+      }
+      if (event.key.toLowerCase() === "t") {
+        event.preventDefault();
+        setTool((previous) => previous === "label" ? "select" : "label");
+        setMessage("라벨 이동 모드 · 라벨을 드래그하세요.");
+        return;
+      }
+      if (event.key.toLowerCase() === "p") {
+        event.preventDefault();
+        setTool((previous) => previous === "draw" ? "select" : "draw");
+        setRightPanel("drawing");
+        setRightOpen(true);
+        setMessage("그리기 모드 · P로 켜고 끌 수 있습니다.");
+        return;
+      }
+      if (event.key === "Escape" && tool === "ruler") {
+        event.preventDefault();
+        setRulerStart(null);
+        setRulerHover(null);
+        setRulerPointer(null);
+        setRulerSettingsOpen(false);
+        return;
+      }
+      if (event.key === "Escape" && rulerSettingsOpen) {
+        event.preventDefault();
+        setRulerSettingsOpen(false);
+        return;
+      }
+      if (event.key === "Escape" && tool === "draw") {
+        event.preventDefault();
+        setTool("select");
+        return;
+      }
+      if (tool === "draw" && ["1", "2", "3", "4", "5"].includes(event.key)) {
+        event.preventDefault();
+        setDrawTool(event.key === "1" ? "line" : event.key === "2" ? "area" : event.key === "3" ? "text" : "reference");
+        return;
+      }
+      if (event.key === "Home" || event.key === "End") {
+        event.preventDefault();
+        void navigateTo(event.key === "Home" ? 0 : sources.length - 1);
+        return;
+      }
+      if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
       if (!canNavigate || navigatingRef.current) return;
       event.preventDefault();
       void navigateTo(event.key === "ArrowLeft" ? currentIndexRef.current - 1 : currentIndexRef.current + 1);
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [canNavigate, currentIndex, navigateTo, navigating]);
+  }, [analysis?.normalization, canNavigate, currentIndex, navigateTo, navigating, rulerSettingsOpen, sources, tool]);
 
   const updateDesign = (patch: Partial<DesignSettings>) => {
     const next = { ...design, ...patch };
@@ -1056,26 +1199,251 @@ export function InteractivePlotWindow() {
     } finally { setBusy(false); }
   };
 
-  const exportRaster = (format: "png" | "jpg") => {
-    if (!previewUrl) return;
-    const image = new Image();
-    image.onload = () => {
-      const canvas = document.createElement("canvas");
-      canvas.width = image.naturalWidth;
-      canvas.height = image.naturalHeight;
-      const context = canvas.getContext("2d");
-      if (!context) return;
-      context.fillStyle = "#ffffff";
-      context.fillRect(0, 0, canvas.width, canvas.height);
-      context.drawImage(image, 0, 0);
-      const anchor = document.createElement("a");
-      const base = (currentSource?.name || "GichanFormant_plot").replace(/\.[^.]+$/, "");
-      anchor.download = `${base}.${format}`;
-      anchor.href = canvas.toDataURL(format === "jpg" ? "image/jpeg" : "image/png", 0.95);
-      anchor.click();
-    };
-    image.src = previewUrl;
+  const exportInteractive = async (format: "png" | "jpg" | "svg") => {
+    if (!sources.length) return;
+    const path = await save({
+      title: `${format.toUpperCase()} 내보내기`,
+      defaultPath: `${(currentSource?.name ?? "plot").replace(/\.[^.]+$/, "")}.${format}`,
+      filters: [{ name: format.toUpperCase(), extensions: [format] }],
+    });
+    if (!path) return;
+    setBusy(true);
+    try {
+      await callSidecar("export_interactive_preview", {
+        path,
+        format,
+        options: { ranges, sigma, show_ellipse: showEllipse, design, filter_state: layerState, layer_overrides: layerOverrides, layer_order: layerOrder, locked_layers: [...lockedLayers] },
+      });
+      setMessage(`${format.toUpperCase()} 파일을 저장했습니다.`);
+    } catch (err) {
+      setMessage(`내보내기 실패: ${String(err)}`);
+    } finally {
+      setBusy(false);
+    }
   };
+
+  const chooseBatchDirectory = async () => {
+    const selected = await open({ directory: true, multiple: false, title: "일괄 저장 폴더 선택" });
+    if (typeof selected === "string") setBatchExportDirectory(selected);
+  };
+
+  const runBatchExport = async () => {
+    if (!batchExportDirectory || !sources.length) return;
+    setBatchExportBusy(true);
+    try {
+      const result = await callSidecar<{ exported?: string[]; errors?: Array<{ name: string; message: string }> }>("export_interactive_batch", {
+        directory: batchExportDirectory,
+        format: batchExportFormat,
+        options: { ranges, sigma, show_ellipse: showEllipse, design, filter_state: layerState, layer_overrides: layerOverrides, layer_order: layerOrder, locked_layers: [...lockedLayers], batch_options: { apply_global_design: batchApplyGlobalDesign, apply_layer_design: batchApplyLayerDesign, apply_layer_visibility: batchApplyVisibility, apply_label_positions: batchApplyLabelPositions } },
+      });
+      const count = result.exported?.length ?? 0;
+      setMessage(`${count}개 파일을 일괄 저장했습니다${result.errors?.length ? ` · 실패 ${result.errors.length}개` : ""}.`);
+      setBatchExportOpen(false);
+    } catch (err) {
+      setMessage(`일괄 저장 실패: ${String(err)}`);
+    } finally {
+      setBatchExportBusy(false);
+    }
+  };
+
+  const rulerImageGeometry = () => {
+    const image = plotImageRef.current;
+    if (!image || !image.naturalWidth || !image.naturalHeight) return null;
+    const box = image.getBoundingClientRect();
+    const scale = Math.min(box.width / image.naturalWidth, box.height / image.naturalHeight);
+    const width = image.naturalWidth * scale;
+    const height = image.naturalHeight * scale;
+    return { left: box.left + (box.width - width) / 2, top: box.top + (box.height - height) / 2, scale };
+  };
+
+  const rulerPointClient = (point: RulerPoint) => {
+    const geometry = rulerImageGeometry();
+    if (!geometry || !rulerContext) return null;
+    return { x: geometry.left + point.px * geometry.scale, y: geometry.top + (rulerContext.image_height - point.py) * geometry.scale };
+  };
+
+  const plotLabelClient = (label: PlotLabel) => {
+    const geometry = rulerImageGeometry();
+    if (!geometry || !rulerContext) return null;
+    return { x: geometry.left + label.lpx * geometry.scale, y: geometry.top + (rulerContext.image_height - label.lpy) * geometry.scale };
+  };
+
+  const plotDataFromClient = (clientX: number, clientY: number) => {
+    const geometry = rulerImageGeometry();
+    if (!geometry || !rulerContext) return null;
+    const px = (clientX - geometry.left) / geometry.scale;
+    const py = rulerContext.image_height - (clientY - geometry.top) / geometry.scale;
+    const x = rulerContext.xlim[0] + ((px - rulerContext.axes_bbox.left) / rulerContext.axes_bbox.width) * (rulerContext.xlim[1] - rulerContext.xlim[0]);
+    const y = rulerContext.ylim[0] + ((py - rulerContext.axes_bbox.bottom) / rulerContext.axes_bbox.height) * (rulerContext.ylim[1] - rulerContext.ylim[0]);
+    return { x, y };
+  };
+
+  const nearestPlotLabel = (clientX: number, clientY: number) => {
+    if (!rulerContext) return null;
+    let nearest: PlotLabel | null = null;
+    let best = 28 * 28;
+    for (const label of rulerContext.labels) {
+      const screen = plotLabelClient(label);
+      if (!screen) continue;
+      const distance = (screen.x - clientX) ** 2 + (screen.y - clientY) ** 2;
+      if (distance <= best) { best = distance; nearest = label; }
+    }
+    return nearest;
+  };
+
+  const nearestRulerPoint = (clientX: number, clientY: number) => {
+    if (!rulerContext) return null;
+    let nearest: RulerPoint | null = null;
+    let best = 20 * 20;
+    for (const point of rulerContext.points) {
+      const screen = rulerPointClient(point);
+      if (!screen) continue;
+      const distance = (screen.x - clientX) ** 2 + (screen.y - clientY) ** 2;
+      if (distance <= best) { best = distance; nearest = point; }
+    }
+    return nearest;
+  };
+
+  const rulerLocalPoint = (clientX: number, clientY: number) => {
+    const box = plotPaperRef.current?.getBoundingClientRect();
+    return box ? { x: clientX - box.left, y: clientY - box.top } : null;
+  };
+
+  const handleRulerMove = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (tool === "label" && draggingPlotLabel) {
+      setPlotLabelPointer(rulerLocalPoint(event.clientX, event.clientY));
+      return;
+    }
+    if (tool !== "ruler") return;
+    const local = rulerLocalPoint(event.clientX, event.clientY);
+    if (draggingRulerLabel !== null && local) {
+      setRulerMeasurements((previous) => previous.map((measurement, index) => index === draggingRulerLabel ? { ...measurement, labelX: local.x, labelY: local.y } : measurement));
+      return;
+    }
+    setRulerPointer(local);
+    setRulerHover(nearestRulerPoint(event.clientX, event.clientY));
+  };
+
+  const handleRulerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (tool === "label" && event.button === 0) {
+      const label = nearestPlotLabel(event.clientX, event.clientY);
+      if (label) {
+        setDraggingPlotLabel(label.vowel);
+        setPlotLabelPointer(rulerLocalPoint(event.clientX, event.clientY));
+        event.currentTarget.setPointerCapture(event.pointerId);
+      }
+      return;
+    }
+    if (tool !== "ruler" || event.button !== 0) return;
+    const local = rulerLocalPoint(event.clientX, event.clientY);
+    if (!local) return;
+    const labelIndex = rulerMeasurements.findIndex((measurement) => Math.hypot(local.x - measurement.labelX, local.y - measurement.labelY) < 24);
+    if (labelIndex >= 0) { setDraggingRulerLabel(labelIndex); event.currentTarget.setPointerCapture(event.pointerId); return; }
+    const point = nearestRulerPoint(event.clientX, event.clientY);
+    if (!point) return;
+    if (!rulerStart) { setRulerStart(point); return; }
+    if (rulerStart === point || (rulerStart.type === point.type && rulerStart.x === point.x && rulerStart.y === point.y)) return;
+    const first = rulerStart;
+    const measurement: RulerMeasurement = { p1: first, p2: point, labelX: local.x, labelY: local.y - 18, distance: rulerDistanceLabelWithSettings(first, point) };
+    setRulerMeasurements((previous) => [...previous, measurement]);
+    setRulerStart(null);
+  };
+
+  const handleRulerUp = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (tool === "label" && draggingPlotLabel && rulerContext) {
+      const label = rulerContext.labels.find((item) => item.vowel === draggingPlotLabel);
+      const data = plotDataFromClient(event.clientX, event.clientY);
+      if (label && data) {
+        const offsets = { [label.vowel]: [data.x - label.cx, data.y - label.cy] as [number, number] };
+        void renderInteractive({ labelOffsets: offsets });
+        setMessage(`${label.vowel} 라벨 위치를 저장했습니다.`);
+      }
+      setDraggingPlotLabel(null);
+      setPlotLabelPointer(null);
+    }
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
+    setDraggingRulerLabel(null);
+  };
+
+  const handleRulerContextMenu = (event: React.MouseEvent<HTMLDivElement>) => {
+    if (tool !== "ruler") return;
+    event.preventDefault();
+    const local = rulerLocalPoint(event.clientX, event.clientY);
+    const hit = local ? rulerMeasurements.findIndex((measurement) => {
+      const a = rulerPointClient(measurement.p1); const b = rulerPointClient(measurement.p2);
+      if (!a || !b) return false;
+      const abx = b.x - a.x; const aby = b.y - a.y;
+      const t = Math.max(0, Math.min(1, ((event.clientX - a.x) * abx + (event.clientY - a.y) * aby) / Math.max(1, abx * abx + aby * aby)));
+      return Math.hypot(local.x - measurement.labelX, local.y - measurement.labelY) < 24 || Math.hypot(event.clientX - (a.x + t * abx), event.clientY - (a.y + t * aby)) < 12;
+    }) : -1;
+    if (hit >= 0) setRulerMeasurements((previous) => previous.filter((_, index) => index !== hit));
+  };
+
+  const rulerTooltip = (point: RulerPoint) => {
+    const values = point.raw_f1 !== undefined && point.raw_f2 !== undefined
+      ? `F1 ${point.raw_f1.toFixed(0)} Hz · F2 ${point.raw_f2.toFixed(0)} Hz`
+      : `x ${point.x.toPrecision(4)} · y ${point.y.toPrecision(4)}`;
+    return `${point.label || (point.type === "mean" ? "mean" : "raw")} · ${values}`;
+  };
+
+  const rulerDistanceLabelWithSettings = (first: RulerPoint, second: RulerPoint) => {
+    const dx = second.x - first.x;
+    const dy = second.y - first.y;
+    if (first.raw_f1 !== undefined && first.raw_f2 !== undefined && second.raw_f1 !== undefined && second.raw_f2 !== undefined) {
+      const bark = (value: number) => 26.81 / (1 + 1960 / value) - 0.53;
+      const xHz = second.raw_f2 - first.raw_f2;
+      const yHz = second.raw_f1 - first.raw_f1;
+      const xBark = bark(second.raw_f2) - bark(first.raw_f2);
+      const yBark = bark(second.raw_f1) - bark(first.raw_f1);
+      if (rulerGeometryMode === "right-triangle") {
+        return rulerDisplayMode === "hz"
+          ? `${Math.hypot(xHz, yHz).toFixed(0)} Hz`
+          : `${Math.hypot(xBark, yBark).toFixed(2)} Bk`;
+      }
+      const hz = Math.hypot(xHz, yHz);
+      const barkDistance = Math.hypot(xBark, yBark);
+      if (rulerDisplayMode === "hz") return `${hz.toFixed(0)} Hz`;
+      return `${barkDistance.toFixed(2)} Bk`;
+    }
+    if (rulerGeometryMode === "right-triangle") return Math.hypot(dx, dy).toPrecision(4);
+    return Math.hypot(dx, dy).toPrecision(4);
+  };
+
+  const rulerTriangleLabels = (first: RulerPoint, second: RulerPoint) => {
+    const dx = second.x - first.x;
+    const dy = second.y - first.y;
+    if (first.raw_f1 !== undefined && first.raw_f2 !== undefined && second.raw_f1 !== undefined && second.raw_f2 !== undefined) {
+      const bark = (value: number) => 26.81 / (1 + 1960 / value) - 0.53;
+      const x = rulerDisplayMode === "hz" ? second.raw_f2 - first.raw_f2 : bark(second.raw_f2) - bark(first.raw_f2);
+      const y = rulerDisplayMode === "hz" ? second.raw_f1 - first.raw_f1 : bark(second.raw_f1) - bark(first.raw_f1);
+      const unit = rulerDisplayMode === "hz" ? "Hz" : "Bk";
+      const digits = rulerDisplayMode === "hz" ? 0 : 2;
+      const format = (value: number) => `${Math.abs(value).toFixed(digits)} ${unit}`;
+      return { horizontal: format(x), vertical: format(y), hypotenuse: format(Math.hypot(x, y)) };
+    }
+    const format = (value: number) => Math.abs(value).toPrecision(4);
+    return { horizontal: format(dx), vertical: format(dy), hypotenuse: format(Math.hypot(dx, dy)) };
+  };
+
+  useEffect(() => {
+    if (tool !== "ruler") {
+      setRulerStart(null);
+      setRulerHover(null);
+      setRulerPointer(null);
+      setRulerMeasurements([]);
+    }
+    if (tool !== "label") {
+      setDraggingPlotLabel(null);
+      setPlotLabelPointer(null);
+    }
+  }, [tool]);
+
+  useEffect(() => {
+    setRulerMeasurements((previous) => previous.map((measurement) => ({
+      ...measurement,
+      distance: rulerDistanceLabelWithSettings(measurement.p1, measurement.p2),
+    })));
+  }, [rulerDisplayMode, rulerGeometryMode]);
 
   const fileCounter = useMemo(() => `${sources.length ? currentIndex + 1 : 0} / ${sources.length}`, [currentIndex, sources.length]);
   const effective = <K extends keyof DesignSettings,>(key: K): DesignSettings[K] => (selectedOverride[key] ?? design[key]) as DesignSettings[K];
@@ -1111,7 +1479,7 @@ export function InteractivePlotWindow() {
 
               <section className="control-section"><div className="section-heading"><div><span>02</span><strong>분석 도구</strong></div></div><div className="tool-grid"><button onClick={() => setVowelAnalysisOpen(true)} disabled={!sources.length}><ScanSearch size={17} /><span><strong>모음 상세 분석</strong><small>통계와 분포 보기</small></span></button><button onClick={() => void openLegacyPlot()} disabled={!sources.length}><Layers3 size={17} /><span><strong>다중 플롯 모드</strong><small>파일 비교 구성</small></span></button><button className={tool === "ruler" ? "is-active" : ""} onClick={() => setTool(tool === "ruler" ? "select" : "ruler")}><Ruler size={17} /><span><strong>눈금자</strong><small>R · 거리 측정</small></span></button><button className={tool === "draw" ? "is-active" : ""} onClick={() => { setTool("draw"); setRightPanel("drawing"); setRightOpen(true); }}><PenLine size={17} /><span><strong>그리기</strong><small>P · 주석 도구</small></span></button></div></section>
 
-              <section className="control-section export-section"><div className="section-heading"><div><span>03</span><strong>내보내기</strong></div></div><div className="format-buttons"><button onClick={() => exportRaster("jpg")} disabled={!previewUrl}>JPG</button><button onClick={() => exportRaster("png")} disabled={!previewUrl}>PNG</button><button onClick={() => void openLegacyPlot()} disabled={!sources.length}>SVG</button></div><button className="wide-action" onClick={() => void saveProject()} disabled={busy || !sources.length}><Save size={15} /> 프로젝트 저장</button><button className="wide-action primary" onClick={() => void openLegacyPlot()} disabled={busy || !sources.length}><Download size={15} /> 일괄 저장</button></section>
+              <section className="control-section export-section"><div className="section-heading"><div><span>03</span><strong>내보내기</strong></div></div><div className="format-buttons"><button onClick={() => void exportInteractive("jpg")} disabled={!previewUrl}>JPG</button><button onClick={() => void exportInteractive("png")} disabled={!previewUrl}>PNG</button><button onClick={() => void exportInteractive("svg")} disabled={!sources.length}>SVG</button></div><button className="wide-action" onClick={() => void saveProject()} disabled={busy || !sources.length}><Save size={15} /> 프로젝트 저장</button><button className="wide-action primary" onClick={() => setBatchExportOpen(true)} disabled={busy || !sources.length}><Download size={15} /> 일괄 저장</button></section>
             </>
           ) : (
             <>
@@ -1155,15 +1523,22 @@ export function InteractivePlotWindow() {
 
               <section className="control-section"><div className="section-heading"><div><span>04</span><strong>플롯 배경과 축</strong></div></div><div className="switch-stack"><ToggleSwitch label="격자 표시" checked={design.show_grid} onChange={() => updateDesign({ show_grid: !design.show_grid })} /><ToggleSwitch label="테두리 축" checked={design.box_spines} onChange={() => updateDesign({ box_spines: !design.box_spines })} /><ToggleSwitch label="축 단위 표시" checked={design.show_axis_units} onChange={() => updateDesign({ show_axis_units: !design.show_axis_units })} /></div>{design.show_grid ? <label className="opacity-control"><span>격자 투명도 <b>{Math.round(design.grid_opacity * 100)}%</b></span><input type="range" min="5" max="80" value={design.grid_opacity * 100} onChange={(event) => updateDesign({ grid_opacity: Number(event.target.value) / 100 })} /></label> : null}</section>
 
-              <details className="advanced-options"><summary>고급 옵션 <ChevronDown size={14} /></summary><div className="advanced-body"><div className="switch-stack"><ToggleSwitch label="라벨 슬래시 감싸기" checked={design.label_slash_wrap} onChange={() => updateDesign({ label_slash_wrap: !design.label_slash_wrap })} /><ToggleSwitch label="보조 눈금" checked={design.show_minor_ticks} onChange={() => updateDesign({ show_minor_ticks: !design.show_minor_ticks })} /><ToggleSwitch label="축 위치 반전" checked={design.axis_position_swap} onChange={() => updateDesign({ axis_position_swap: !design.axis_position_swap })} /><ToggleSwitch label="세로축 라벨 회전" checked={design.y_label_rotation} onChange={() => updateDesign({ y_label_rotation: !design.y_label_rotation })} /></div><button className="wide-action" onClick={resetPlot}><RefreshCcw size={14} /> 광역 디자인 초기화</button></div></details>
+              <details className="advanced-options"><summary>고급 옵션 <ChevronDown size={14} /></summary><div className="advanced-body"><div className="switch-stack"><ToggleSwitch label="라벨 슬래시 감싸기" checked={design.label_slash_wrap} onChange={() => updateDesign({ label_slash_wrap: !design.label_slash_wrap })} /><ToggleSwitch label="보조 눈금" checked={design.show_minor_ticks} onChange={() => updateDesign({ show_minor_ticks: !design.show_minor_ticks })} /><ToggleSwitch label="축 위치 반전" checked={design.axis_position_swap} onChange={() => updateDesign({ axis_position_swap: !design.axis_position_swap })} /><ToggleSwitch label="세로축 라벨 회전" checked={design.y_label_rotation} onChange={() => updateDesign({ y_label_rotation: !design.y_label_rotation })} /></div></div></details>
+              <button className="wide-action global-design-reset" onClick={resetPlot}><RefreshCcw size={14} /> 광역 디자인 초기화</button>
             </>
           )}
         </div>
       </aside>
 
       <section className={`interactive-plot-stage tool-${tool}`}>
-        <div className="plot-toolbar"><div className="toolbar-leading">{!leftOpen ? <button className="sidebar-reopen" onClick={() => setLeftOpen(true)}><PanelLeftOpen size={16} /> 도구</button> : null}<div className="toolbar-group"><button className={tool === "select" ? "is-active" : ""} onClick={() => setTool("select")}><MousePointer2 size={16} /> 선택</button><button className={tool === "ruler" ? "is-active" : ""} onClick={() => setTool("ruler")}><Ruler size={16} /> 눈금자</button><button className={tool === "draw" ? "is-active" : ""} onClick={() => { setTool("draw"); setRightPanel("drawing"); setRightOpen(true); }}><PenLine size={16} /> 그리기</button></div></div><div className="toolbar-context"><span>{analysis?.normalization ?? "정규화 없음"}</span><span>{analysis?.origin === "top_right" ? "Praat 좌표" : "수학 좌표"}</span>{!rightOpen ? <button className="sidebar-reopen" onClick={() => setRightOpen(true)}>레이어 <PanelRightOpen size={16} /></button> : null}</div></div>
-        <div className="plot-canvas-shell"><div className="plot-paper">{previewUrl ? <img src={previewUrl} alt={`${currentSource?.name ?? "현재 파일"} 포먼트 플롯`} /> : <div className="plot-placeholder"><Layers3 size={30} /><strong>표시할 플롯이 없습니다</strong><span>메인 창에서 데이터 파일을 불러와 주세요.</span></div>}</div></div>
+        <div className="plot-toolbar"><div className="toolbar-leading">{!leftOpen ? <button className="sidebar-reopen" onClick={() => setLeftOpen(true)}><PanelLeftOpen size={16} /> 도구</button> : null}<div className="toolbar-group"><button className={tool === "select" ? "is-active" : ""} onClick={() => setTool("select")}><MousePointer2 size={16} /> 선택</button><div className="ruler-tool-cluster"><button className={tool === "ruler" ? "is-active" : ""} onClick={() => setTool("ruler")}><Ruler size={16} /> 눈금자</button><button type="button" className={`tool-settings-button ${rulerSettingsOpen ? "is-active" : ""}`} onClick={() => setRulerSettingsOpen((previous) => !previous)} aria-label="눈금자 설정" title="눈금자 설정"><SlidersHorizontal size={14} /></button>{rulerSettingsOpen ? <div className="ruler-settings-popover"><div className="ruler-settings-header"><strong>눈금자 설정</strong><span>측정 방식</span></div><div className="ruler-mode-choices"><button type="button" className={`ruler-mode-choice ${rulerGeometryMode === "direct" ? "is-active" : ""}`} onClick={() => setRulerGeometryMode("direct")}><svg viewBox="0 0 44 22" aria-hidden><line x1="5" y1="17" x2="39" y2="5" /><circle cx="5" cy="17" r="2" /><circle cx="39" cy="5" r="2" /></svg><span>직선</span></button><button type="button" className={`ruler-mode-choice ${rulerGeometryMode === "right-triangle" ? "is-active" : ""}`} onClick={() => setRulerGeometryMode("right-triangle")}><svg viewBox="0 0 44 22" aria-hidden><path d="M5 17H39V5" /><line className="hypotenuse" x1="5" y1="17" x2="39" y2="5" /><path className="right-angle" d="M34 17v-5h5" /></svg><span>Δx · Δy</span></button></div><div className="ruler-unit-row"><span>표시 단위</span><div className="ruler-unit-toggles"><button type="button" className={`ruler-unit-toggle ${rulerDisplayMode === "hz" ? "is-on" : ""}`} aria-pressed={rulerDisplayMode === "hz"} onClick={() => setRulerDisplayMode("hz")}>Hz</button><button type="button" className={`ruler-unit-toggle ${rulerDisplayMode === "bark" ? "is-on" : ""}`} aria-pressed={rulerDisplayMode === "bark"} onClick={() => setRulerDisplayMode("bark")}>Bark</button></div></div></div> : null}</div><button className={tool === "label" ? "is-active" : ""} onClick={() => { setTool("label"); setMessage("라벨 이동 모드 · 라벨을 드래그하세요."); }}><MousePointer2 size={16} /> 라벨 이동</button><button className={tool === "draw" ? "is-active" : ""} onClick={() => { setTool("draw"); setRightPanel("drawing"); setRightOpen(true); }}><PenLine size={16} /> 그리기</button></div></div><div className="toolbar-context"><span>{analysis?.normalization ?? "정규화 없음"}</span><span>{analysis?.origin === "top_right" ? "Praat 좌표" : "수학 좌표"}</span>{!rightOpen ? <button className="sidebar-reopen" onClick={() => setRightOpen(true)}>레이어 <PanelRightOpen size={16} /></button> : null}</div></div>
+        <div className="plot-canvas-shell"><div className="plot-paper" ref={plotPaperRef}>{previewUrl ? <><img ref={plotImageRef} src={previewUrl} alt={`${currentSource?.name ?? "현재 파일"} 포먼트 플롯`} /><div className="ruler-overlay" onPointerMove={handleRulerMove} onPointerDown={handleRulerDown} onPointerUp={handleRulerUp} onContextMenu={handleRulerContextMenu}>
+          {tool === "label" && rulerContext ? rulerContext.labels.map((label) => { const screen = plotLabelClient(label); const paper = plotPaperRef.current?.getBoundingClientRect(); if (!screen || !paper) return null; const isDragging = draggingPlotLabel === label.vowel && plotLabelPointer; const left = isDragging ? plotLabelPointer.x : screen.x - paper.left; const top = isDragging ? plotLabelPointer.y : screen.y - paper.top; return <span className="plot-label-hit-target" key={`label-${label.vowel}`} style={{ left, top }} title={`${label.vowel} 라벨 이동`} />; }) : null}
+         {tool === "ruler" ? rulerMeasurements.map((measurement, index) => { const a = rulerPointClient(measurement.p1); const b = rulerPointClient(measurement.p2); const paper = plotPaperRef.current?.getBoundingClientRect(); if (!a || !b || !paper) return null; const x1 = a.x - paper.left; const y1 = a.y - paper.top; const x2 = b.x - paper.left; const y2 = b.y - paper.top; const triangleLabels = rulerGeometryMode === "right-triangle" ? rulerTriangleLabels(measurement.p1, measurement.p2) : null; return <div className="ruler-measurement" key={`${measurement.p1.x}-${measurement.p2.x}-${index}`}><svg className="ruler-line-layer" aria-hidden>{rulerGeometryMode === "right-triangle" ? <><polyline points={`${x1},${y1} ${x2},${y1} ${x2},${y2}`} /><line x1={x1} y1={y1} x2={x2} y2={y2} /></> : <line x1={x1} y1={y1} x2={x2} y2={y2} />}</svg><span className="ruler-point ruler-point-start" style={{ left: x1, top: y1, borderColor: measurement.p1.color }} /><span className="ruler-point ruler-point-end" style={{ left: x2, top: y2, borderColor: measurement.p2.color }} />{triangleLabels ? <><span className="ruler-side-label ruler-side-label-horizontal" style={{ left: (x1 + x2) / 2, top: y1 }}>{triangleLabels.horizontal}</span><span className="ruler-side-label ruler-side-label-vertical" style={{ left: x2, top: (y1 + y2) / 2 }}>{triangleLabels.vertical}</span><span className="ruler-side-label ruler-side-label-hypotenuse" style={{ left: (x1 + x2) / 2, top: (y1 + y2) / 2 }}>{triangleLabels.hypotenuse}</span></> : <button type="button" tabIndex={-1} aria-label={`거리 ${measurement.distance}`} className="ruler-label" style={{ left: measurement.labelX, top: measurement.labelY }} onPointerDown={(event) => { event.stopPropagation(); setDraggingRulerLabel(index); event.currentTarget.setPointerCapture(event.pointerId); }}>{measurement.distance}</button>}</div>; }) : null}
+          {tool === "ruler" && rulerStart ? (() => { const screen = rulerPointClient(rulerStart); const paper = plotPaperRef.current?.getBoundingClientRect(); return screen && paper ? <span className={`ruler-snap-marker ${rulerStart.type === "mean" ? "is-mean" : "is-raw"}`} style={{ left: screen.x - paper.left, top: screen.y - paper.top, borderColor: rulerStart.color }} /> : null; })() : null}
+          {tool === "ruler" && rulerStart && rulerPointer ? <svg className="ruler-guide-layer" aria-hidden><line x1={rulerPointClient(rulerStart) ? (rulerPointClient(rulerStart)!.x - (plotPaperRef.current?.getBoundingClientRect().left ?? 0)) : 0} y1={rulerPointClient(rulerStart) ? (rulerPointClient(rulerStart)!.y - (plotPaperRef.current?.getBoundingClientRect().top ?? 0)) : 0} x2={rulerPointer.x} y2={rulerPointer.y} /></svg> : null}
+          {tool === "ruler" && rulerHover ? (() => { const screen = rulerPointClient(rulerHover); const paper = plotPaperRef.current?.getBoundingClientRect(); return screen && paper ? <><span className={`ruler-snap-marker ${rulerHover.type === "mean" ? "is-mean" : "is-raw"}`} style={{ left: screen.x - paper.left, top: screen.y - paper.top, borderColor: rulerHover.color }} /><span className="ruler-tooltip" style={{ left: screen.x - paper.left + 12, top: screen.y - paper.top - 30 }}>{rulerTooltip(rulerHover)}</span></> : null; })() : null}
+        </div></> : <div className="plot-placeholder"><Layers3 size={30} /><strong>표시할 플롯이 없습니다</strong><span>메인 창에서 데이터 파일을 불러와 주세요.</span></div>}</div></div>
         <footer className="plot-stage-footer"><span>{message}</span><span title={previewInfo}>{previewInfo || currentSource?.name || "대기 중"}</span></footer>
       </section>
 
@@ -1179,7 +1554,7 @@ export function InteractivePlotWindow() {
                 <div><span>선택 레이어</span><strong>{selectedLayer}</strong></div>
                 {selectedLocked ? <span><Lock size={12} /> 잠김</span> : <button type="button" onClick={resetSelectedLayer}><RefreshCcw size={13} /> 초기화</button>}
               </div>
-              <fieldset disabled={selectedLocked}>
+              <fieldset className="layer-design-form" disabled={selectedLocked}>
                 <div className="palette-picker-row">
                   <PalettePicker label="라벨 색상" value={String(effective("lbl_color"))} onChange={(lbl_color) => lbl_color && updateLayerDesign({ lbl_color })} disabled={selectedLocked} />
                 </div>
@@ -1202,7 +1577,7 @@ export function InteractivePlotWindow() {
                 <label className="control-label">원자료 점</label>
                 <div className="palette-picker-row"><PalettePicker label="원자료 색상" value={effective("raw_color")} onChange={(raw_color) => raw_color && updateLayerDesign({ raw_color })} disabled={selectedLocked} /></div>
                 <div className="segmented-row"><button type="button" className={effective("raw_marker") === "o" ? "is-active" : ""} onClick={() => updateLayerDesign({ raw_marker: "o" })}>빈 원</button><button type="button" className={effective("raw_marker") === "x" ? "is-active" : ""} onClick={() => updateLayerDesign({ raw_marker: "x" })}>가위표</button><button type="button" className={effective("raw_marker") === "a" ? "is-active" : ""} onClick={() => updateLayerDesign({ raw_marker: "a" })}>라벨</button></div>
-                <details className="layer-advanced">
+                <details className="layer-advanced layer-text-options" open>
                   <summary>고급 옵션 <ChevronDown size={14} /></summary>
                   <div className="switch-stack">
                     <ToggleSwitch label="라벨 슬래시 감싸기" checked={Boolean(effective("label_slash_wrap"))} onChange={() => updateLayerDesign({ label_slash_wrap: !effective("label_slash_wrap") })} disabled={selectedLocked} />
@@ -1286,6 +1661,19 @@ export function InteractivePlotWindow() {
         </div>
         )}
       </aside>
+      {batchExportOpen ? <div className="batch-export-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget && !batchExportBusy) setBatchExportOpen(false); }}>
+        <section className="batch-export-dialog" role="dialog" aria-modal="true" aria-labelledby="batch-export-title">
+          <header><div><span className="section-eyebrow">EXPORT WORKSPACE</span><h2 id="batch-export-title">일괄 저장</h2><p>현재 React/Tauri 플롯 설정을 모든 파일에 적용해 저장합니다.</p></div><button type="button" onClick={() => setBatchExportOpen(false)} disabled={batchExportBusy} aria-label="닫기"><X size={18} /></button></header>
+          <div className="batch-export-body">
+            <div className="batch-export-summary"><strong>{sources.length}개 파일</strong><span>범위 · 디자인 · 레이어 상태 · 라벨 위치 포함</span></div>
+            <label className="batch-export-field"><span>파일 형식</span><div className="batch-format-picker">{(["png", "jpg", "svg"] as const).map((format) => <button type="button" key={format} className={batchExportFormat === format ? "is-active" : ""} onClick={() => setBatchExportFormat(format)}>{format.toUpperCase()}</button>)}</div></label>
+            <label className="batch-export-field"><span>저장 폴더</span><div className="batch-directory-row"><input value={batchExportDirectory} readOnly placeholder="폴더를 선택하세요" /><button type="button" onClick={() => void chooseBatchDirectory()} disabled={batchExportBusy}>찾아보기</button></div></label>
+            <div className="batch-export-options"><span>반영할 항목</span><label><input type="checkbox" checked={batchApplyGlobalDesign} onChange={(event) => setBatchApplyGlobalDesign(event.target.checked)} /> 광역 디자인</label><label><input type="checkbox" checked={batchApplyLayerDesign} onChange={(event) => setBatchApplyLayerDesign(event.target.checked)} /> 레이어 디자인</label><label><input type="checkbox" checked={batchApplyVisibility} onChange={(event) => setBatchApplyVisibility(event.target.checked)} /> 레이어 표시 상태</label><label><input type="checkbox" checked={batchApplyLabelPositions} onChange={(event) => setBatchApplyLabelPositions(event.target.checked)} /> 라벨 위치</label></div>
+            <p className="batch-export-note">동일한 파일명이 있으면 자동으로 `_2`, `_3` suffix를 붙입니다.</p>
+          </div>
+          <footer><button type="button" className="wide-action" onClick={() => setBatchExportOpen(false)} disabled={batchExportBusy}>취소</button><button type="button" className="wide-action primary" onClick={() => void runBatchExport()} disabled={!batchExportDirectory || batchExportBusy}>{batchExportBusy ? "저장 중…" : "일괄 저장 시작"}</button></footer>
+        </section>
+      </div> : null}
       {vowelAnalysisOpen ? <VowelAnalysisShell currentSource={currentSource} sources={sources} currentIndex={currentIndex} onNavigate={(index) => void navigateTo(index)} onClose={() => setVowelAnalysisOpen(false)} /> : null}
     </main>
   );

@@ -46,3 +46,20 @@ def test_workspace_service_removal_rebuilds_derived_item():
     assert removed and removed["name"] == "a.csv"
     assert state.filepaths == ["b.csv"]
     assert all(not item.get("is_combined") for item in state.plot_data_list)
+
+
+def test_workspace_service_converts_loader_exception_to_file_failure():
+    state = WorkspaceState()
+    service = WorkspaceService(state)
+
+    def exploding_loader(_path, **_kwargs):
+        raise PermissionError("access denied")
+
+    result = service.add_files(["locked.csv"], loader=exploding_loader)
+
+    assert result["success_count"] == 0
+    assert result["total_files"] == 0
+    assert len(result["failed"]) == 1
+    assert result["failed"][0][0] == "locked.csv"
+    assert "access denied" in result["failed"][0][1][0][1]
+    assert state.filepaths == []

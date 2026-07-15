@@ -26,11 +26,13 @@ def test_interactive_options_validate_nested_values():
             "filter_state": {"a": "ON"},
             "layer_order": ["a"],
             "locked_layers": ["a"],
+            "label_offsets": {"a": [12.5, -4]},
         }
     )
 
     assert options["ranges"] == {"y_min": "200", "y_max": "1000"}
     assert options["sigma"] == "2.5"
+    assert options["label_offsets"] == {"a": (12.5, -4.0)}
 
     with pytest.raises(InteractiveOptionsError, match="less than"):
         validate_interactive_options(
@@ -58,6 +60,7 @@ def test_plot_session_roundtrip_and_index_removal():
                 "layer_overrides": {"a": {"lbl_color": "#112233"}},
                 "layer_order": ["a", "i"],
                 "locked_layers": ["a"],
+                "label_offsets": {"a": [12, -4]},
             }
         ),
         1,
@@ -69,6 +72,7 @@ def test_plot_session_roundtrip_and_index_removal():
     assert restored.design_settings["lbl_size"] == 24
     assert restored.vowel_filter_state_by_file[1]["a"] == "SEMI"
     assert restored.layer_order_by_file[1] == ["a", "i"]
+    assert restored.label_offsets_by_file[1]["a"] == (12.0, -4.0)
 
     restored.remove_file(0)
     assert restored.vowel_filter_state_by_file[0]["a"] == "SEMI"

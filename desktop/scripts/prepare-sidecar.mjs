@@ -36,9 +36,12 @@ const outputName = `${baseName}-${targetTriple}${extension}`;
 const outputPath = join(binariesDir, outputName);
 const stagedExecutable = join(stagingDir, "dist", `${baseName}${extension}`);
 
-if (existsSync(outputPath) && process.env.GICHAN_REBUILD_SIDECAR !== "1") {
-  console.log(`Reusing bundled sidecar: ${outputPath}`);
-  process.exit(0);
+// Never silently reuse an old sidecar. The binary is intentionally ignored by
+// git, so reuse can package code from a different checkout/commit and make the
+// desktop app disagree with the Python sources. Build caching belongs to uv
+// and PyInstaller's caches, not to an unversioned executable in binaries/.
+if (existsSync(outputPath)) {
+  console.log(`Refreshing bundled sidecar: ${outputPath}`);
 }
 
 mkdirSync(binariesDir, { recursive: true });

@@ -97,6 +97,44 @@
         "request_id": "int"
       }
     },
+    "measure_distance": {
+      "params": {
+        "x1": "number",
+        "y1": "number",
+        "x2": "number",
+        "y2": "number"
+      },
+      "required": [
+        "x1",
+        "y1",
+        "x2",
+        "y2"
+      ]
+    },
+    "export_interactive_preview": {
+      "params": {
+        "path": "string",
+        "format": "string",
+        "options": "interactive_options"
+      },
+      "required": [
+        "path",
+        "format",
+        "options"
+      ]
+    },
+    "export_interactive_batch": {
+      "params": {
+        "directory": "string",
+        "format": "string",
+        "options": "interactive_options"
+      },
+      "required": [
+        "directory",
+        "format",
+        "options"
+      ]
+    },
     "update_interactive_session": {
       "params": {
         "options": "interactive_options"

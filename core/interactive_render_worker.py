@@ -9,6 +9,7 @@ first preview.
 from __future__ import annotations
 
 import threading
+from io import BytesIO
 from typing import Any, Mapping
 
 
@@ -23,27 +24,51 @@ class InteractiveRenderer:
         if prepared.get("empty"):
             return dict(prepared)
         with self._lock:
+            return self._render_locked(prepared)
+
+    def render_export(self, prepared: Mapping[str, Any], image_format: str) -> bytes:
+        """Render one export while keeping the Matplotlib figure locked."""
+        if prepared.get("empty"):
+            raise ValueError("cannot export an empty preview")
+        fmt = str(image_format).lower().lstrip(".")
+        if fmt not in {"png", "jpg", "jpeg", "svg"}:
+            raise ValueError("unsupported export format")
+        with self._lock:
             renderer = self._ensure_started()
-            try:
-                png_data = renderer.render_png(
-                    prepared["current_data"],
-                    prepared["params"],
-                    prepared["ranges"],
-                    prepared["design"],
-                    filter_state=prepared.get("filter_state"),
-                    layer_overrides=prepared.get("layer_overrides"),
-                    layer_order=prepared.get("layer_order"),
-                    custom_label_offsets=prepared.get("custom_label_offsets"),
-                )
-            except Exception as exc:  # noqa: BLE001 - render boundary
-                raise RuntimeError(f"interactive render failed: {exc}") from exc
-            return {
-                "empty": False,
-                "png_data": png_data,
-                "filename": prepared["filename"],
-                "request_id": prepared.get("request_id"),
-                "revision": prepared.get("revision"),
-            }
+            renderer.render_png(
+                prepared["current_data"], prepared["params"], prepared["ranges"], prepared["design"],
+                filter_state=prepared.get("filter_state"),
+                layer_overrides=prepared.get("layer_overrides"),
+                layer_order=prepared.get("layer_order"),
+                custom_label_offsets=prepared.get("custom_label_offsets"),
+            )
+            buffer = BytesIO()
+            if fmt == "svg":
+                renderer.figure.savefig(buffer, format="svg", facecolor="white")
+            elif fmt in {"jpg", "jpeg"}:
+                renderer.figure.savefig(buffer, format="jpg", facecolor="white")
+            else:
+                renderer.figure.savefig(buffer, format="png", facecolor="white")
+            return buffer.getvalue()
+
+    def _render_locked(self, prepared: Mapping[str, Any]) -> dict[str, Any]:
+        renderer = self._ensure_started()
+        try:
+            png_data, ruler_context = renderer.render_png(
+                prepared["current_data"], prepared["params"], prepared["ranges"], prepared["design"],
+                filter_state=prepared.get("filter_state"),
+                layer_overrides=prepared.get("layer_overrides"),
+                layer_order=prepared.get("layer_order"),
+                custom_label_offsets=prepared.get("custom_label_offsets"),
+                include_context=True,
+            )
+        except Exception as exc:  # noqa: BLE001 - render boundary
+            raise RuntimeError(f"interactive render failed: {exc}") from exc
+        return {
+            "empty": False, "png_data": png_data, "filename": prepared["filename"],
+            "request_id": prepared.get("request_id"), "revision": prepared.get("revision"),
+            "ruler_context": ruler_context,
+        }
 
     def close(self) -> None:
         with self._lock:

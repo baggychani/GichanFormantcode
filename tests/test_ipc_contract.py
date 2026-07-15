@@ -84,27 +84,22 @@ def test_host_load_files_matches_service_capabilities(monkeypatch):
     df = pd.DataFrame({"F1": [500.0], "F2": [1500.0], "Label": ["a"]})
     service = _headless_service()
 
-    def fake_controller_load(paths):
-        service.controller.filepaths = list(paths)
-        service.controller.plot_data_list = [
-            {
+    def fake_file_loader(_path, **_kwargs):
+        return {
+            "success": True,
+            "name": "a.csv",
+            "item": {
                 "name": "a.csv",
                 "df": df.copy(),
                 "df_original": df.copy(),
                 "has_f3": False,
                 "is_pre_lobanov": False,
-            }
-        ]
-        service.controller.view.update_file_status(1)
-        return {
-            "success_count": 1,
-            "total_files": 1,
-            "has_f3_all": False,
-            "failed": [],
+            },
+            "errors": [],
             "row_dropped": [],
         }
 
-    monkeypatch.setattr(service.controller, "load_files", fake_controller_load)
+    monkeypatch.setattr(service.controller, "_load_file_item", fake_file_loader)
     host = SidecarHost(service=service)
 
     via_service = service.load_files([csv_path])

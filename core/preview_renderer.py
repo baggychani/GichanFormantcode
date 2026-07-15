@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from io import BytesIO
+import math
 from typing import Any
 
 from core.normalization_service import normalize_dataframe
@@ -24,7 +25,8 @@ class PreviewRenderer:
         layer_overrides: dict[str, dict[str, Any]] | None = None,
         layer_order: list[str] | None = None,
         custom_label_offsets: dict[str, tuple[float, float]] | None = None,
-    ) -> bytes:
+        include_context: bool = False,
+    ) -> bytes | tuple[bytes, dict[str, Any]]:
         self.figure.clear()
         normalization = params.get("normalization")
         if normalization:
@@ -33,7 +35,7 @@ class PreviewRenderer:
                 normalization,
                 data_item=current_data,
             )
-            self.plot_engine.draw_single_normalized(
+            draw_result = self.plot_engine.draw_single_normalized(
                 self.figure,
                 dataframe,
                 normalization,
@@ -47,7 +49,7 @@ class PreviewRenderer:
                 layer_order=layer_order,
             )
         else:
-            self.plot_engine.draw_plot(
+            draw_result = self.plot_engine.draw_plot(
                 self.figure,
                 current_data["df"],
                 params,
@@ -59,6 +61,101 @@ class PreviewRenderer:
             custom_label_offsets=custom_label_offsets,
             )
 
+        # The ruler must snap to the same rendered points as PySide.  Capture
+        # Matplotlib's post-transform pixel coordinates, rather than asking
+        # the browser to recreate axis scaling/inversion rules.
+        ruler_context = None
+        if include_context:
+            self.figure.canvas.draw()
+            ruler_context = self._build_ruler_context(draw_result, params)
         buffer = BytesIO()
         self.figure.savefig(buffer, format="png", facecolor="white")
-        return buffer.getvalue()
+        png_data = buffer.getvalue()
+        if include_context:
+            return png_data, ruler_context or {}
+        return png_data
+
+    def _build_ruler_context(
+        self, draw_result: Any, params: dict[str, Any]
+    ) -> dict[str, Any]:
+        ax = None
+        snapping_data: list[dict[str, Any]] = []
+        if isinstance(draw_result, tuple) and len(draw_result) >= 2:
+            ax = draw_result[0]
+            snapping_data = draw_result[1] or []
+            label_data = draw_result[2] or [] if len(draw_result) >= 3 else []
+        else:
+            label_data = []
+
+        image_width, image_height = self.figure.canvas.get_width_height()
+        points: list[dict[str, Any]] = []
+        if ax is not None:
+            renderer = self.figure.canvas.get_renderer()
+            bbox = ax.get_window_extent(renderer)
+            axes_bbox = {
+                "left": float(bbox.x0),
+                "bottom": float(bbox.y0),
+                "width": float(bbox.width),
+                "height": float(bbox.height),
+            }
+            for source in snapping_data:
+                try:
+                    x = float(source["x"])
+                    y = float(source["y"])
+                    px, py = ax.transData.transform((x, y))
+                except (KeyError, TypeError, ValueError):
+                    continue
+                if not all(math.isfinite(value) for value in (x, y, px, py)):
+                    continue
+                point = {
+                    "x": x,
+                    "y": y,
+                    "px": float(px),
+                    "py": float(py),
+                    "type": str(source.get("type", "raw")),
+                    "label": str(source.get("label", "")),
+                    "color": str(source.get("color", "#168f8b")),
+                }
+                for key in ("raw_f1", "raw_f2"):
+                    value = source.get(key)
+                    if value is not None:
+                        try:
+                            number = float(value)
+                        except (TypeError, ValueError):
+                            continue
+                        if math.isfinite(number):
+                            point[key] = number
+                points.append(point)
+            labels = []
+            x_min, x_max = ax.get_xlim()
+            y_min, y_max = ax.get_ylim()
+            for source in label_data:
+                try:
+                    cx, cy = float(source["cx"]), float(source["cy"])
+                    lx, ly = float(source["lx"]), float(source["ly"])
+                    cpx, cpy = ax.transData.transform((cx, cy))
+                    lpx, lpy = ax.transData.transform((lx, ly))
+                except (KeyError, TypeError, ValueError):
+                    continue
+                if not all(math.isfinite(value) for value in (cx, cy, lx, ly, cpx, cpy, lpx, lpy)):
+                    continue
+                labels.append({"vowel": str(source.get("vowel", "")), "cx": cx, "cy": cy, "lx": lx, "ly": ly, "px": float(cpx), "py": float(cpy), "lpx": float(lpx), "lpy": float(lpy)})
+        else:
+            axes_bbox = {"left": 0.0, "bottom": 0.0, "width": 0.0, "height": 0.0}
+            labels = []
+            x_min = x_max = y_min = y_max = 0.0
+
+        return {
+            "image_width": int(image_width),
+            "image_height": int(image_height),
+            "axes_bbox": axes_bbox,
+            "points": points,
+            "labels": labels,
+            "xlim": [float(x_min), float(x_max)],
+            "ylim": [float(y_min), float(y_max)],
+            "params": {
+                "normalization": params.get("normalization"),
+                "use_bark_units": bool(params.get("use_bark_units", False)),
+                "f2_scale": str(params.get("f2_scale", "linear")),
+            },
+        }

@@ -85,6 +85,24 @@ $env:UV_CACHE_DIR = "$PWD\.uv-cache"
 uv sync --locked --all-extras --dev
 ```
 
+Windows에서 `uv run`이 Python 실행 파일의 `Access is denied`로 시작되지 않으면,
+uv가 관리하는 Python 런타임을 프로젝트 내부에 다시 만들 수 있습니다.
+
+```powershell
+$env:UV_CACHE_DIR = "$PWD\.uv-cache"
+$env:UV_PYTHON_INSTALL_DIR = "$PWD\.uv-python"
+uv python install --reinstall 3.10
+uv venv --clear --python 3.10 .venv
+uv sync --locked --all-extras --dev
+```
+
+테스트는 Qt 창을 띄우지 않도록 다음 환경 변수를 사용합니다.
+
+```powershell
+$env:QT_QPA_PLATFORM = "offscreen"
+uv run pytest tests/ -q
+```
+
 
 ## 📦 기술 스택
 

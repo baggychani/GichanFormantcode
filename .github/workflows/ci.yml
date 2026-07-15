@@ -19,6 +19,7 @@ jobs:
   test:
     name: Test & version check
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v6
 
@@ -47,7 +48,15 @@ jobs:
             libxcb-image0 \
             libxcb-keysyms1 \
             libxcb-render-util0 \
-            libxcb-shape0
+            libxcb-shape0 \
+            libxcb-xinerama0 \
+            libxcb-xkb1 \
+            libx11-xcb1
+
+      - name: Sidecar smoke tests
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: uv run pytest tests/test_sidecar_host.py -q -vv --maxfail=1
 
       - name: Pytest
         env:

@@ -108,6 +108,8 @@ def validate_interactive_options(raw: Any) -> dict[str, Any]:
         "layer_overrides",
         "layer_order",
         "locked_layers",
+        "label_offsets",
+        "batch_options",
     }
     unknown = set(raw) - allowed
     if unknown:
@@ -190,6 +192,29 @@ def validate_interactive_options(raw: Any) -> dict[str, Any]:
         if len(values) > 512 or len(set(values)) != len(values):
             raise InteractiveOptionsError(f"{key} contains duplicate or excessive layers")
         result[key] = list(values)
+    if "label_offsets" in raw:
+        offsets = raw["label_offsets"]
+        if not isinstance(offsets, Mapping) or len(offsets) > 512:
+            raise InteractiveOptionsError("label_offsets must be an object")
+        normalized_offsets: dict[str, tuple[float, float]] = {}
+        for vowel, value in offsets.items():
+            if not isinstance(vowel, str) or not vowel or len(vowel) > 128:
+                raise InteractiveOptionsError("invalid label offset name")
+            if not isinstance(value, (list, tuple)) or len(value) != 2:
+                raise InteractiveOptionsError("label offset must contain x and y")
+            normalized_offsets[vowel] = (
+                _finite_number(value[0], f"label_offsets.{vowel}.x", -1_000_000, 1_000_000),
+                _finite_number(value[1], f"label_offsets.{vowel}.y", -1_000_000, 1_000_000),
+            )
+        result["label_offsets"] = normalized_offsets
+    if "batch_options" in raw:
+        batch = raw["batch_options"]
+        allowed_batch = {"apply_global_design", "apply_layer_design", "apply_layer_visibility", "apply_label_positions"}
+        if not isinstance(batch, Mapping) or set(batch) - allowed_batch:
+            raise InteractiveOptionsError("invalid batch options")
+        if not all(isinstance(value, bool) for value in batch.values()):
+            raise InteractiveOptionsError("batch options must be boolean")
+        result["batch_options"] = {str(key): bool(value) for key, value in batch.items()}
     return result
 
 
@@ -211,6 +236,7 @@ class PlotSessionState:
     )
     layer_locked_vowels_by_file: dict[int, list[str]] = field(default_factory=dict)
     layer_order_by_file: dict[int, list[str]] = field(default_factory=dict)
+    label_offsets_by_file: dict[int, dict[str, tuple[float, float]]] = field(default_factory=dict)
     draw_objects_by_file: dict[int, list[Any]] = field(default_factory=dict)
 
     def apply(self, options: Mapping[str, Any], current_idx: int) -> None:
@@ -238,6 +264,11 @@ class PlotSessionState:
             )
         if "layer_order" in options:
             self.layer_order_by_file[self.current_idx] = list(options["layer_order"])
+        if "label_offsets" in options:
+            self.label_offsets_by_file[self.current_idx] = {
+                **self.label_offsets_by_file.get(self.current_idx, {}),
+                **dict(options["label_offsets"]),
+            }
         self.revision += 1
 
     def remove_file(self, removed_idx: int) -> None:
@@ -247,6 +278,7 @@ class PlotSessionState:
             self.layer_design_overrides_by_file,
             self.layer_locked_vowels_by_file,
             self.layer_order_by_file,
+            self.label_offsets_by_file,
             self.draw_objects_by_file,
         ):
             remapped = {
@@ -279,6 +311,7 @@ class PlotSessionState:
                 self.layer_locked_vowels_by_file
             ),
             "layer_order_by_file": deepcopy(self.layer_order_by_file),
+            "label_offsets_by_file": deepcopy(self.label_offsets_by_file),
         }
 
     def to_project_dict(self) -> dict[str, Any]:
@@ -305,6 +338,15 @@ class PlotSessionState:
             return {int(key): deepcopy(value) for key, value in values.items()}
 
         orders = indexed("layer_order_by_file")
+        label_offsets = {
+            index: {
+                str(vowel): (float(value[0]), float(value[1]))
+                for vowel, value in offsets.items()
+                if isinstance(value, (list, tuple)) and len(value) == 2
+            }
+            for index, offsets in indexed("label_offsets_by_file").items()
+            if isinstance(offsets, Mapping)
+        }
         if not orders and raw.get("layer_order"):
             orders[current_idx] = list(raw["layer_order"])
         design = get_single_design_defaults()
@@ -324,5 +366,6 @@ class PlotSessionState:
             ),
             layer_locked_vowels_by_file=indexed("layer_locked_vowels_by_file"),
             layer_order_by_file=orders,
+            label_offsets_by_file=label_offsets,
             draw_objects_by_file=indexed("draw_objects_by_file"),
         )

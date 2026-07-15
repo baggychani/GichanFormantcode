@@ -118,7 +118,7 @@ export type IpcEventMessage = {
 
 export type IpcMessage = IpcRequest | IpcResponse | IpcErrorMessage | IpcEventMessage;
 
-type ParamToken = "object" | "interactive_options" | "string" | "string|null" | "int" | "string[]" | "int[][]";
+type ParamToken = "object" | "interactive_options" | "string" | "string|null" | "int" | "number" | "string[]" | "int[][]";
 type ParamValue<Token extends ParamToken> = Token extends "object"
   ? Record<string, unknown>
   : Token extends "interactive_options"
@@ -127,7 +127,9 @@ type ParamValue<Token extends ParamToken> = Token extends "object"
     ? string
     : Token extends "string|null"
       ? string | null
-      : Token extends "int"
+    : Token extends "int"
+        ? number
+      : Token extends "number"
         ? number
         : Token extends "string[]"
           ? string[]

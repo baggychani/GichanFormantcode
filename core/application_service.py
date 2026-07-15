@@ -186,6 +186,11 @@ class ApplicationService:
                 result = self.controller.workspace_service.add_files(
                     valid_paths, loader=self.controller._load_file_item
                 )
+                # The sidecar intentionally bypasses the Qt executor for file
+                # parsing, but its headless view still represents the same
+                # workspace state as the PySide path.
+                self.controller.view.update_file_status(result["total_files"])
+                self.controller.view.toggle_f3_options(result["has_f3_all"])
                 self.controller._sync_pre_lobanov_ui()
             else:
                 result = self.controller.load_files(valid_paths)
@@ -367,7 +372,12 @@ class ApplicationService:
             )
         ranges.update(session.ranges)
 
-        design = deepcopy(session.design_settings)
+        batch_options = options.get("batch_options", {})
+        design = deepcopy(
+            session.design_settings
+            if batch_options.get("apply_global_design", True)
+            else get_single_design_defaults()
+        )
         if not session.show_ellipse:
             design["ell_color"] = None
             design["ell_fill_color"] = None
@@ -381,18 +391,19 @@ class ApplicationService:
             "design": design,
             "filter_state": deepcopy(
                 session.vowel_filter_state_by_file.get(current_index)
-            ),
+            ) if batch_options.get("apply_layer_visibility", True) else None,
             "layer_overrides": deepcopy(
                 session.layer_design_overrides_by_file.get(current_index)
-            ),
+            ) if batch_options.get("apply_layer_design", True) else None,
             "layer_order": list(
                 session.layer_order_by_file.get(current_index, [])
             ),
-            "custom_label_offsets": deepcopy(
-                getattr(self.controller, "custom_label_offsets", {}).get(
+            "custom_label_offsets": {
+                **deepcopy(getattr(self.controller, "custom_label_offsets", {}).get(
                     (current_index, params.get("type", "f1_f2")), {}
-                )
-            ),
+                )),
+                **deepcopy(session.label_offsets_by_file.get(current_index, {})),
+            } if batch_options.get("apply_label_positions", True) else {},
             "filename": str(current_data.get("name", "")),
             "request_id": options.get("request_id"),
             "revision": session.revision,
@@ -426,6 +437,64 @@ class ApplicationService:
             return dict(prepared)
         return self._interactive_renderer.render(prepared)
 
+    @staticmethod
+    def _export_extension(image_format: str) -> str:
+        extension = str(image_format).lower().lstrip(".")
+        if extension == "jpeg":
+            extension = "jpg"
+        if extension not in {"png", "jpg", "svg"}:
+            raise ValueError("format must be png, jpg, or svg")
+        return extension
+
+    def export_interactive_preview(
+        self, path: str, image_format: str, options: Mapping[str, Any]
+    ) -> dict[str, Any]:
+        """Render the current React plot directly to a user-selected path."""
+        target = Path(path).expanduser()
+        extension = self._export_extension(image_format)
+        if target.suffix.lower().lstrip(".") != extension:
+            target = target.with_suffix(f".{extension}")
+        prepared = self.prepare_interactive_preview(options)
+        data = self._interactive_renderer.render_export(prepared, extension)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(data)
+        return {"ok": True, "path": str(target), "format": extension}
+
+    def export_interactive_batch(
+        self, directory: str, image_format: str, options: Mapping[str, Any]
+    ) -> dict[str, Any]:
+        """Render every loaded source using the current React session settings."""
+        output_dir = Path(directory).expanduser()
+        output_dir.mkdir(parents=True, exist_ok=True)
+        extension = self._export_extension(image_format)
+        original_index = self.controller.get_current_index()
+        items = list(self.controller.get_plot_data_list())
+        used: set[str] = set()
+        exported: list[str] = []
+        errors: list[dict[str, str]] = []
+        try:
+            for index, item in enumerate(items):
+                try:
+                    self.controller.set_current_index(index)
+                    prepared = self.prepare_interactive_preview(options)
+                    raw_name = Path(str(item.get("name", "plot"))).stem or "plot"
+                    safe_name = "".join(char if char.isalnum() or char in " ._-" else "_" for char in raw_name).strip() or "plot"
+                    candidate = f"{safe_name}.{extension}"
+                    serial = 2
+                    while candidate.casefold() in used:
+                        candidate = f"{safe_name}_{serial}.{extension}"
+                        serial += 1
+                    used.add(candidate.casefold())
+                    target = output_dir / candidate
+                    target.write_bytes(self._interactive_renderer.render_export(prepared, extension))
+                    exported.append(str(target))
+                except Exception as exc:  # noqa: BLE001 - preserve per-file result
+                    errors.append({"name": str(item.get("name", index)), "message": str(exc)})
+        finally:
+            self.controller.set_current_index(original_index)
+            self._plot_session().current_idx = original_index
+        return {"ok": not errors or bool(exported), "directory": str(output_dir), "format": extension, "exported": exported, "errors": errors}
+
     def publish_interactive_render_result(self, result: Mapping[str, Any]) -> None:
         if result.get("empty"):
             self.publish_empty_preview(
@@ -438,6 +507,7 @@ class ApplicationService:
             target="interactive",
             request_id=result.get("request_id"),
             revision=result.get("revision"),
+            ruler_context=result.get("ruler_context"),
         )
 
     def close(self) -> None:
@@ -463,6 +533,7 @@ class ApplicationService:
         target: str = "main",
         request_id: Any | None = None,
         revision: Any | None = None,
+        ruler_context: Mapping[str, Any] | None = None,
     ) -> None:
         preview_path = self._write_preview_asset(png_data, revision=revision)
         payload = {
@@ -474,6 +545,8 @@ class ApplicationService:
             payload["request_id"] = request_id
         if revision is not None:
             payload["revision"] = revision
+        if ruler_context is not None:
+            payload["ruler_context"] = ruler_context
         self.events.emit(
             "preview_ready",
             payload,

@@ -70,6 +70,31 @@ COMMANDS: dict[str, dict[str, Any]] = {
     },
     "open_guide": {"params": {}},
     "request_preview": {"params": {"request_id": "int"}},
+    "measure_distance": {
+        "params": {
+            "x1": "number",
+            "y1": "number",
+            "x2": "number",
+            "y2": "number",
+        },
+        "required": ["x1", "y1", "x2", "y2"],
+    },
+    "export_interactive_preview": {
+        "params": {
+            "path": "string",
+            "format": "string",
+            "options": "interactive_options",
+        },
+        "required": ["path", "format", "options"],
+    },
+    "export_interactive_batch": {
+        "params": {
+            "directory": "string",
+            "format": "string",
+            "options": "interactive_options",
+        },
+        "required": ["directory", "format", "options"],
+    },
     "update_interactive_session": {
         "params": {
             "options": "interactive_options",
@@ -211,6 +236,12 @@ def validate_params(method: str, params: Mapping[str, Any] | None) -> dict[str, 
             f"unknown method {method!r}",
             {"method": method},
         )
+    if params is not None and not isinstance(params, Mapping):
+        raise ProtocolError(
+            "invalid_params",
+            "params must be a JSON object",
+            {"expected": "object"},
+        )
     spec = COMMANDS[method]
     raw = dict(params or {})
     required = spec.get("required", [])
@@ -230,6 +261,21 @@ def validate_params(method: str, params: Mapping[str, Any] | None) -> dict[str, 
                 {"param": key},
             )
         _check_type(method, key, expected[key], value)
+    if method == "load_files":
+        paths = raw.get("paths")
+        if not paths:
+            raise ProtocolError(
+                "invalid_params",
+                "load_files requires at least one path",
+                {"param": "paths", "expected": "non-empty string[]"},
+            )
+        blank = [index for index, path in enumerate(paths) if not path.strip()]
+        if blank:
+            raise ProtocolError(
+                "invalid_params",
+                "load_files paths must not be blank",
+                {"param": "paths", "blank_indices": blank},
+            )
     return raw
 
 
@@ -279,6 +325,8 @@ def _check_type(method: str, key: str, expected: str, value: Any) -> None:
     ok = False
     if expected == "object":
         ok = isinstance(value, dict)
+    elif expected == "number":
+        ok = isinstance(value, (int, float)) and not isinstance(value, bool)
     elif expected == "string":
         ok = isinstance(value, str)
     elif expected == "string|null":

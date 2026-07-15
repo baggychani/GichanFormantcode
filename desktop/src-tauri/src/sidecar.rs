@@ -253,6 +253,10 @@ fn ensure_running(app: &AppHandle, state: &SidecarState) -> Result<(), String> {
         }
     }
 
+    // Requests belonging to a dead child must fail immediately. Otherwise
+    // their receivers remain pending until the frontend's long operation
+    // timeout, which disguises a crashed sidecar as a slow file load.
+    fail_pending(&inner.pending, "sidecar process exited");
     inner.process = None;
     let pending = Arc::new(Mutex::new(HashMap::new()));
     inner.pending = Arc::clone(&pending);
@@ -379,7 +383,10 @@ fn call_sidecar(
             if let Ok(mut map) = pending.lock() {
                 map.remove(&id);
             }
-            Err(format!("timed out waiting for sidecar method '{method}'"))
+            Err(format!(
+                "timed out waiting for sidecar method '{method}' after {}s",
+                timeout.as_secs()
+            ))
         }
     }
 }

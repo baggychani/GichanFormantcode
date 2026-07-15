@@ -55,9 +55,19 @@ class WorkspaceService:
             all(item.get("is_pre_lobanov") for item in existing) if existing else None
         )
         for path in new_paths:
-            loaded = loader(
-                path, existing_pre_lobanov=existing_pre_lobanov
-            )
+            try:
+                loaded = loader(path, existing_pre_lobanov=existing_pre_lobanov)
+            except Exception as exc:  # noqa: BLE001 - isolate one bad source file
+                # A malformed/unreadable source must be reported as a per-file
+                # failure. Letting it escape aborts the whole IPC request and
+                # makes the frontend wait until its transport timeout.
+                result["failed"].append(
+                    (
+                        str(path),
+                        [(str(path), f"파일을 읽는 중 오류가 발생했습니다: {exc}")],
+                    )
+                )
+                continue
             if loaded["success"]:
                 self.state.filepaths.append(path)
                 self.state.plot_data_list.append(loaded["item"])
