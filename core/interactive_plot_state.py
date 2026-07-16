@@ -76,6 +76,8 @@ def _validate_design(raw: Any, *, partial: bool) -> dict[str, Any]:
                 raise InteractiveOptionsError(f"unsupported marker for design.{key}")
         elif key == "lbl_size":
             value = int(_finite_number(value, "design.lbl_size", 6, 96))
+        elif key == "tick_label_size":
+            value = int(_finite_number(value, "design.tick_label_size", 6, 48))
         elif key == "ell_thick":
             value = _finite_number(value, "design.ell_thick", 0.1, 12)
         elif key in {"ell_fill_opacity", "grid_opacity"}:
@@ -86,6 +88,12 @@ def _validate_design(raw: Any, *, partial: bool) -> dict[str, Any]:
         elif key == "font_style":
             if value not in {"serif", "sans"}:
                 raise InteractiveOptionsError("unsupported font style")
+        elif key == "font_family":
+            if value not in {"Noto Sans KR", "Noto Serif KR", "Charis SIL", "Andika"}:
+                raise InteractiveOptionsError("unsupported font family")
+        elif key == "font_weight":
+            if value not in {"regular", "medium", "semibold", "bold"}:
+                raise InteractiveOptionsError("unsupported font weight")
         result[str(key)] = value
     if partial:
         return result

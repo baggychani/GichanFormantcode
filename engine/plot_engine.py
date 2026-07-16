@@ -112,9 +112,9 @@ class PlotEngine:
         return (mpl, default_face, "white", 0.5, base_size)
 
     @staticmethod
-    def _get_axis_font_list(font_style):
+    def _get_axis_font_list(font_style, font_family=None):
         """축/틱 라벨용 폰트 패밀리 리스트. rcParams를 건드리지 않고 객체에 주입할 때 사용."""
-        return axis_font_list(font_style)
+        return axis_font_list(font_style, font_family)
 
     @staticmethod
     def _apply_grid_style(ax, show_grid, grid_opacity=None):
@@ -144,9 +144,18 @@ class PlotEngine:
                 return True
         return False
 
-    def _label_font_family(self, label_text, font_style):
+    def _label_font_family(self, label_text, font_style, font_family=None):
         """라벨 문자에 따라 폰트 스택 반환. (fontfamily_list, serif_normal_use_medium)."""
-        return label_font_family(label_text, font_style)
+        return label_font_family(label_text, font_style, font_family)
+
+    @staticmethod
+    def _resolve_font_weight(settings, serif_use_medium=False):
+        selected = settings.get("font_weight")
+        if selected in {"regular", "medium", "semibold", "bold"}:
+            return selected
+        if settings.get("lbl_bold", False):
+            return "bold"
+        return "medium" if serif_use_medium else "normal"
 
     @staticmethod
     def _resolve_plot_color(color, fallback="#606060"):
@@ -257,7 +266,7 @@ class PlotEngine:
             custom_label_offsets = {}
         if layer_overrides is None:
             layer_overrides = {}
-        axis_font = self._get_axis_font_list(design_settings.get("font_style", "serif"))
+        axis_font = self._get_axis_font_list(design_settings.get("font_style", "serif"), design_settings.get("font_family"))
 
         show_raw = design_settings.get("show_raw", True)
         show_centroid = design_settings.get("show_centroid", True)
@@ -373,7 +382,7 @@ class PlotEngine:
                     )
                 else:  # 'a': 각 데이터 포인트를 해당 모음 라벨 문자로 표시
                     font_family, _ = self._label_font_family(
-                        vowel, design_settings.get("font_style", "serif")
+                        vowel, design_settings.get("font_style", "serif"), design_settings.get("font_family")
                     )
                     pt_color = v_raw_color
                     for px, py in zip(x, y):
@@ -486,16 +495,12 @@ class PlotEngine:
             if v_lbl_color != "transparent":
                 text_alpha = 0.3 if is_semi else 1.0
                 display_vowel = (
-                    f"/{vowel}/" if design_settings.get("label_slash_wrap") else vowel
+                    f"/{vowel}/" if eff.get("label_slash_wrap") else vowel
                 )
                 font_family, serif_use_medium = self._label_font_family(
-                    vowel, design_settings.get("font_style", "serif")
+                    vowel, design_settings.get("font_style", "serif"), eff.get("font_family")
                 )
-                fontweight = (
-                    "medium"
-                    if (serif_use_medium and v_lbl_bold == "normal")
-                    else v_lbl_bold
-                )
+                fontweight = self._resolve_font_weight(eff, serif_use_medium)
                 if use_custom:
                     ann = ax.annotate(
                         display_vowel,
@@ -685,7 +690,8 @@ class PlotEngine:
                 fontfamily=axis_font,
             )
 
-        ax.tick_params(axis="both", which="major", length=6, labelsize=13)
+        tick_label_size = int(design_settings.get("tick_label_size", 13))
+        ax.tick_params(axis="both", which="major", length=6, labelsize=tick_label_size)
         for lbl in ax.get_xticklabels() + ax.get_yticklabels():
             lbl.set_fontfamily(axis_font)
 
@@ -781,7 +787,7 @@ class PlotEngine:
             )
 
         common = design_settings.get("common", {})
-        axis_font = self._get_axis_font_list(common.get("font_style", "serif"))
+        axis_font = self._get_axis_font_list(common.get("font_style", "serif"), common.get("font_family"))
 
         show_raw = common.get("show_raw", True)
         show_centroid = common.get("show_centroid", True)
@@ -927,7 +933,7 @@ class PlotEngine:
                         )
                     else:
                         font_family, _ = self._label_font_family(
-                            vowel, common.get("font_style", "serif")
+                            vowel, common.get("font_style", "serif"), common.get("font_family")
                         )
                         for px, py in zip(x, y):
                             t = ax.text(
@@ -1043,17 +1049,13 @@ class PlotEngine:
                 if not hide_text:
                     text_alpha = 0.3 if is_semi else 1.0
                     display_vowel = (
-                        f"/{vowel}/" if common.get("label_slash_wrap") else vowel
+                        f"/{vowel}/" if cfg_v.get("label_slash_wrap", common.get("label_slash_wrap")) else vowel
                     )
                     z_offset = -10 if is_semi else 0
                     font_family, serif_use_medium = self._label_font_family(
-                        vowel, common.get("font_style", "serif")
+                        vowel, common.get("font_style", "serif"), cfg_v.get("font_family", common.get("font_family"))
                     )
-                    fontweight = (
-                        "medium"
-                        if (serif_use_medium and lbl_bold == "normal")
-                        else lbl_bold
-                    )
+                    fontweight = self._resolve_font_weight(cfg_v, serif_use_medium)
                     if use_custom:
                         ann = ax.annotate(
                             display_vowel,
@@ -1246,7 +1248,8 @@ class PlotEngine:
                 fontfamily=axis_font,
             )
 
-        ax.tick_params(axis="both", which="major", length=6, labelsize=13)
+        tick_label_size = int(common.get("tick_label_size", 13))
+        ax.tick_params(axis="both", which="major", length=6, labelsize=tick_label_size)
         for lbl in ax.get_xticklabels() + ax.get_yticklabels():
             lbl.set_fontfamily(axis_font)
 
@@ -1403,7 +1406,7 @@ class PlotEngine:
         box_spines = design_settings.get("box_spines", False)
         show_grid = design_settings.get("show_grid", False)
         grid_opacity = design_settings.get("grid_opacity")
-        axis_font = self._get_axis_font_list(design_settings.get("font_style", "serif"))
+        axis_font = self._get_axis_font_list(design_settings.get("font_style", "serif"), design_settings.get("font_family"))
 
         r = self.NORM_RANGES.get(norm_type, self.NORM_RANGES["Lobanov"])
         if manual_ranges and norm_type != "Gerstman":
@@ -1464,7 +1467,8 @@ class PlotEngine:
                 fontweight="normal",
                 fontfamily=axis_font,
             )
-        ax.tick_params(axis="both", which="major", length=6, labelsize=13)
+        tick_label_size = int(design_settings.get("tick_label_size", 13))
+        ax.tick_params(axis="both", which="major", length=6, labelsize=tick_label_size)
         for lbl in ax.get_xticklabels() + ax.get_yticklabels():
             lbl.set_fontfamily(axis_font)
 
@@ -1573,7 +1577,7 @@ class PlotEngine:
                     )
                 else:
                     font_family, _ = self._label_font_family(
-                        vowel, design_settings.get("font_style", "serif")
+                        vowel, design_settings.get("font_style", "serif"), design_settings.get("font_family")
                     )
                     for px, py in zip(x, y):
                         t = ax.text(
@@ -1676,16 +1680,12 @@ class PlotEngine:
             if v_lbl_color != "transparent":
                 text_alpha = 0.3 if is_semi else 1.0
                 display_vowel = (
-                    f"/{vowel}/" if design_settings.get("label_slash_wrap") else vowel
+                    f"/{vowel}/" if eff.get("label_slash_wrap") else vowel
                 )
                 font_family, serif_use_medium = self._label_font_family(
-                    vowel, design_settings.get("font_style", "serif")
+                    vowel, design_settings.get("font_style", "serif"), eff.get("font_family")
                 )
-                fontweight = (
-                    "medium"
-                    if (serif_use_medium and v_lbl_bold == "normal")
-                    else v_lbl_bold
-                )
+                fontweight = self._resolve_font_weight(eff, serif_use_medium)
                 if use_custom:
                     ann = ax.annotate(
                         display_vowel,
@@ -1806,7 +1806,7 @@ class PlotEngine:
             )
 
         common = design_settings.get("common", {})
-        axis_font = self._get_axis_font_list(common.get("font_style", "serif"))
+        axis_font = self._get_axis_font_list(common.get("font_style", "serif"), common.get("font_family"))
 
         show_raw = common.get("show_raw", True)
         show_centroid = common.get("show_centroid", True)
@@ -1874,7 +1874,8 @@ class PlotEngine:
                 fontweight="normal",
                 fontfamily=axis_font,
             )
-        ax.tick_params(axis="both", which="major", length=6, labelsize=13)
+        tick_label_size = int(common.get("tick_label_size", 13))
+        ax.tick_params(axis="both", which="major", length=6, labelsize=tick_label_size)
         for lbl in ax.get_xticklabels() + ax.get_yticklabels():
             lbl.set_fontfamily(axis_font)
         if box_spines:
@@ -2001,7 +2002,7 @@ class PlotEngine:
                         )
                     else:
                         font_family, _ = self._label_font_family(
-                            vowel, common.get("font_style", "serif")
+                            vowel, common.get("font_style", "serif"), common.get("font_family")
                         )
                         pt_color = raw_color
                         for px, py in zip(x, y):
@@ -2096,17 +2097,13 @@ class PlotEngine:
 
                 text_alpha = 0.3 if is_semi else 1.0
                 display_vowel = (
-                    f"/{vowel}/" if common.get("label_slash_wrap") else vowel
+                    f"/{vowel}/" if cfg_v.get("label_slash_wrap", common.get("label_slash_wrap")) else vowel
                 )
                 z_offset = -10 if is_semi else 0
                 font_family, serif_use_medium = self._label_font_family(
-                    vowel, common.get("font_style", "serif")
+                    vowel, common.get("font_style", "serif"), cfg_v.get("font_family", common.get("font_family"))
                 )
-                fontweight = (
-                    "medium"
-                    if (serif_use_medium and lbl_bold == "normal")
-                    else lbl_bold
-                )
+                fontweight = self._resolve_font_weight(cfg_v, serif_use_medium)
                 if use_custom:
                     ann = ax.annotate(
                         display_vowel,

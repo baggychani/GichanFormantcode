@@ -22,7 +22,7 @@ def test_interactive_options_validate_nested_values():
             "request_id": 4,
             "ranges": {"y_min": "200", "y_max": 1000},
             "sigma": "2.5",
-            "design": {"lbl_size": 20, "ell_color": "#112233"},
+            "design": {"lbl_size": 20, "ell_color": "#112233", "tick_label_size": 15},
             "filter_state": {"a": "ON"},
             "layer_order": ["a"],
             "locked_layers": ["a"],
@@ -32,6 +32,7 @@ def test_interactive_options_validate_nested_values():
 
     assert options["ranges"] == {"y_min": "200", "y_max": "1000"}
     assert options["sigma"] == "2.5"
+    assert options["design"]["tick_label_size"] == 15
     assert options["label_offsets"] == {"a": (12.5, -4.0)}
 
     with pytest.raises(InteractiveOptionsError, match="less than"):

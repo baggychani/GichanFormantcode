@@ -22,14 +22,17 @@ def use_poster_font_stack() -> bool:
     return bool(getattr(config, "USE_POSTER_FONT_STACK", False))
 
 
-def axis_font_list(font_style: str) -> list[str]:
+def axis_font_list(font_style: str, font_family: str | None = None) -> list[str]:
     """축·눈금 라벨용 패밀리 리스트."""
-    if font_style == "serif":
-        return list(FONT_LEGACY_SERIF_AXIS)
-    return list(FONT_LEGACY_SANS_AXIS)
+    fallback = FONT_LEGACY_SERIF_AXIS if font_style == "serif" else FONT_LEGACY_SANS_AXIS
+    if font_family:
+        return [font_family, *[name for name in fallback if name != font_family]]
+    return list(fallback)
 
 
-def label_font_family(label_text: str, font_style: str) -> tuple[list[str], bool]:
+def label_font_family(
+    label_text: str, font_style: str, font_family: str | None = None
+) -> tuple[list[str], bool]:
     """plot_engine._label_font_family / draw.plot_fonts 와 동일 시그니처."""
     from engine.plot_engine import PlotEngine
 
@@ -38,10 +41,14 @@ def label_font_family(label_text: str, font_style: str) -> tuple[list[str], bool
 
     if is_korean:
         if is_serif:
-            return (list(FONT_LEGACY_SERIF_KO), True)
-        return (list(FONT_LEGACY_SANS_KO), False)
+            fallback = FONT_LEGACY_SERIF_KO
+            return ([font_family, *[name for name in fallback if name != font_family]] if font_family else list(fallback), True)
+        fallback = FONT_LEGACY_SANS_KO
+        return ([font_family, *[name for name in fallback if name != font_family]] if font_family else list(fallback), False)
 
     if is_serif:
-        return (list(FONT_LEGACY_SERIF_IPA), False)
+        fallback = FONT_LEGACY_SERIF_IPA
+        return ([font_family, *[name for name in fallback if name != font_family]] if font_family else list(fallback), False)
 
-    return (list(FONT_LEGACY_SANS_IPA), False)
+    fallback = FONT_LEGACY_SANS_IPA
+    return ([font_family, *[name for name in fallback if name != font_family]] if font_family else list(fallback), False)

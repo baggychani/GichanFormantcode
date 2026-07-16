@@ -135,6 +135,50 @@ class TestPlotEngine(unittest.TestCase):
         self.assertIn("(Bark)", ax.get_xlabel())
         self.assertIn("(Bark)", ax.get_ylabel())
 
+    def test_draw_plot_uses_layer_slash_wrap_override(self):
+        import pandas as pd
+
+        fig = Figure()
+        df = pd.DataFrame(
+            {"F1": [500, 510, 520], "F2": [1500, 1510, 1520], "Label": ["a", "a", "a"]}
+        )
+        params = {
+            "type": "f1_f2",
+            "origin": "top_left",
+            "f1_scale": "linear",
+            "f2_scale": "linear",
+            "use_bark_units": False,
+        }
+
+        _, _, label_data, _ = self.engine.draw_plot(
+            fig,
+            df,
+            params,
+            design_settings={"label_slash_wrap": False},
+            layer_overrides={"a": {"label_slash_wrap": True}},
+        )
+
+        self.assertEqual(label_data[0]["display_vowel"], "/a/")
+
+    def test_draw_plot_tick_label_size(self):
+        import pandas as pd
+
+        fig = Figure()
+        df = pd.DataFrame({"F1": [500], "F2": [1500], "Label": ["i"]})
+        params = {
+            "type": "f1_f2",
+            "origin": "top_left",
+            "f1_scale": "linear",
+            "f2_scale": "linear",
+            "use_bark_units": False,
+        }
+
+        ax, _, _, _ = self.engine.draw_plot(
+            fig, df, params, design_settings={"tick_label_size": 17}
+        )
+
+        self.assertEqual(ax.get_xticklabels()[0].get_fontsize(), 17)
+
     def test_draw_compare_normalized_labels(self):
         """정규화 비교 플롯에서 nF1, nF2 라벨이 사용되고 단위가 없는지 검증."""
         import pandas as pd

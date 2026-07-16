@@ -16,6 +16,7 @@ import {
   GripVertical,
   Italic,
   Layers3,
+  List,
   Lock,
   MousePointer2,
   Palette,
@@ -47,7 +48,7 @@ type RulerGeometryMode = "direct" | "right-triangle";
 type RulerDisplayMode = "hz" | "bark";
 type LeftPanel = "analysis" | "global-design";
 type RightPanel = "layers" | "drawing";
-type DrawTool = "text" | "line" | "area" | "reference";
+type DrawTool = "text" | "line" | "area" | "reference" | "legend";
 type VowelAnalysisPage = "formant" | "distance" | "pillai";
 type VowelAnalysisResult = {
   index: number;
@@ -86,7 +87,10 @@ type DesignSettings = {
   show_axis_units: boolean;
   show_minor_ticks: boolean;
   font_style: string;
+  font_family: string;
+  font_weight: "regular" | "medium" | "semibold" | "bold";
   label_slash_wrap: boolean;
+  tick_label_size: number;
 };
 type LayerOverrides = Record<string, Partial<DesignSettings>>;
 type LayerSession = {
@@ -144,13 +148,33 @@ const X_AXIS_LABEL: Record<string, string> = {
 // select values and NaN percentages in controls during window startup.
 const EMPTY_DESIGN: DesignSettings = {
   show_raw: true, show_centroid: true, raw_marker: "o", raw_color: "#202938",
-  centroid_marker: "o", lbl_color: "#202938", lbl_size: 18, lbl_bold: false,
+  centroid_marker: "o", lbl_color: "#202938", lbl_size: 18, lbl_bold: true,
   lbl_italic: false, ell_thick: 1, ell_style: "-", ell_color: "#606060",
   ell_fill_color: null, ell_fill_opacity: 0.15, box_spines: false,
   show_grid: false, grid_opacity: 0.15, y_label_rotation: false,
   axis_position_swap: false, show_axis_units: true, show_minor_ticks: false,
-  font_style: "sans", label_slash_wrap: false,
+  font_style: "sans", font_family: "Noto Sans KR", font_weight: "bold", label_slash_wrap: false, tick_label_size: 13,
 };
+
+const FONT_FAMILIES = ["Noto Sans KR", "Noto Serif KR", "Charis SIL", "Andika"] as const;
+const FONT_WEIGHTS: Record<string, Array<DesignSettings["font_weight"]>> = {
+  "Noto Sans KR": ["regular", "bold"],
+  "Noto Serif KR": ["regular", "medium", "bold"],
+  "Charis SIL": ["regular", "bold"],
+  Andika: ["regular", "medium", "semibold", "bold"],
+};
+const FONT_WEIGHT_LABELS: Record<DesignSettings["font_weight"], string> = {
+  regular: "Regular", medium: "Medium", semibold: "Semibold", bold: "Bold",
+};
+
+function fontFamilyStyle(family: string) {
+  return family === "Noto Serif KR" || family === "Charis SIL" ? "serif" : "sans";
+}
+
+function normalizedFontWeight(family: string, value: unknown): DesignSettings["font_weight"] {
+  const choices = FONT_WEIGHTS[family] ?? ["regular"];
+  return choices.includes(value as DesignSettings["font_weight"]) ? value as DesignSettings["font_weight"] : choices[0];
+}
 
 const MARKERS = [["o", "●"], ["s", "■"], ["^", "▲"], ["D", "◆"], ["wo", "○"], ["ws", "□"]] as const;
 const MARKER_DISPLAY_LABELS: Record<string, string> = { o: "원", s: "사각형", "^": "삼각형", D: "마름모", wo: "빈 원", ws: "빈 사각형", x: "가위표", a: "라벨" };
@@ -242,7 +266,7 @@ function FileSelectMenu({ sources, currentIndex, onNavigate, disabled = false }:
         <span>{current?.name ?? "데이터 파일을 불러오세요"}</span><ChevronDown size={14} />
       </button>
       {open ? <div className="file-option-menu" role="listbox" aria-label="파일 선택">
-        {sources.map((source, index) => <button type="button" role="option" aria-selected={index === currentIndex} className={index === currentIndex ? "is-selected" : ""} key={`${source.index}-${source.name}`} onClick={() => { setOpen(false); onNavigate(index); }}>{source.name}</button>)}
+        {sources.map((source) => <button type="button" role="option" aria-selected={source.index === currentIndex} className={source.index === currentIndex ? "is-selected" : ""} key={`${source.index}-${source.name}`} onClick={() => { setOpen(false); onNavigate(source.index); }}>{source.name}</button>)}
       </div> : null}
     </div>
   );
@@ -274,7 +298,7 @@ function AnalysisFigure({ page }: { page: VowelAnalysisPage }) {
   );
 }
 
-function VowelAnalysisShell({ currentSource, sources, currentIndex, onNavigate, onClose }: { currentSource: SourceInfo | undefined; sources: SourceInfo[]; currentIndex: number; onNavigate: (index: number) => void; onClose: () => void }) {
+function VowelAnalysisShell({ currentSource, sources, currentIndex, displayIndex, onNavigate, onClose }: { currentSource: SourceInfo | undefined; sources: SourceInfo[]; currentIndex: number; displayIndex: number; onNavigate: (index: number) => void; onClose: () => void }) {
   const [page, setPage] = useState<VowelAnalysisPage>("formant");
   const [analysisData, setAnalysisData] = useState<VowelAnalysisResult | null>(null);
   const analysisBodyRef = useRef<HTMLDivElement | null>(null);
@@ -320,7 +344,7 @@ function VowelAnalysisShell({ currentSource, sources, currentIndex, onNavigate, 
           <div className="vowel-analysis-title"><div className="vowel-analysis-mark"><BarChart3 size={18} /></div><div><span className="section-eyebrow">모음 공간 분석실</span><h2 id="vowel-analysis-title">모음 상세 분석</h2><p>{currentSource?.name ?? "현재 데이터"}의 모음 공간을 수치와 분포로 읽습니다.</p></div></div>
           <button type="button" className="vowel-analysis-close" onClick={onClose} aria-label="분석 창 닫기"><X size={18} /></button>
         </header>
-        <div className="analysis-file-switcher"><button type="button" onClick={() => onNavigate(currentIndex - 1)} disabled={currentIndex <= 0} aria-label="이전 파일">‹</button><div><span>분석 파일</span><strong>{currentIndex + 1} / {sources.length}</strong><b title={currentSource?.name}>{currentSource?.name ?? "-"}</b></div><button type="button" onClick={() => onNavigate(currentIndex + 1)} disabled={currentIndex >= sources.length - 1} aria-label="다음 파일">›</button></div>
+        <div className="analysis-file-switcher"><button type="button" onClick={() => onNavigate(sources[Math.max(0, displayIndex - 1)]?.index ?? currentIndex)} disabled={displayIndex <= 0} aria-label="이전 파일">‹</button><div><span>분석 파일</span><strong>{displayIndex + 1} / {sources.length}</strong><b title={currentSource?.name}>{currentSource?.name ?? "-"}</b></div><button type="button" onClick={() => onNavigate(sources[Math.min(sources.length - 1, displayIndex + 1)]?.index ?? currentIndex)} disabled={displayIndex >= sources.length - 1} aria-label="다음 파일">›</button></div>
         <nav className="vowel-analysis-tabs" aria-label="모음 분석 페이지">{pages.map((item) => <button key={item.id} type="button" className={page === item.id ? "is-active" : ""} onClick={() => setPage(item.id)}><strong>{item.label}</strong><small>{item.detail}</small></button>)}</nav>
         <div className="vowel-analysis-body" ref={analysisBodyRef}>
           <div className="vowel-analysis-hero"><div className="analysis-hero-copy"><span className="analysis-kicker">{hero.kicker}</span><h3>{hero.title}</h3><p>{hero.copy}</p></div><AnalysisFigure page={page} /></div>
@@ -333,6 +357,7 @@ function VowelAnalysisShell({ currentSource, sources, currentIndex, onNavigate, 
 
 export function InteractivePlotWindow() {
   const [state, setState] = useState<ApplicationState | null>(null);
+  const [combinedVisible, setCombinedVisible] = useState(() => window.localStorage.getItem("gichanformant-show-combined") !== "false");
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [previewInfo, setPreviewInfo] = useState("");
   const [batchExportOpen, setBatchExportOpen] = useState(false);
@@ -362,6 +387,7 @@ export function InteractivePlotWindow() {
   const [drawTool, setDrawTool] = useState<DrawTool>("line");
   const [drawColor, setDrawColor] = useState<string | null>("#2563eb");
   const [drawWidth, setDrawWidth] = useState(2);
+  const [globalDesignLocked, setGlobalDesignLocked] = useState(true);
   const [leftOpen, setLeftOpen] = useState(true);
   const [rightOpen, setRightOpen] = useState(true);
   const [ranges, setRanges] = useState<Ranges>(RANGE_DEFAULTS.f1_f2);
@@ -410,6 +436,8 @@ export function InteractivePlotWindow() {
   const plotPaperRef = useRef<HTMLDivElement | null>(null);
   const plotImageRef = useRef<HTMLImageElement | null>(null);
   const plotLabelFrameRef = useRef<number | null>(null);
+  const globalDesignByFileRef = useRef(new Map<string, DesignSettings>());
+  const designInitializedRef = useRef(false);
 
   const refresh = useCallback(async () => {
     try {
@@ -542,9 +570,13 @@ export function InteractivePlotWindow() {
   }, []);
 
   const analysis = state?.analysis;
-  const sources = state?.sources ?? [];
-  const currentIndex = Math.min(state?.current_index ?? 0, Math.max(0, sources.length - 1));
-  const currentSource = sources[currentIndex];
+  const allSources = state?.sources ?? [];
+  const sources = combinedVisible ? allSources : allSources.filter((source) => !source.is_combined);
+  const rawCurrentIndex = state?.current_index ?? 0;
+  const currentIndex = sources.some((source) => source.index === rawCurrentIndex)
+    ? rawCurrentIndex
+    : sources[0]?.index ?? rawCurrentIndex;
+  const currentSource = sources.find((source) => source.index === currentIndex);
   const hasCombined = currentSource?.is_combined === true;
   const currentFileKey = currentSource ? String(currentSource.path ?? `${currentSource.index}:${currentSource.name}`) : "";
   const currentVowels = state?.current_vowels ?? [];
@@ -566,6 +598,18 @@ export function InteractivePlotWindow() {
     [state?.design_defaults],
   );
   const canNavigate = sources.length > 1;
+
+  useEffect(() => {
+    const syncCombinedVisibility = () => setCombinedVisible(window.localStorage.getItem("gichanformant-show-combined") !== "false");
+    window.addEventListener("storage", syncCombinedVisibility);
+    return () => window.removeEventListener("storage", syncCombinedVisibility);
+  }, []);
+
+  useEffect(() => {
+    if (!combinedVisible && rawCurrentIndex !== currentIndex && sources.length) {
+      void navigateTo(currentIndex);
+    }
+  }, [combinedVisible, currentIndex, rawCurrentIndex, sources.length]);
   const selectedOverride = selectedLayer ? layerOverrides[selectedLayer] ?? {} : {};
   const selectedLocked = selectedLayer ? lockedLayers.has(selectedLayer) : false;
 
@@ -593,7 +637,12 @@ export function InteractivePlotWindow() {
     setRanges(Object.keys(session?.ranges ?? {}).length === 4 ? session!.ranges as Ranges : defaultRanges);
     setSigma(session?.sigma ?? "2");
     setShowEllipse(session?.show_ellipse ?? true);
-    setDesign(({ ...canonicalDesign, ...(session?.design_settings ?? {}) }) as DesignSettings);
+    const sessionDesign = ({ ...canonicalDesign, ...(session?.design_settings ?? {}) }) as DesignSettings;
+    if (currentFileKey && !designInitializedRef.current) {
+      globalDesignByFileRef.current.set(currentFileKey, sessionDesign);
+      setDesign(sessionDesign);
+      designInitializedRef.current = true;
+    }
     setSelectedLayer(defaultOrder[0] ?? "");
     setSelectedLayers(new Set(defaultOrder[0] ? [defaultOrder[0]] : []));
     selectionAnchorRef.current = defaultOrder[0] ?? "";
@@ -701,8 +750,9 @@ export function InteractivePlotWindow() {
     }
     setNavigating(true);
     try {
-      if (currentFileKey) {
-        cacheLayerSession(layerSessionsRef.current, currentFileKey, {
+       if (currentFileKey) {
+         globalDesignByFileRef.current.set(currentFileKey, design);
+         cacheLayerSession(layerSessionsRef.current, currentFileKey, {
           state: { ...layerState },
           overrides: { ...layerOverrides },
           locked: new Set(lockedLayers),
@@ -710,14 +760,19 @@ export function InteractivePlotWindow() {
           expanded: new Set(expandedLayers),
         });
       }
-      const requestId = ++renderRequestRef.current;
+       const nextSource = sources[target];
+       const nextFileKey = nextSource ? String(nextSource.path ?? `${nextSource.index}:${nextSource.name}`) : "";
+       const nextDesignForFile = globalDesignLocked
+         ? design
+         : globalDesignByFileRef.current.get(nextFileKey) ?? canonicalDesign;
+       const requestId = ++renderRequestRef.current;
       const response = await callSidecar<{ state: ApplicationState }>("navigate_interactive_preview", {
         index: target,
         options: {
           ranges,
           sigma,
           show_ellipse: showEllipse,
-          design,
+           design: nextDesignForFile,
           request_id: requestId,
         },
       });
@@ -725,8 +780,8 @@ export function InteractivePlotWindow() {
       if (!aliveRef.current) return;
       currentIndexRef.current = target;
       const nextVowels = next.current_vowels ?? [];
-      const nextSource = next.sources[target];
-      const nextFileKey = nextSource ? String(nextSource.path ?? `${nextSource.index}:${nextSource.name}`) : "";
+       const nextStateSource = next.sources[target];
+       const resolvedNextFileKey = nextStateSource ? String(nextStateSource.path ?? `${nextStateSource.index}:${nextStateSource.name}`) : nextFileKey;
       const cached = nextFileKey ? layerSessionsRef.current.get(nextFileKey) : undefined;
       const sessionKey = String(target);
       const nextSession = next.plot_session;
@@ -740,7 +795,9 @@ export function InteractivePlotWindow() {
       const nextExpanded = cached?.expanded ? new Set(cached.expanded) : new Set<string>();
       // Ranges and global design are intentionally shared across files in PlotSessionState.
       const nextRanges = Object.keys(nextSession.ranges ?? {}).length === 4 ? nextSession.ranges as Ranges : defaultRanges;
-      const nextDesign = ({ ...canonicalDesign, ...(nextSession.design_settings ?? {}) }) as DesignSettings;
+       const nextDesign = globalDesignLocked
+         ? design
+         : globalDesignByFileRef.current.get(resolvedNextFileKey) ?? ({ ...canonicalDesign, ...(nextSession.design_settings ?? {}) } as DesignSettings);
       const nextSigma = nextSession.sigma ?? "2";
       const nextShowEllipse = nextSession.show_ellipse ?? true;
       layerOrderRef.current = nextOrder;
@@ -751,7 +808,8 @@ export function InteractivePlotWindow() {
       const nextLocked = new Set(nextSession.layer_locked_vowels_by_file?.[sessionKey] ?? cached?.locked ?? []);
       setLockedLayers(nextLocked);
       setRanges(nextRanges);
-      setDesign(nextDesign);
+       setDesign(nextDesign);
+       globalDesignByFileRef.current.set(resolvedNextFileKey, nextDesign);
       setSigma(nextSigma);
       setShowEllipse(nextShowEllipse);
       setState(next);
@@ -762,7 +820,7 @@ export function InteractivePlotWindow() {
       navigatingRef.current = false;
       if (aliveRef.current) setNavigating(false);
     }
-  }, [canonicalDesign, currentFileKey, defaultRanges, design, expandedLayers, layerOverrides, layerState, lockedLayers, ranges, showEllipse, sigma, sources.length]);
+  }, [canonicalDesign, currentFileKey, defaultRanges, design, expandedLayers, globalDesignLocked, layerOverrides, layerState, lockedLayers, ranges, showEllipse, sigma, sources]);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -858,6 +916,7 @@ export function InteractivePlotWindow() {
   const updateDesign = (patch: Partial<DesignSettings>) => {
     const next = { ...design, ...patch };
     setDesign(next);
+    if (currentFileKey) globalDesignByFileRef.current.set(currentFileKey, next);
     scheduleInteractiveRender({ design: next });
   };
 
@@ -923,6 +982,7 @@ export function InteractivePlotWindow() {
     setDesign(canonicalDesign);
     setLayerState(nextLayers);
     setLayerOverrides({});
+    setGlobalDesignLocked(false);
     void renderInteractive({ design: canonicalDesign, layers: nextLayers, ranges: nextRanges, sigma: "2", showEllipse: true, layerOverrides: {}, layerOrder: sortVowels(currentVowels) });
   };
 
@@ -1174,7 +1234,7 @@ export function InteractivePlotWindow() {
   const activateDrawTool = async (next: DrawTool) => {
     setDrawTool(next);
     setTool("select");
-    setMessage(`${next === "text" ? "텍스트" : next === "line" ? "선" : next === "area" ? "영역" : "기준선"} 그리기 도구를 선택했습니다.`);
+    setMessage(`${next === "text" ? "텍스트" : next === "line" ? "선" : next === "area" ? "영역" : next === "reference" ? "기준선" : "범례"} 그리기 도구를 선택했습니다.`);
     await openLegacyPlot();
   };
 
@@ -1553,20 +1613,26 @@ export function InteractivePlotWindow() {
             </>
           ) : (
             <>
+              <fieldset className="global-design-form">
               <section className="control-section">
-                <div className="section-heading"><div><span>01</span><strong>텍스트와 라벨</strong></div><small>전체 레이어</small></div>
+                <div className="section-heading"><div><span>01</span><strong>모음 라벨</strong></div><small>전체 레이어</small></div>
                 <div className="palette-picker-row">
                   <PalettePicker label="라벨 색상" value={design.lbl_color} onChange={(lbl_color) => lbl_color && updateDesign({ lbl_color })} />
                 </div>
                 <div className="text-style-block">
                   <span className="control-label">텍스트 설정</span>
                   <div className="text-style-row">
-                    <label className="select-field compact"><span>글꼴</span><select value={design.font_style} onChange={(event) => updateDesign({ font_style: event.target.value })}><option value="serif">명조체</option><option value="sans">고딕체</option></select></label>
-                    <div className="font-controls">
-                      <select value={design.lbl_size} onChange={(event) => updateDesign({ lbl_size: Number(event.target.value) })}><option>14</option><option>16</option><option>18</option><option>20</option><option>24</option><option>28</option></select>
-                      <span>pt</span>
-                      <button type="button" className={design.lbl_bold ? "is-active" : ""} onClick={() => updateDesign({ lbl_bold: !design.lbl_bold })}><Bold size={15} /></button>
-                      <button type="button" className={design.lbl_italic ? "is-active" : ""} onClick={() => updateDesign({ lbl_italic: !design.lbl_italic })}><Italic size={15} /></button>
+                    <div className="font-controls font-family-row">
+                      <select value={design.font_family} onChange={(event) => { const font_family = event.target.value; updateDesign({ font_family, font_style: fontFamilyStyle(font_family), font_weight: normalizedFontWeight(font_family, design.font_weight) }); }} aria-label="글꼴">
+                        {FONT_FAMILIES.map((family) => <option key={family}>{family}</option>)}
+                      </select>
+                      <select value={normalizedFontWeight(design.font_family, design.font_weight)} onChange={(event) => updateDesign({ font_weight: event.target.value as DesignSettings["font_weight"], lbl_bold: event.target.value === "bold" })} disabled={(FONT_WEIGHTS[design.font_family] ?? []).length <= 1} aria-label="Weight">
+                        {(FONT_WEIGHTS[design.font_family] ?? ["regular"]).map((weight) => <option key={weight} value={weight}>{FONT_WEIGHT_LABELS[weight]}</option>)}
+                      </select>
+                    </div>
+                    <div className="font-size-row">
+                      <label className="font-size-control"><span className="font-control-caption">크기 <b>{design.lbl_size}pt</b></span><input type="range" min="12" max="28" step="1" value={design.lbl_size} onChange={(event) => updateDesign({ lbl_size: Number(event.target.value) })} /></label>
+                      <div className="font-style-buttons"><button type="button" className={design.font_weight === "bold" ? "is-active" : ""} onClick={() => updateDesign({ font_weight: design.font_weight === "bold" ? "regular" : "bold", lbl_bold: design.font_weight !== "bold" })} aria-label="볼드"><Bold size={15} /></button><button type="button" className={design.lbl_italic ? "is-active" : ""} onClick={() => updateDesign({ lbl_italic: !design.lbl_italic })} aria-label="기울임"><Italic size={15} /></button></div>
                     </div>
                   </div>
                 </div>
@@ -1591,10 +1657,11 @@ export function InteractivePlotWindow() {
 
               <section className="control-section"><div className="section-heading"><div><span>03</span><strong>신뢰 타원</strong></div></div><div className="segmented-row"><button type="button" className={design.ell_thick === 0.5 ? "is-active" : ""} onClick={() => updateDesign({ ell_thick: 0.5 })}>얇게</button><button type="button" className={design.ell_thick === 1 ? "is-active" : ""} onClick={() => updateDesign({ ell_thick: 1 })}>보통</button><button type="button" className={design.ell_thick === 2 ? "is-active" : ""} onClick={() => updateDesign({ ell_thick: 2 })}>굵게</button></div><div className="segmented-row"><button type="button" className={design.ell_style === "-" ? "is-active" : ""} onClick={() => updateDesign({ ell_style: "-" })}>실선</button><button type="button" className={design.ell_style === "--" ? "is-active" : ""} onClick={() => updateDesign({ ell_style: "--" })}>파선</button><button type="button" className={design.ell_style === ":" ? "is-active" : ""} onClick={() => updateDesign({ ell_style: ":" })}>점선</button></div><div className="palette-picker-row"><PalettePicker label="선 색상" value={design.ell_color} onChange={(ell_color) => updateDesign({ ell_color })} allowTransparent /><PalettePicker label="채우기" value={design.ell_fill_color} onChange={(ell_fill_color) => updateDesign({ ell_fill_color })} allowTransparent /></div><label className="opacity-control"><span>채우기 투명도 <b>{Math.round(design.ell_fill_opacity * 100)}%</b></span><input type="range" min="0" max="60" value={design.ell_fill_opacity * 100} onChange={(event) => updateDesign({ ell_fill_opacity: Number(event.target.value) / 100 })} /></label></section>
 
-              <section className="control-section"><div className="section-heading"><div><span>04</span><strong>플롯 배경과 축</strong></div></div><div className="switch-stack"><ToggleSwitch label="격자 표시" checked={design.show_grid} onChange={() => updateDesign({ show_grid: !design.show_grid })} /><ToggleSwitch label="테두리 축" checked={design.box_spines} onChange={() => updateDesign({ box_spines: !design.box_spines })} /><ToggleSwitch label="축 단위 표시" checked={design.show_axis_units} onChange={() => updateDesign({ show_axis_units: !design.show_axis_units })} /></div>{design.show_grid ? <label className="opacity-control"><span>격자 투명도 <b>{Math.round(design.grid_opacity * 100)}%</b></span><input type="range" min="5" max="80" value={design.grid_opacity * 100} onChange={(event) => updateDesign({ grid_opacity: Number(event.target.value) / 100 })} /></label> : null}</section>
+              <section className="control-section"><div className="section-heading"><div><span>04</span><strong>플롯 배경과 축</strong></div></div><div className="switch-stack"><ToggleSwitch label="격자 표시" checked={design.show_grid} onChange={() => updateDesign({ show_grid: !design.show_grid })} /><ToggleSwitch label="테두리 축" checked={design.box_spines} onChange={() => updateDesign({ box_spines: !design.box_spines })} /><ToggleSwitch label="축 단위 표시" checked={design.show_axis_units} onChange={() => updateDesign({ show_axis_units: !design.show_axis_units })} /></div><label className="opacity-control"><span>눈금 숫자 크기 <b>{Number(design.tick_label_size ?? 13)}pt</b></span><input type="range" min="8" max="24" step="1" value={Number(design.tick_label_size ?? 13)} onChange={(event) => updateDesign({ tick_label_size: Number(event.target.value) })} /></label>{design.show_grid ? <label className="opacity-control"><span>격자 투명도 <b>{Math.round(design.grid_opacity * 100)}%</b></span><input type="range" min="5" max="80" value={design.grid_opacity * 100} onChange={(event) => updateDesign({ grid_opacity: Number(event.target.value) / 100 })} /></label> : null}</section>
 
               <details className="advanced-options"><summary>고급 옵션 <ChevronDown size={14} /></summary><div className="advanced-body"><div className="switch-stack"><ToggleSwitch label="라벨 슬래시 감싸기" checked={design.label_slash_wrap} onChange={() => updateDesign({ label_slash_wrap: !design.label_slash_wrap })} /><ToggleSwitch label="보조 눈금" checked={design.show_minor_ticks} onChange={() => updateDesign({ show_minor_ticks: !design.show_minor_ticks })} /><ToggleSwitch label="축 위치 반전" checked={design.axis_position_swap} onChange={() => updateDesign({ axis_position_swap: !design.axis_position_swap })} /><ToggleSwitch label="세로축 라벨 회전" checked={design.y_label_rotation} onChange={() => updateDesign({ y_label_rotation: !design.y_label_rotation })} /></div></div></details>
-              <button className="wide-action global-design-reset" onClick={resetPlot}><RefreshCcw size={14} /> 광역 디자인 초기화</button>
+              </fieldset>
+              <div className="global-design-actions"><button className="wide-action" onClick={resetPlot}><RefreshCcw size={14} /> 광역 디자인 초기화</button><button type="button" className={`global-design-lock ${globalDesignLocked ? "is-locked" : ""}`} onClick={() => setGlobalDesignLocked((locked) => !locked)} aria-pressed={globalDesignLocked} title={globalDesignLocked ? "설정 유지 ON" : "설정 유지 OFF"}>{globalDesignLocked ? <Lock size={14} /> : <Unlock size={14} />}<span>설정 유지</span></button></div>
             </>
           )}
         </div>
@@ -1603,8 +1670,8 @@ export function InteractivePlotWindow() {
       <section className={`interactive-plot-stage tool-${tool}`}>
         <div className="plot-toolbar"><div className="toolbar-leading">{!leftOpen ? <button className="sidebar-reopen" onClick={() => setLeftOpen(true)}><PanelLeftOpen size={16} /> 도구</button> : null}<div className="toolbar-group"><button className={tool === "select" ? "is-active" : ""} onClick={() => setTool("select")}><MousePointer2 size={16} /> 선택</button><div className="ruler-tool-cluster"><button className={tool === "ruler" ? "is-active" : ""} onClick={() => setTool("ruler")}><Ruler size={16} /> 눈금자</button><button type="button" className={`tool-settings-button ${rulerSettingsOpen ? "is-active" : ""}`} onClick={() => setRulerSettingsOpen((previous) => !previous)} aria-label="눈금자 설정" title="눈금자 설정"><SlidersHorizontal size={14} /></button>{rulerSettingsOpen ? <div className="ruler-settings-popover"><div className="ruler-settings-header"><strong>눈금자 설정</strong><span>측정 방식</span></div><div className="ruler-mode-choices"><button type="button" className={`ruler-mode-choice ${rulerGeometryMode === "direct" ? "is-active" : ""}`} onClick={() => setRulerGeometryMode("direct")}><svg viewBox="0 0 44 22" aria-hidden><line x1="5" y1="17" x2="39" y2="5" /><circle cx="5" cy="17" r="2" /><circle cx="39" cy="5" r="2" /></svg><span>직선</span></button><button type="button" className={`ruler-mode-choice ${rulerGeometryMode === "right-triangle" ? "is-active" : ""}`} onClick={() => setRulerGeometryMode("right-triangle")}><svg viewBox="0 0 44 22" aria-hidden><path d="M5 17H39V5" /><line className="hypotenuse" x1="5" y1="17" x2="39" y2="5" /><path className="right-angle" d="M34 17v-5h5" /></svg><span>Δx · Δy</span></button></div><div className="ruler-unit-row"><span>표시 단위</span><div className="ruler-unit-toggles"><button type="button" className={`ruler-unit-toggle ${rulerDisplayMode === "hz" ? "is-on" : ""}`} aria-pressed={rulerDisplayMode === "hz"} onClick={() => setRulerDisplayMode("hz")}>Hz</button><button type="button" className={`ruler-unit-toggle ${rulerDisplayMode === "bark" ? "is-on" : ""}`} aria-pressed={rulerDisplayMode === "bark"} onClick={() => setRulerDisplayMode("bark")}>Bark</button></div></div></div> : null}</div><button className={tool === "label" ? "is-active" : ""} onClick={() => { setTool("label"); setMessage("라벨 이동 모드 · 라벨을 드래그하세요."); }}><MousePointer2 size={16} /> 라벨 이동</button><button className={tool === "draw" ? "is-active" : ""} onClick={() => { setTool("draw"); setRightPanel("drawing"); setRightOpen(true); }}><PenLine size={16} /> 그리기</button></div></div><div className="toolbar-context"><span>{analysis?.normalization ?? "정규화 없음"}</span><span>{analysis?.origin === "top_right" ? "Praat 좌표" : "수학 좌표"}</span>{!rightOpen ? <button className="sidebar-reopen" onClick={() => setRightOpen(true)}>레이어 <PanelRightOpen size={16} /></button> : null}</div></div>
         <div className="plot-canvas-shell"><div className="plot-paper" ref={plotPaperRef}>{previewUrl ? <><img ref={plotImageRef} src={previewUrl} alt={`${currentSource?.name ?? "현재 파일"} 포먼트 플롯`} draggable={false} /><div className="ruler-overlay" onPointerMove={handleRulerMove} onPointerDown={handleRulerDown} onPointerUp={handleRulerUp} onPointerCancel={handleRulerUp} onDoubleClick={resetPlotLabel} onContextMenu={tool === "label" ? resetPlotLabel : handleRulerContextMenu}>
-          {tool === "label" && rulerContext ? rulerContext.labels.map((label) => { const screen = plotLabelClient(label); const box = plotLabelBoxClient(label); const paper = plotPaperRef.current?.getBoundingClientRect(); if (!screen || !paper) return null; const isDragging = draggingPlotLabel === label.vowel && plotLabelPointer !== null; const isPreviewing = plotLabelPreviewVowel === label.vowel && plotLabelPointer !== null; const isHovered = hoveredPlotLabel === label.vowel; const anchorOffsetX = box ? box.left - screen.x : 0; const anchorOffsetY = box ? box.top - screen.y : 0; const left = isPreviewing ? plotLabelPointer.x + anchorOffsetX : box ? box.left - paper.left : screen.x - paper.left; const top = isPreviewing ? plotLabelPointer.y + anchorOffsetY : box ? box.top - paper.top : screen.y - paper.top; const labelDesign = { ...design, ...(layerOverrides[label.vowel] ?? {}) }; const rawBold = String(labelDesign.lbl_bold); const isBold = rawBold === "true" || rawBold === "bold" || rawBold === "medium"; const previewStyle = { color: String(label.lbl_color ?? labelDesign.lbl_color ?? "#ff0000"), fontSize: `${Number(label.fontsize ?? labelDesign.lbl_size ?? 18)}pt`, fontWeight: isBold ? 700 : 400, fontStyle: label.lbl_italic ?? labelDesign.lbl_italic ? "italic" as const : "normal" as const, fontFamily: labelDesign.font_style === "sans" ? "var(--gf-font-sans)" : "var(--gf-font-serif)" }; const boxStyle = box ? { width: box.width, height: box.height } : {}; return <span className={`plot-label-hit-target ${isDragging ? "is-dragging" : ""} ${isHovered ? "is-hovered" : ""}`} key={`label-${label.vowel}`} style={{ left, top, ...boxStyle }} title={`${label.vowel} 라벨 이동`}><span className="plot-label-hit-text" style={previewStyle}>{label.display_vowel ?? label.vowel}</span>{isPreviewing ? <span className="plot-label-drag-preview" style={previewStyle}>{label.display_vowel ?? label.vowel}</span> : null}</span>; }) : null}
-         {tool === "ruler" ? rulerMeasurements.map((measurement, index) => { const a = rulerPointClient(measurement.p1); const b = rulerPointClient(measurement.p2); const paper = plotPaperRef.current?.getBoundingClientRect(); if (!a || !b || !paper) return null; const x1 = a.x - paper.left; const y1 = a.y - paper.top; const x2 = b.x - paper.left; const y2 = b.y - paper.top; const triangleLabels = rulerGeometryMode === "right-triangle" ? rulerTriangleLabels(measurement.p1, measurement.p2) : null; return <div className="ruler-measurement" key={`${measurement.p1.x}-${measurement.p2.x}-${index}`}><svg className="ruler-line-layer" aria-hidden>{rulerGeometryMode === "right-triangle" ? <><polyline points={`${x1},${y1} ${x2},${y1} ${x2},${y2}`} /><line x1={x1} y1={y1} x2={x2} y2={y2} /></> : <line x1={x1} y1={y1} x2={x2} y2={y2} />}</svg><span className="ruler-point ruler-point-start" style={{ left: x1, top: y1, borderColor: measurement.p1.color }} /><span className="ruler-point ruler-point-end" style={{ left: x2, top: y2, borderColor: measurement.p2.color }} />{triangleLabels ? <><span className="ruler-side-label ruler-side-label-horizontal" style={{ left: (x1 + x2) / 2, top: y1 }}>{triangleLabels.horizontal}</span><span className="ruler-side-label ruler-side-label-vertical" style={{ left: x2, top: (y1 + y2) / 2 }}>{triangleLabels.vertical}</span><span className="ruler-side-label ruler-side-label-hypotenuse" style={{ left: (x1 + x2) / 2, top: (y1 + y2) / 2 }}>{triangleLabels.hypotenuse}</span></> : <button type="button" tabIndex={-1} aria-label={`거리 ${measurement.distance}`} className="ruler-label" style={{ left: measurement.labelX, top: measurement.labelY }} onPointerDown={(event) => { event.stopPropagation(); setDraggingRulerLabel(index); event.currentTarget.setPointerCapture(event.pointerId); }}>{measurement.distance}</button>}</div>; }) : null}
+          {tool === "label" && rulerContext ? rulerContext.labels.map((label) => { const screen = plotLabelClient(label); const box = plotLabelBoxClient(label); const paper = plotPaperRef.current?.getBoundingClientRect(); if (!screen || !paper) return null; const isDragging = draggingPlotLabel === label.vowel && plotLabelPointer !== null; const isPreviewing = plotLabelPreviewVowel === label.vowel && plotLabelPointer !== null; const isHovered = hoveredPlotLabel === label.vowel; const anchorOffsetX = box ? box.left - screen.x : 0; const anchorOffsetY = box ? box.top - screen.y : 0; const left = isPreviewing ? plotLabelPointer.x + anchorOffsetX : box ? box.left - paper.left : screen.x - paper.left; const top = isPreviewing ? plotLabelPointer.y + anchorOffsetY : box ? box.top - paper.top : screen.y - paper.top; const labelDesign = { ...design, ...(layerOverrides[label.vowel] ?? {}) }; const rawWeight = String(labelDesign.font_weight ?? ""); const rawBold = String(labelDesign.lbl_bold); const isBold = rawWeight === "bold" || (!rawWeight && (rawBold === "true" || rawBold === "bold" || rawBold === "medium")); const previewStyle = { color: String(label.lbl_color ?? labelDesign.lbl_color ?? "#ff0000"), fontSize: `${Number(label.fontsize ?? labelDesign.lbl_size ?? 18)}pt`, fontWeight: isBold ? 700 : 400, fontStyle: label.lbl_italic ?? labelDesign.lbl_italic ? "italic" as const : "normal" as const, fontFamily: labelDesign.font_style === "sans" ? "var(--gf-font-sans)" : "var(--gf-font-serif)" }; const boxStyle = box ? { width: box.width, height: box.height } : {}; return <span className={`plot-label-hit-target ${isDragging ? "is-dragging" : ""} ${isHovered ? "is-hovered" : ""}`} key={`label-${label.vowel}`} style={{ left, top, ...boxStyle }} title={`${label.vowel} 라벨 이동`}><span className="plot-label-hit-text" style={previewStyle}>{label.display_vowel ?? label.vowel}</span>{isPreviewing ? <span className="plot-label-drag-preview" style={previewStyle}>{label.display_vowel ?? label.vowel}</span> : null}</span>; }) : null}
+         {tool === "ruler" ? rulerMeasurements.map((measurement, index) => { const a = rulerPointClient(measurement.p1); const b = rulerPointClient(measurement.p2); const paper = plotPaperRef.current?.getBoundingClientRect(); if (!a || !b || !paper) return null; const x1 = a.x - paper.left; const y1 = a.y - paper.top; const x2 = b.x - paper.left; const y2 = b.y - paper.top; const triangleLabels = rulerGeometryMode === "right-triangle" ? rulerTriangleLabels(measurement.p1, measurement.p2) : null; const dx = x2 - x1; const dy = y2 - y1; const length = Math.max(1, Math.hypot(dx, dy)); const hypotenuseAngle = Math.atan2(dy, dx) * 180 / Math.PI; const readableAngle = hypotenuseAngle > 90 || hypotenuseAngle < -90 ? hypotenuseAngle + 180 : hypotenuseAngle; const hypotenuseOffset = 18; const hypotenuseLabelX = (x1 + x2) / 2 - (dy / length) * hypotenuseOffset; const hypotenuseLabelY = (y1 + y2) / 2 + (dx / length) * hypotenuseOffset; return <div className="ruler-measurement" key={`${measurement.p1.x}-${measurement.p2.x}-${index}`}><svg className="ruler-line-layer" aria-hidden>{rulerGeometryMode === "right-triangle" ? <><polyline points={`${x1},${y1} ${x2},${y1} ${x2},${y2}`} /><line x1={x1} y1={y1} x2={x2} y2={y2} /></> : <line x1={x1} y1={y1} x2={x2} y2={y2} />}</svg><span className="ruler-point ruler-point-start" style={{ left: x1, top: y1, borderColor: measurement.p1.color }} /><span className="ruler-point ruler-point-end" style={{ left: x2, top: y2, borderColor: measurement.p2.color }} />{triangleLabels ? <><span className="ruler-side-label ruler-side-label-horizontal" style={{ left: (x1 + x2) / 2, top: y1 + 6 }}>{triangleLabels.horizontal}</span><span className="ruler-side-label ruler-side-label-vertical" style={{ left: x2 + 6, top: (y1 + y2) / 2 }}>{triangleLabels.vertical}</span><span className="ruler-side-label ruler-side-label-hypotenuse" style={{ left: hypotenuseLabelX, top: hypotenuseLabelY, transform: `translate(-50%, -50%) rotate(${readableAngle}deg)` }}>{triangleLabels.hypotenuse}</span></> : <button type="button" tabIndex={-1} aria-label={`거리 ${measurement.distance}`} className="ruler-label" style={{ left: measurement.labelX, top: measurement.labelY }} onPointerDown={(event) => { event.stopPropagation(); setDraggingRulerLabel(index); event.currentTarget.setPointerCapture(event.pointerId); }}>{measurement.distance}</button>}</div>; }) : null}
           {tool === "ruler" && rulerStart ? (() => { const screen = rulerPointClient(rulerStart); const paper = plotPaperRef.current?.getBoundingClientRect(); return screen && paper ? <span className={`ruler-snap-marker ${rulerStart.type === "mean" ? "is-mean" : "is-raw"}`} style={{ left: screen.x - paper.left, top: screen.y - paper.top, borderColor: rulerStart.color }} /> : null; })() : null}
           {tool === "ruler" && rulerStart && rulerPointer ? <svg className="ruler-guide-layer" aria-hidden><line x1={rulerPointClient(rulerStart) ? (rulerPointClient(rulerStart)!.x - (plotPaperRef.current?.getBoundingClientRect().left ?? 0)) : 0} y1={rulerPointClient(rulerStart) ? (rulerPointClient(rulerStart)!.y - (plotPaperRef.current?.getBoundingClientRect().top ?? 0)) : 0} x2={rulerPointer.x} y2={rulerPointer.y} /></svg> : null}
           {tool === "ruler" && rulerHover ? (() => { const screen = rulerPointClient(rulerHover); const paper = plotPaperRef.current?.getBoundingClientRect(); return screen && paper ? <><span className={`ruler-snap-marker ${rulerHover.type === "mean" ? "is-mean" : "is-raw"}`} style={{ left: screen.x - paper.left, top: screen.y - paper.top, borderColor: rulerHover.color }} /><span className="ruler-tooltip" style={{ left: screen.x - paper.left + 12, top: screen.y - paper.top - 30 }}>{rulerTooltip(rulerHover)}</span></> : null; })() : null}
@@ -1630,11 +1697,17 @@ export function InteractivePlotWindow() {
                 </div>
                 <div className="text-style-block">
                   <span className="control-label">텍스트 설정</span>
-                  <div className="font-controls">
-                    <select value={Number(effective("lbl_size"))} onChange={(event) => updateLayerDesign({ lbl_size: Number(event.target.value) })}><option>14</option><option>16</option><option>18</option><option>20</option><option>24</option><option>28</option></select>
-                    <span>pt</span>
-                    <button type="button" className={effective("lbl_bold") ? "is-active" : ""} onClick={() => updateLayerDesign({ lbl_bold: !effective("lbl_bold") })}><Bold size={15} /></button>
-                    <button type="button" className={effective("lbl_italic") ? "is-active" : ""} onClick={() => updateLayerDesign({ lbl_italic: !effective("lbl_italic") })}><Italic size={15} /></button>
+                  <div className="font-controls font-family-row">
+                    <select value={String(effective("font_family"))} onChange={(event) => { const font_family = event.target.value; updateLayerDesign({ font_family, font_style: fontFamilyStyle(font_family), font_weight: normalizedFontWeight(font_family, effective("font_weight")) }); }} aria-label="글꼴">
+                      {FONT_FAMILIES.map((family) => <option key={family}>{family}</option>)}
+                    </select>
+                    <select value={normalizedFontWeight(String(effective("font_family")), effective("font_weight"))} onChange={(event) => updateLayerDesign({ font_weight: event.target.value as DesignSettings["font_weight"], lbl_bold: event.target.value === "bold" })} disabled={(FONT_WEIGHTS[String(effective("font_family"))] ?? []).length <= 1} aria-label="Weight">
+                      {(FONT_WEIGHTS[String(effective("font_family"))] ?? ["regular"]).map((weight) => <option key={weight} value={weight}>{FONT_WEIGHT_LABELS[weight]}</option>)}
+                    </select>
+                  </div>
+                  <div className="font-size-row">
+                    <label className="font-size-control"><span className="font-control-caption">크기 <b>{Number(effective("lbl_size"))}pt</b></span><input type="range" min="12" max="28" step="1" value={Number(effective("lbl_size"))} onChange={(event) => updateLayerDesign({ lbl_size: Number(event.target.value) })} /></label>
+                    <div className="font-style-buttons"><button type="button" className={effective("font_weight") === "bold" ? "is-active" : ""} onClick={() => updateLayerDesign({ font_weight: effective("font_weight") === "bold" ? "regular" : "bold", lbl_bold: effective("font_weight") !== "bold" })} aria-label="볼드"><Bold size={15} /></button><button type="button" className={effective("lbl_italic") ? "is-active" : ""} onClick={() => updateLayerDesign({ lbl_italic: !effective("lbl_italic") })} aria-label="기울임"><Italic size={15} /></button></div>
                   </div>
                 </div>
                 <label className="control-label">중심점 모양</label>
@@ -1714,10 +1787,11 @@ export function InteractivePlotWindow() {
                 <button type="button" className={drawTool === "line" ? "is-active" : ""} onClick={() => activateDrawTool("line")}><PenLine size={16} /><span><strong>선</strong><small>직선과 화살표</small></span></button>
                 <button type="button" className={drawTool === "area" ? "is-active" : ""} onClick={() => activateDrawTool("area")}><ScanSearch size={16} /><span><strong>영역</strong><small>강조 범위</small></span></button>
                 <button type="button" className={drawTool === "reference" ? "is-active" : ""} onClick={() => activateDrawTool("reference")}><Ruler size={16} /><span><strong>기준선</strong><small>축 기준 표시</small></span></button>
+                <button type="button" className={drawTool === "legend" ? "is-active" : ""} onClick={() => activateDrawTool("legend")}><List size={16} /><span><strong>범례</strong><small>선과 모음 설명</small></span></button>
               </div>
             </section>
             <section className="drawing-style-card">
-              <div className="drawing-panel-heading"><span>현재 도구</span><strong>{drawTool === "text" ? "텍스트" : drawTool === "line" ? "선" : drawTool === "area" ? "영역" : "기준선"}</strong></div>
+              <div className="drawing-panel-heading"><span>현재 도구</span><strong>{drawTool === "text" ? "텍스트" : drawTool === "line" ? "선" : drawTool === "area" ? "영역" : drawTool === "reference" ? "기준선" : "범례"}</strong></div>
               <div className="palette-picker-row"><PalettePicker label="그리기 색상" value={drawColor} onChange={setDrawColor} /></div>
               <label className="opacity-control"><span>선 두께 <b>{drawWidth}px</b></span><input type="range" min="1" max="8" value={drawWidth} onChange={(event) => setDrawWidth(Number(event.target.value))} /></label>
               <button type="button" className="wide-action primary" onClick={() => activateDrawTool(drawTool)}><PenLine size={14} /> 캔버스에서 그리기</button>
@@ -1744,7 +1818,7 @@ export function InteractivePlotWindow() {
           <footer><button type="button" className="wide-action" onClick={() => setBatchExportOpen(false)} disabled={batchExportBusy}>취소</button><button type="button" className="wide-action primary" onClick={() => void runBatchExport()} disabled={!batchExportDirectory || batchExportBusy}>{batchExportBusy ? "저장 중…" : "일괄 저장 시작"}</button></footer>
         </section>
       </div> : null}
-      {vowelAnalysisOpen ? <VowelAnalysisShell currentSource={currentSource} sources={sources} currentIndex={currentIndex} onNavigate={(index) => void navigateTo(index)} onClose={() => setVowelAnalysisOpen(false)} /> : null}
+      {vowelAnalysisOpen ? <VowelAnalysisShell currentSource={currentSource} sources={sources} currentIndex={currentIndex} displayIndex={Math.max(0, sources.findIndex((source) => source.index === currentIndex))} onNavigate={(index) => void navigateTo(index)} onClose={() => setVowelAnalysisOpen(false)} /> : null}
     </main>
   );
 }

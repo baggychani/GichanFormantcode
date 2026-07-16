@@ -25,7 +25,10 @@ SINGLE_DESIGN_DEFAULTS = {
     "show_axis_units": False,
     "show_minor_ticks": True,
     "font_style": "serif",
+    "font_family": "Noto Serif KR",
+    "font_weight": "bold",
     "label_slash_wrap": False,
+    "tick_label_size": 13,
 }
 
 

@@ -13,6 +13,8 @@ import {
   ChevronRight,
   CircleDot,
   Database,
+  Eye,
+  EyeOff,
   FilePlus2,
   FolderOpen,
   Gauge,
@@ -259,6 +261,10 @@ function MainWorkspace() {
   const busyCountRef = useRef(0);
   const previewRequestRef = useRef(0);
   const [dragOver, setDragOver] = useState(false);
+  const [combinedVisible, setCombinedVisible] = useState(() => {
+    const saved = window.localStorage.getItem("gichanformant-show-combined");
+    return saved !== "false";
+  });
   const [inspectorOpen, setInspectorOpen] = useState(true);
   const [guideOpen, setGuideOpen] = useState(false);
   const [theme, setTheme] = useState<Theme>(() => {
@@ -348,9 +354,16 @@ function MainWorkspace() {
 
   const loadPaths = useCallback(
     async (paths: string[]) => {
-      if (!paths.length) return;
-      const loadablePaths = paths.filter(isSupportedDataPath);
-      const skippedCount = paths.length - loadablePaths.length;
+      const normalizedPaths = paths
+        .map((path) => String(path).trim())
+        .filter(Boolean);
+      if (!normalizedPaths.length) {
+        setError("파일 경로를 받지 못했습니다. 파일 선택 버튼으로 추가해 주세요.");
+        pushStatus("파일 드롭 실패 · 파일 선택 버튼을 사용해 주세요");
+        return;
+      }
+      const loadablePaths = normalizedPaths.filter(isSupportedDataPath);
+      const skippedCount = normalizedPaths.length - loadablePaths.length;
       if (!loadablePaths.length) {
         setError("지원하지 않는 파일 형식입니다. TXT, CSV, TSV, XLSX, XLS 파일만 불러올 수 있습니다.");
         return;
@@ -381,6 +394,11 @@ function MainWorkspace() {
 
   useEffect(() => {
     aliveRef.current = true;
+    console.info("[GichanFormant] runtime", {
+      userAgent: navigator.userAgent,
+      platform: navigator.platform,
+      tauri: "__TAURI_INTERNALS__" in window,
+    });
     void refresh();
     let disposed = false;
     let disposeEvent: (() => void) | undefined;
@@ -422,11 +440,24 @@ function MainWorkspace() {
     void getCurrentWebview()
       .onDragDropEvent((event) => {
         if (disposed || !aliveRef.current) return;
-        if (event.payload.type === "over") setDragOver(true);
+        console.info("[GichanFormant] drag-drop event", {
+          type: event.payload.type,
+          pathCount: event.payload.type === "drop" ? event.payload.paths?.length ?? 0 : undefined,
+        });
+        if (event.payload.type === "over") {
+          setDragOver(true);
+          pushStatus("파일을 놓으면 추가됩니다");
+        }
         if (event.payload.type === "leave") setDragOver(false);
         if (event.payload.type === "drop") {
           setDragOver(false);
-          void loadPaths(event.payload.paths);
+          const paths = Array.isArray(event.payload.paths) ? event.payload.paths : [];
+          if (!paths.length) {
+            setError("파일 드롭 이벤트는 받았지만 경로가 전달되지 않았습니다. 앱을 관리자 권한 없이 실행하거나 파일 선택 버튼을 사용해 주세요.");
+            pushStatus("파일 경로 전달 실패 · 파일 선택 버튼을 사용해 주세요");
+            return;
+          }
+          void loadPaths(paths);
         }
       })
       .then((fn) => {
@@ -443,7 +474,7 @@ function MainWorkspace() {
       disposeEvent?.();
       disposeDrag?.();
     };
-  }, [refresh, loadPaths]);
+  }, [refresh, loadPaths, pushStatus]);
 
   useEffect(() => {
     if (!error) return;
@@ -527,6 +558,13 @@ function MainWorkspace() {
     } finally {
       endBusy();
     }
+  };
+
+  const toggleCombinedVisibility = () => {
+    const next = !combinedVisible;
+    setCombinedVisible(next);
+    window.localStorage.setItem("gichanformant-show-combined", String(next));
+    pushStatus(next ? "Combined 데이터를 표시합니다" : "Combined 데이터를 숨겼습니다");
   };
 
   const settingsPatchRef = useRef<Record<string, unknown>>({});
@@ -679,7 +717,19 @@ function MainWorkspace() {
                         : "F1 · F2"}
                   </span>
                 </div>
-                {!source.is_combined ? (
+                {source.is_combined ? (
+                  <button
+                    type="button"
+                    className="icon-button"
+                    onClick={toggleCombinedVisibility}
+                    disabled={busy}
+                    aria-pressed={combinedVisible}
+                    aria-label={combinedVisible ? "Combined 데이터 숨기기" : "Combined 데이터 표시"}
+                    title={combinedVisible ? "Combined 데이터 숨기기" : "Combined 데이터 표시"}
+                  >
+                    {combinedVisible ? <Eye size={14} /> : <EyeOff size={14} />}
+                  </button>
+                ) : (
                   <button
                     type="button"
                     className="icon-button danger"
@@ -689,7 +739,7 @@ function MainWorkspace() {
                   >
                     <Trash2 size={14} />
                   </button>
-                ) : null}
+                )}
               </div>
             ))
           )}

@@ -36,10 +36,9 @@ svg {
   display: block;
 }
 
-button:focus-visible,
 select:focus-visible,
 input:focus-visible,
-[role="button"]:focus-visible {
+textarea:focus-visible {
   outline: none;
   box-shadow: var(--gf-focus-ring);
 }
