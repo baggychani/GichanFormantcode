@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections import defaultdict
 from collections.abc import Callable
 from dataclasses import dataclass, field
+import threading
 from typing import Any
 
 
@@ -22,26 +23,33 @@ class ApplicationEventBus:
         self._subscribers: dict[str, list[Callable[[ApplicationEvent], None]]] = (
             defaultdict(list)
         )
+        self._lock = threading.RLock()
 
     def subscribe(
         self, name: str, callback: Callable[[ApplicationEvent], None]
     ) -> Callable[[], None]:
-        self._subscribers[name].append(callback)
+        with self._lock:
+            self._subscribers[name].append(callback)
 
         def unsubscribe() -> None:
-            callbacks = self._subscribers.get(name, [])
-            if callback in callbacks:
-                callbacks.remove(callback)
+            with self._lock:
+                callbacks = self._subscribers.get(name, [])
+                if callback in callbacks:
+                    callbacks.remove(callback)
 
         return unsubscribe
 
     def emit(self, name: str, payload: dict[str, Any] | None = None) -> list[Exception]:
         event = ApplicationEvent(name=name, payload=dict(payload or {}))
         failures = []
-        callbacks = [
-            *self._subscribers.get(name, []),
-            *self._subscribers.get("*", []),
-        ]
+        # Render completion can arrive from a worker while a Tauri window is
+        # tearing down its subscription. Snapshot callbacks under the lock,
+        # then invoke user code without holding it.
+        with self._lock:
+            callbacks = [
+                *self._subscribers.get(name, []),
+                *self._subscribers.get("*", []),
+            ]
         for callback in tuple(callbacks):
             try:
                 callback(event)

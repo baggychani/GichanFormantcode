@@ -206,13 +206,27 @@ fn handle_sidecar_output(app: &AppHandle, line: &str, pending: &Arc<Mutex<Pendin
 
     if let Some(id) = message.get("id").and_then(|value| value.as_str()) {
         let result = if let Some(error) = message.get("error") {
-            Err(error.to_string())
+            Err(format_sidecar_error(error))
         } else {
             Ok(message.get("result").cloned().unwrap_or(Value::Null))
         };
         if let Some(tx) = pending.lock().ok().and_then(|mut map| map.remove(id)) {
             let _ = tx.send(result);
         }
+    }
+}
+
+fn format_sidecar_error(error: &Value) -> String {
+    let Some(error) = error.as_object() else {
+        return error.to_string();
+    };
+    let message = error
+        .get("message")
+        .and_then(Value::as_str)
+        .unwrap_or("sidecar request failed");
+    match error.get("code").and_then(Value::as_str) {
+        Some(code) if !code.is_empty() => format!("{code}: {message}"),
+        _ => message.to_string(),
     }
 }
 
@@ -589,7 +603,9 @@ impl WaitTimeout for Child {
 
 #[cfg(test)]
 mod tests {
-    use super::NdjsonChunkBuffer;
+    use serde_json::json;
+
+    use super::{format_sidecar_error, NdjsonChunkBuffer};
 
     #[test]
     fn reconstructs_split_and_coalesced_ndjson_chunks() {
@@ -598,6 +614,18 @@ mod tests {
         assert_eq!(
             buffer.push(b"ult\":1}\n{\"id\":\"b\"}\n"),
             vec![r#"{"id":"a","result":1}"#, r#"{"id":"b"}"#]
+        );
+    }
+
+    #[test]
+    fn formats_structured_sidecar_errors_for_tauri_callers() {
+        assert_eq!(
+            format_sidecar_error(&json!({"code": "invalid_params", "message": "bad input"})),
+            "invalid_params: bad input"
+        );
+        assert_eq!(
+            format_sidecar_error(&json!("sidecar failed")),
+            "\"sidecar failed\""
         );
     }
 }

@@ -357,7 +357,7 @@ function VowelAnalysisShell({ currentSource, sources, currentIndex, displayIndex
 
 export function InteractivePlotWindow() {
   const [state, setState] = useState<ApplicationState | null>(null);
-  const [combinedVisible, setCombinedVisible] = useState(() => window.localStorage.getItem("gichanformant-show-combined") !== "false");
+  const [combinedVisible, setCombinedVisible] = useState(() => window.localStorage.getItem("gichanformant-show-combined") === "true");
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [previewInfo, setPreviewInfo] = useState("");
   const [batchExportOpen, setBatchExportOpen] = useState(false);
@@ -430,7 +430,9 @@ export function InteractivePlotWindow() {
   const navigatingRef = useRef(false);
   const currentIndexRef = useRef(0);
   const resizeRef = useRef<{ startY: number; startHeight: number } | null>(null);
-  const renderRequestRef = useRef(0);
+  // A reopened Tauri window must not accept an older preview event from the
+  // same sidecar just because its local counter started at zero again.
+  const renderRequestRef = useRef(Date.now() * 1000);
   const renderTimerRef = useRef<number | null>(null);
   const layerSessionsRef = useRef(new Map<string, LayerSession>());
   const plotPaperRef = useRef<HTMLDivElement | null>(null);
@@ -577,6 +579,7 @@ export function InteractivePlotWindow() {
     ? rawCurrentIndex
     : sources[0]?.index ?? rawCurrentIndex;
   const currentSource = sources.find((source) => source.index === currentIndex);
+  const currentSourcePosition = Math.max(0, sources.findIndex((source) => source.index === currentIndex));
   const hasCombined = currentSource?.is_combined === true;
   const currentFileKey = currentSource ? String(currentSource.path ?? `${currentSource.index}:${currentSource.name}`) : "";
   const currentVowels = state?.current_vowels ?? [];
@@ -600,7 +603,7 @@ export function InteractivePlotWindow() {
   const canNavigate = sources.length > 1;
 
   useEffect(() => {
-    const syncCombinedVisibility = () => setCombinedVisible(window.localStorage.getItem("gichanformant-show-combined") !== "false");
+    const syncCombinedVisibility = () => setCombinedVisible(window.localStorage.getItem("gichanformant-show-combined") === "true");
     window.addEventListener("storage", syncCombinedVisibility);
     return () => window.removeEventListener("storage", syncCombinedVisibility);
   }, []);
@@ -738,9 +741,11 @@ export function InteractivePlotWindow() {
     selectionAnchorRef.current = vowel;
   };
 
-  const navigateTo = useCallback(async (index: number) => {
+  const navigateTo = useCallback(async (sourceIndex: number) => {
     if (!sources.length || navigatingRef.current) return;
-    const target = Math.max(0, Math.min(index, sources.length - 1));
+    const nextSource = sources.find((source) => source.index === sourceIndex);
+    if (!nextSource) return;
+    const target = nextSource.index;
     if (target === currentIndexRef.current) return;
     navigatingRef.current = true;
     ++renderRequestRef.current;
@@ -760,7 +765,6 @@ export function InteractivePlotWindow() {
           expanded: new Set(expandedLayers),
         });
       }
-       const nextSource = sources[target];
        const nextFileKey = nextSource ? String(nextSource.path ?? `${nextSource.index}:${nextSource.name}`) : "";
        const nextDesignForFile = globalDesignLocked
          ? design
@@ -780,7 +784,7 @@ export function InteractivePlotWindow() {
       if (!aliveRef.current) return;
       currentIndexRef.current = target;
       const nextVowels = next.current_vowels ?? [];
-       const nextStateSource = next.sources[target];
+       const nextStateSource = next.sources.find((source) => source.index === target);
        const resolvedNextFileKey = nextStateSource ? String(nextStateSource.path ?? `${nextStateSource.index}:${nextStateSource.name}`) : nextFileKey;
       const cached = nextFileKey ? layerSessionsRef.current.get(nextFileKey) : undefined;
       const sessionKey = String(target);
@@ -813,7 +817,7 @@ export function InteractivePlotWindow() {
       setSigma(nextSigma);
       setShowEllipse(nextShowEllipse);
       setState(next);
-      setMessage(`${next.sources[target]?.name ?? "파일"}을 불러오는 중입니다.`);
+      setMessage(`${nextStateSource?.name ?? nextSource.name ?? "파일"}을 불러오는 중입니다.`);
     } catch (err) {
       setMessage(`파일을 이동하지 못했습니다: ${String(err)}`);
     } finally {
@@ -821,6 +825,11 @@ export function InteractivePlotWindow() {
       if (aliveRef.current) setNavigating(false);
     }
   }, [canonicalDesign, currentFileKey, defaultRanges, design, expandedLayers, globalDesignLocked, layerOverrides, layerState, lockedLayers, ranges, showEllipse, sigma, sources]);
+
+  const navigateByPosition = useCallback((position: number) => {
+    const target = sources[Math.max(0, Math.min(position, sources.length - 1))];
+    if (target) void navigateTo(target.index);
+  }, [navigateTo, sources]);
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
@@ -901,17 +910,17 @@ export function InteractivePlotWindow() {
       }
       if (event.key === "Home" || event.key === "End") {
         event.preventDefault();
-        void navigateTo(event.key === "Home" ? 0 : sources.length - 1);
+        navigateByPosition(event.key === "Home" ? 0 : sources.length - 1);
         return;
       }
       if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
       if (!canNavigate || navigatingRef.current) return;
       event.preventDefault();
-      void navigateTo(event.key === "ArrowLeft" ? currentIndexRef.current - 1 : currentIndexRef.current + 1);
+      navigateByPosition(currentSourcePosition + (event.key === "ArrowLeft" ? -1 : 1));
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [analysis?.normalization, canNavigate, currentIndex, navigateTo, navigating, rulerSettingsOpen, sources, tool]);
+  }, [analysis?.normalization, canNavigate, currentSourcePosition, navigateByPosition, navigating, rulerSettingsOpen, sources, tool]);
 
   const updateDesign = (patch: Partial<DesignSettings>) => {
     const next = { ...design, ...patch };
@@ -1588,7 +1597,7 @@ export function InteractivePlotWindow() {
       <aside className="plot-control-rail">
         <section className="file-navigator">
           <div className="navigator-topline"><div><span className="section-eyebrow">파일 탐색</span><strong>{fileCounter}</strong></div><button className="rail-collapse" aria-label="왼쪽 패널 접기" onClick={() => setLeftOpen(false)}><PanelLeftClose size={16} /></button></div>
-          <div className="file-select-row"><button aria-label="이전 파일" onClick={() => void navigateTo(currentIndex - 1)} disabled={!canNavigate || currentIndex === 0}><ChevronLeft size={17} /></button><FileSelectMenu sources={sources} currentIndex={currentIndex} onNavigate={(index) => void navigateTo(index)} disabled={!sources.length} /><button aria-label="다음 파일" onClick={() => void navigateTo(currentIndex + 1)} disabled={!canNavigate || currentIndex >= sources.length - 1}><ChevronRight size={17} /></button></div>
+          <div className="file-select-row"><button aria-label="이전 파일" onClick={() => navigateByPosition(currentSourcePosition - 1)} disabled={!canNavigate || currentSourcePosition === 0}><ChevronLeft size={17} /></button><FileSelectMenu sources={sources} currentIndex={currentIndex} onNavigate={(index) => void navigateTo(index)} disabled={!sources.length} /><button aria-label="다음 파일" onClick={() => navigateByPosition(currentSourcePosition + 1)} disabled={!canNavigate || currentSourcePosition >= sources.length - 1}><ChevronRight size={17} /></button></div>
         </section>
 
         <div className="control-tabs"><button className={leftPanel === "analysis" ? "is-active" : ""} onClick={() => setLeftPanel("analysis")}><SlidersHorizontal size={15} /> 분석 도구</button><button className={leftPanel === "global-design" ? "is-active" : ""} onClick={() => setLeftPanel("global-design")}><Palette size={15} /> 광역 디자인</button></div>

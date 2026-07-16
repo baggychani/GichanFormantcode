@@ -259,11 +259,12 @@ function MainWorkspace() {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const busyCountRef = useRef(0);
-  const previewRequestRef = useRef(0);
+  // Keep request ids newer than events left behind by a previous window.
+  const previewRequestRef = useRef(Date.now() * 1000);
   const [dragOver, setDragOver] = useState(false);
   const [combinedVisible, setCombinedVisible] = useState(() => {
     const saved = window.localStorage.getItem("gichanformant-show-combined");
-    return saved !== "false";
+    return saved === "true";
   });
   const [inspectorOpen, setInspectorOpen] = useState(true);
   const [guideOpen, setGuideOpen] = useState(false);
