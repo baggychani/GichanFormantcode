@@ -1,5 +1,6 @@
 # Keep cross-platform source diffs meaningful.  Git may check files out with
 # platform defaults, but these repository formats are always stored as LF.
+.editorconfig text eol=lf
 *.py       text eol=lf
 *.toml     text eol=lf
 *.lock     text eol=lf
