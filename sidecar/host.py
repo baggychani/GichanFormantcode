@@ -21,6 +21,7 @@ from core.ipc.protocol import (
     encode_error,
     encode_event,
     encode_response,
+    peek_request_id,
     protocol_manifest,
     validate_params,
 )
@@ -120,10 +121,14 @@ class SidecarHost:
                 return encode_response(str(request_id), result)
             return encode_response(str(request_id), result)
         except ProtocolError as exc:
+            if request_id is None:
+                request_id = peek_request_id(raw)
             return encode_error(
                 str(request_id) if request_id else None, **exc.to_dict()
             )
         except ApplicationError as exc:
+            if request_id is None:
+                request_id = peek_request_id(raw)
             return encode_error(
                 str(request_id) if request_id else None,
                 exc.code,
@@ -131,6 +136,8 @@ class SidecarHost:
                 exc.details,
             )
         except Exception as exc:  # noqa: BLE001 - transport must never die silently
+            if request_id is None:
+                request_id = peek_request_id(raw)
             # Keep the response useful to Tauri while avoiding a traceback on
             # stdout, which would corrupt the NDJSON transport.
             method_name = message.get("method") if "message" in locals() else None
