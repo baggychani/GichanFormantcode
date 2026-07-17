@@ -169,6 +169,25 @@ def encode_event(name: str, payload: Mapping[str, Any] | None = None) -> str:
     )
 
 
+def peek_request_id(raw: str | bytes) -> str | None:
+    """Best-effort extract of ``id`` when full decode fails."""
+    if isinstance(raw, bytes):
+        try:
+            text = raw.decode("utf-8")
+        except UnicodeDecodeError:
+            text = raw.decode("utf-8", errors="surrogatepass")
+    else:
+        text = raw
+    try:
+        data = json.loads(text.strip())
+    except (TypeError, ValueError, json.JSONDecodeError):
+        return None
+    if not isinstance(data, dict):
+        return None
+    request_id = data.get("id")
+    return str(request_id) if isinstance(request_id, str) else None
+
+
 def decode_line(raw: str | bytes) -> dict[str, Any]:
     if isinstance(raw, bytes):
         if len(raw) > MAX_MESSAGE_BYTES:
@@ -180,7 +199,13 @@ def decode_line(raw: str | bytes) -> dict[str, Any]:
         text = raw.decode("utf-8")
     else:
         text = raw
-        if len(text.encode("utf-8")) > MAX_MESSAGE_BYTES:
+        # Surrogate-laden strings (locale-misdecoded UTF-8) must not crash size
+        # checks before we can surface a protocol error with the request id.
+        try:
+            encoded_size = len(text.encode("utf-8"))
+        except UnicodeEncodeError:
+            encoded_size = len(text.encode("utf-8", errors="surrogatepass"))
+        if encoded_size > MAX_MESSAGE_BYTES:
             raise ProtocolError(
                 "message_too_large",
                 f"message exceeds {MAX_MESSAGE_BYTES} bytes",

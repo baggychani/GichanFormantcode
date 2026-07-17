@@ -140,7 +140,11 @@ fn spawn_development_sidecar() -> Result<SpawnedSidecar, String> {
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
-        .env("PYTHONUNBUFFERED", "1");
+        // NDJSON is UTF-8. Without these, Windows Python may use cp949 for
+        // stdin/stdout and corrupt Korean paths inside load_files requests.
+        .env("PYTHONUNBUFFERED", "1")
+        .env("PYTHONUTF8", "1")
+        .env("PYTHONIOENCODING", "utf-8");
 
     #[cfg(windows)]
     {
