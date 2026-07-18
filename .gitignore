@@ -276,3 +276,6 @@ _tauri_scaffold/
 *.log
 logs/
 sentry_opt_in.config
+
+# Shared project instructions are intentionally versioned.
+!AGENTS.md

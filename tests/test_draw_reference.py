@@ -5,7 +5,8 @@ from draw.draw_reference import format_ref_label, round_ref_value
 
 def test_format_ref_label_hz():
     assert format_ref_label(500.0, "Hz") == "  500"
-    assert format_ref_label(512.7, "Hz") == "  512"
+    assert format_ref_label(512.7, "Hz") == "  513"
+    assert format_ref_label(605.6, "Hz") == "  606"
 
 
 def test_format_ref_label_norm():

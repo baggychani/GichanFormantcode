@@ -34,6 +34,9 @@ _VISIBILITY = {"ON", "SEMI", "OFF"}
 _DRAW_LINE_STYLES = {"-", "--", ":", "-."}
 _DRAW_ARROW_MODES = {"none", "end", "all"}
 _DRAW_ARROW_HEADS = {"stealth", "open", "latex"}
+_DRAW_BORDER_STYLES = {"-", "--", ":", "-."}
+_DRAW_FONT_FAMILIES = {"Noto Sans KR", "Noto Serif KR", "Charis SIL", "Andika"}
+_DRAW_FONT_WEIGHTS = {"regular", "medium", "semibold", "bold"}
 
 
 class InteractiveOptionsError(ValueError):
@@ -86,7 +89,8 @@ def _validate_design(raw: Any, *, partial: bool) -> dict[str, Any]:
         elif key in {"ell_fill_opacity", "grid_opacity"}:
             value = _finite_number(value, f"design.{key}", 0, 1)
         elif key == "ell_style":
-            if value not in {"-", "--", ":", "-."}:
+            # PySide STYLE_VALS: '-' 실선, '---' 긴 점선, '--' 짧은 점선 (: 하위호환)
+            if value not in {"-", "--", "---", ":", "-."}:
                 raise InteractiveOptionsError("unsupported ellipse line style")
         elif key == "font_style":
             if value not in {"serif", "sans"}:
@@ -110,8 +114,91 @@ def _validate_draw_objects(raw: Any) -> list[dict[str, Any]]:
         raise InteractiveOptionsError("draw_objects must be an array with at most 512 items")
     result: list[dict[str, Any]] = []
     for item in raw:
-        if not isinstance(item, Mapping) or item.get("type", "line") != "line":
-            raise InteractiveOptionsError("only line draw objects are supported")
+        if not isinstance(item, Mapping):
+            raise InteractiveOptionsError("draw objects must be objects")
+        object_type = item.get("type", "line")
+        if object_type == "legend":
+            entries = item.get("entries", [])
+            if not isinstance(entries, list) or len(entries) > 128:
+                raise InteractiveOptionsError("a legend must contain at most 128 entries")
+            normalized_entries = []
+            for entry in entries:
+                if not isinstance(entry, Mapping):
+                    raise InteractiveOptionsError("legend entries must be objects")
+                series_id = int(_finite_number(entry.get("series_id", 0), "legend.series_id", 0, 512))
+                text = str(entry.get("text", ""))
+                if len(text) > 512:
+                    raise InteractiveOptionsError("legend entry text is too long")
+                normalized_entries.append({"series_id": series_id, "text": text})
+            colors = {}
+            for key, default in (("border_color", "#3f4650"), ("fill_color", "#ffffff")):
+                value = item.get(key, default)
+                if not isinstance(value, str) or not _HEX_COLOR.fullmatch(value):
+                    raise InteractiveOptionsError(f"legend.{key} must be a hex color")
+                colors[key] = value
+            border_style = item.get("border_style", "-")
+            if border_style not in _DRAW_BORDER_STYLES:
+                raise InteractiveOptionsError("unsupported legend border style")
+            font_family = item.get("font_family", "Noto Sans KR")
+            if font_family not in _DRAW_FONT_FAMILIES:
+                raise InteractiveOptionsError("unsupported legend font family")
+            font_weight = item.get("font_weight", "regular")
+            if font_weight not in _DRAW_FONT_WEIGHTS:
+                raise InteractiveOptionsError("unsupported legend font weight")
+            result.append({
+                "type": "legend",
+                "id": str(item.get("id", ""))[:64],
+                "name": str(item.get("name", "범례"))[:128],
+                "entries": normalized_entries,
+                "fx": _finite_number(item.get("fx", 0.016), "legend.fx", 0, 1),
+                "fy": _finite_number(item.get("fy", 0.20), "legend.fy", 0, 1),
+                "width_frac": _finite_number(item.get("width_frac", 0.30), "legend.width_frac", 0.05, 0.92),
+                "height_frac": _finite_number(item.get("height_frac", 0.14), "legend.height_frac", 0.028, 0.92),
+                "font_size": _finite_number(item.get("font_size", 10), "legend.font_size", 6, 20),
+                "show_border": bool(item.get("show_border", True)),
+                "border_style": border_style,
+                "border_color": colors["border_color"],
+                "show_fill": bool(item.get("show_fill", True)),
+                "fill_color": colors["fill_color"],
+                "fill_opacity": _finite_number(item.get("fill_opacity", 1), "legend.fill_opacity", 0, 1),
+                "font_family": font_family,
+                "font_weight": font_weight,
+                "font_italic": bool(item.get("font_italic", False)),
+                "visible": bool(item.get("visible", True)),
+                "semi": bool(item.get("semi", False)),
+            })
+            continue
+        if object_type == "reference":
+            mode = item.get("mode", "horizontal")
+            if mode not in {"horizontal", "vertical"}:
+                raise InteractiveOptionsError("unsupported reference mode")
+            axis_scale = str(item.get("axis_scale", "linear") or "linear")
+            if axis_scale not in {"linear", "log", "bark"}:
+                raise InteractiveOptionsError("unsupported reference axis_scale")
+            axis_units = str(item.get("axis_units", "Hz") or "Hz")[:32]
+            axis_name = str(item.get("axis_name", "") or "")[:64]
+            line_color = item.get("line_color")
+            if line_color is not None and (not isinstance(line_color, str) or not _HEX_COLOR.fullmatch(line_color)):
+                raise InteractiveOptionsError("reference.line_color must be a hex color")
+            line_style = item.get("line_style", "-")
+            if line_style not in _DRAW_LINE_STYLES:
+                raise InteractiveOptionsError("unsupported reference line style")
+            result.append({
+                "type": "reference",
+                "id": str(item.get("id", ""))[:64],
+                "mode": mode,
+                "value": _finite_number(item.get("value", 0), "reference.value", -1_000_000, 1_000_000),
+                "axis_units": axis_units,
+                "axis_name": axis_name,
+                "axis_scale": axis_scale,
+                "line_style": line_style,
+                "line_color": line_color,
+                "semi": bool(item.get("semi", False)),
+                "visible": bool(item.get("visible", True)),
+            })
+            continue
+        if object_type != "line":
+            raise InteractiveOptionsError("unsupported draw object type")
         points = item.get("points")
         if not isinstance(points, list) or not 2 <= len(points) <= 128:
             raise InteractiveOptionsError("a line must contain between 2 and 128 points")
@@ -144,6 +231,7 @@ def _validate_draw_objects(raw: Any) -> list[dict[str, Any]]:
             "line_width": _finite_number(item.get("line_width", 2), "draw_objects.line_width", 0.5, 12),
             "arrow_mode": arrow_mode,
             "arrow_head": arrow_head,
+            "semi": bool(item.get("semi", False)),
             "visible": bool(item.get("visible", True)),
         })
     return result

@@ -385,8 +385,12 @@ def _check_type(method: str, key: str, expected: str, value: Any) -> None:
         try:
             validate_interactive_options(value)
             ok = True
-        except InteractiveOptionsError:
-            ok = False
+        except InteractiveOptionsError as exc:
+            raise ProtocolError(
+                "invalid_params",
+                f"param {key!r} for {method}: {exc}",
+                {"param": key, "expected": expected},
+            ) from exc
     else:
         raise ProtocolError(
             "internal_error",

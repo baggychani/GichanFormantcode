@@ -34,6 +34,17 @@ def _line_style_to_mpl(style: str):
     return "-"
 
 
+def _border_style_to_mpl(style: str):
+    """테두리용 linestyle. 선은 얇게 유지하고 dash/gap만 길게."""
+    if style in ("--", "dashed"):
+        return (0, (9.0, 6.0))
+    if style in (":", "dotted"):
+        return (0, (1.2, 5.0))
+    if style in ("-.", "dash-dot"):
+        return (0, (9.0, 5.0, 1.2, 5.0))
+    return "-"
+
+
 def _resolve_entry_style(
     popup: Any,
     series_id: int,
@@ -109,14 +120,16 @@ def render_legend(
     chrome = show_editor_chrome and selected
 
     if show_fill or show_border or chrome:
-        fill_opacity = float(getattr(legend, "fill_opacity", 0.92))
+        fill_opacity = float(getattr(legend, "fill_opacity", 1.0))
         fill_opacity = max(0.0, min(1.0, fill_opacity))
-        face = (1, 1, 1, fill_opacity * alpha) if show_fill else (1, 1, 1, 0)
+        face_color = getattr(legend, "fill_color", "#ffffff") or "#ffffff"
+        face = (*mcolors.to_rgb(face_color), fill_opacity * alpha) if show_fill else (1, 1, 1, 0)
         if show_border:
-            edge = "#409EFF" if chrome else "#D0D3D9"
+            edge_hex = "#409EFF" if chrome else (getattr(legend, "border_color", "#3f4650") or "#3f4650")
+            edge = mcolors.to_rgba(edge_hex, alpha)
             lw = 0.8 if chrome else 0.5
         elif chrome:
-            edge = "#409EFF"
+            edge = mcolors.to_rgba("#409EFF", alpha)
             lw = 0.8
         else:
             edge = "none"
@@ -129,6 +142,7 @@ def render_legend(
             facecolor=face,
             edgecolor=edge,
             linewidth=lw,
+            linestyle=_border_style_to_mpl(getattr(legend, "border_style", "-")),
             zorder=200,
             clip_on=False,
         )
@@ -138,7 +152,10 @@ def render_legend(
     if not entries:
         return artists
 
-    font_family = _legend_font_family(popup)
+    font_family = _legend_font_family(popup, legend)
+    font_weight = str(getattr(legend, "font_weight", "regular") or "regular")
+    font_weight = "bold" if font_weight in {"bold", "semibold"} else "normal"
+    font_style = "italic" if bool(getattr(legend, "font_italic", False)) else "normal"
     cx0, _cy0, cx1, cy1 = legend_box_content_bounds(legend)
     content_w = cx1 - cx0
     icon_left = cx0 + LEGEND_ICON_LEFT * content_w
@@ -201,6 +218,8 @@ def render_legend(
             transform=trans,
             fontsize=font_size,
             fontfamily=font_family,
+            fontweight=font_weight,
+            fontstyle=font_style,
             color=mcolors.to_rgba(_LEGEND_TEXT_COLOR, alpha),
             va="center",
             ha="left",

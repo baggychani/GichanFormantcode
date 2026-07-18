@@ -847,15 +847,15 @@ class BasePlotWindow(QMainWindow):
         if ax is None:
             return
         self._draw_tool_deactivate()
-        # font_style 읽기: popup_plot은 flat dict, compare_plot은 nested {"common": {...}, ...}
-        font_family = ["DejaVu Sans", "Malgun Gothic"]
+        # 기준선 미리보기 숫자 = 축·눈금과 동일 (광역 디자인 font_style / font_family)
+        from utils.font_stacks import axis_font_list
+
         ds = getattr(self, "design_settings", None) or {}
-        font_style = (
-            ds.get("font_style")  # popup_plot: flat
-            or (ds.get("common") or {}).get("font_style")  # compare_plot: nested
+        common = ds.get("common") if isinstance(ds.get("common"), dict) else {}
+        font_style = ds.get("font_style") or common.get("font_style") or "serif"
+        font_family = axis_font_list(
+            str(font_style), ds.get("font_family") or common.get("font_family")
         )
-        if font_style == "serif":
-            font_family = ["Times New Roman", "Noto Serif KR", "DejaVu Serif"]
 
         def _on_draw_cancel():
             self.draw_indicator.set_mode(None)

@@ -71,6 +71,22 @@ type PlotType =
 
 type Theme = "dark" | "light";
 
+function SettingsSwitch({ checked, onChange, disabled = false }: { checked: boolean; onChange: () => void; disabled?: boolean }) {
+  return (
+    <button
+      type="button"
+      className="settings-switch-control"
+      role="switch"
+      aria-checked={checked}
+      onClick={onChange}
+      disabled={disabled}
+      aria-label={checked ? "켜짐" : "꺼짐"}
+    >
+      <i className={checked ? "is-on" : ""}><b /></i>
+    </button>
+  );
+}
+
 const PLOT_TYPES: Array<{
   id: PlotType;
   label: string;
@@ -1087,13 +1103,10 @@ function MainWorkspace() {
                   <strong>Bark 단위로 표시</strong>
                   <small>주파수 눈금을 지각 척도로 바꿉니다</small>
                 </span>
-                <input
-                  type="checkbox"
+                <SettingsSwitch
                   checked={analysis?.use_bark_units ?? false}
                   disabled={busy || !hasFiles}
-                  onChange={(event) =>
-                    void patchSettings({ use_bark_units: event.target.checked })
-                  }
+                  onChange={() => void patchSettings({ use_bark_units: !(analysis?.use_bark_units ?? false) })}
                 />
               </label>
             </section>

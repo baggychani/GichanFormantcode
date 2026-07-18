@@ -44,6 +44,19 @@ def _is_serif_font(ctx: Any) -> bool:
     return isinstance(common, dict) and common.get("font_style") == "serif"
 
 
+def _axis_matching_font(ctx: Any) -> list[str]:
+    """광역 디자인의 축·눈금 폰트와 동일 스택 (기준선 숫자용)."""
+    from utils.font_stacks import axis_font_list
+
+    ds = getattr(ctx, "design_settings", None) or {}
+    if not isinstance(ds, dict):
+        return axis_font_list("serif")
+    common = ds.get("common") if isinstance(ds.get("common"), dict) else {}
+    font_style = ds.get("font_style") or common.get("font_style") or "serif"
+    font_family = ds.get("font_family") or common.get("font_family")
+    return axis_font_list(str(font_style), font_family)
+
+
 def render_draw_objects(
     ax,
     objects: list,
@@ -99,7 +112,7 @@ def render_draw_objects(
         if "reference" in skip_types:
             continue
         try:
-            artists.extend(_render_reference(ax, obj, ctx, is_semi=is_semi))
+            artists.extend(_render_reference(ax, obj, ctx, is_semi=bool(getattr(obj, "semi", False))))
         except Exception as exc:
             _log_render_skip(obj, "reference", exc)
             continue
@@ -328,9 +341,7 @@ def _render_reference(ax, obj, ctx: Any, *, is_semi: bool) -> list:
         getattr(ctx, "fixed_plot_params", None) or {}
     ).get("normalization")
     lbl = format_ref_label(v, axis_units, normalization=ref_norm)
-    font_family = ["DejaVu Sans", "Malgun Gothic"]
-    if _is_serif_font(ctx):
-        font_family = ["Times New Roman", "Noto Serif KR", "DejaVu Serif"]
+    font_family = _axis_matching_font(ctx)
     style = getattr(obj, "line_style", "-") or "-"
     color_override = getattr(obj, "line_color", None)
     base_color = color_override or REF_LINE_COLOR

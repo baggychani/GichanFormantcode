@@ -154,8 +154,14 @@ class LegendObject:
     height_frac: float = 0.14
     font_size: float = 10.0
     show_border: bool = False
-    show_fill: bool = False
-    fill_opacity: float = 0.92
+    border_style: str = "-"
+    border_color: str = "#3f4650"
+    show_fill: bool = True
+    fill_color: str = "#ffffff"
+    fill_opacity: float = 1.0
+    font_family: str = "Noto Sans KR"
+    font_weight: str = "regular"
+    font_italic: bool = False
     entries: list[LegendEntry] = field(default_factory=list)
     is_compare: bool = False
 

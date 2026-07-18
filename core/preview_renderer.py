@@ -63,12 +63,47 @@ class PreviewRenderer:
                 custom_label_offsets=custom_label_offsets,
             )
 
+        objects = []
         if draw_objects and self.figure.axes:
             from draw.draw_layer_render import render_draw_objects
 
-            objects = []
             for raw in draw_objects:
-                if not isinstance(raw, Mapping) or raw.get("type", "line") != "line":
+                if not isinstance(raw, Mapping):
+                    continue
+                if raw.get("type", "line") == "legend":
+                    entries = [SimpleNamespace(series_id=int(entry.get("series_id", 0)), text=str(entry.get("text", ""))) for entry in raw.get("entries", []) if isinstance(entry, Mapping)]
+                    objects.append(SimpleNamespace(
+                        type="legend",
+                        id=str(raw.get("id", "")),
+                        name=str(raw.get("name", "범례")),
+                        entries=entries,
+                        fx=float(raw.get("fx", 0.016)), fy=float(raw.get("fy", 0.20)),
+                        width_frac=float(raw.get("width_frac", 0.30)), height_frac=float(raw.get("height_frac", 0.14)),
+                        font_size=float(raw.get("font_size", 10)),
+                        show_border=bool(raw.get("show_border", True)),
+                        border_style=str(raw.get("border_style", "-")), border_color=str(raw.get("border_color", "#3f4650")),
+                        show_fill=bool(raw.get("show_fill", True)), fill_color=str(raw.get("fill_color", "#ffffff")),
+                        fill_opacity=float(raw.get("fill_opacity", 1)), font_family=str(raw.get("font_family", "Noto Sans KR")),
+                        font_weight=str(raw.get("font_weight", "regular")), font_italic=bool(raw.get("font_italic", False)),
+                        visible=bool(raw.get("visible", True)), locked=False, semi=bool(raw.get("semi", False)), is_compare=False,
+                    ))
+                    continue
+                if raw.get("type", "line") == "reference":
+                    objects.append(SimpleNamespace(
+                        type="reference",
+                        id=str(raw.get("id", "")),
+                        mode=str(raw.get("mode", "horizontal")),
+                        value=float(raw.get("value", 0)),
+                        axis_units=str(raw.get("axis_units", "Hz")),
+                        axis_name=str(raw.get("axis_name", "")),
+                        axis_scale=str(raw.get("axis_scale", "linear")),
+                        line_style=str(raw.get("line_style", "-")),
+                        line_color=raw.get("line_color"),
+                        visible=bool(raw.get("visible", True)),
+                        semi=bool(raw.get("semi", False)),
+                    ))
+                    continue
+                if raw.get("type", "line") != "line":
                     continue
                 points = raw.get("points")
                 if not isinstance(points, list) or len(points) < 2:
@@ -82,26 +117,57 @@ class PreviewRenderer:
                     line_width=float(raw.get("line_width", 2)),
                     arrow_mode=raw.get("arrow_mode", "none"),
                     arrow_head=raw.get("arrow_head", "stealth"),
+                    semi=bool(raw.get("semi", False)),
                 ))
             render_draw_objects(
                 self.figure.axes[0],
                 objects,
-                SimpleNamespace(design_settings=design_settings),
+                SimpleNamespace(
+                    design_settings=design_settings,
+                    normalization=params.get("normalization"),
+                    fixed_plot_params=params,
+                ),
             )
 
-        # The ruler must snap to the same rendered points as PySide.  Capture
-        # Matplotlib's post-transform pixel coordinates, rather than asking
-        # the browser to recreate axis scaling/inversion rules.
+        # draw 한 번으로 ruler 좌표 + PNG를 같이 뽑는다 (savefig 재렌더 방지)
+        self.figure.canvas.draw()
         ruler_context = None
         if include_context:
-            self.figure.canvas.draw()
             ruler_context = self._build_ruler_context(draw_result, params)
-        buffer = BytesIO()
-        self.figure.savefig(buffer, format="png", facecolor="white")
-        png_data = buffer.getvalue()
+            ruler_context["legend_bounds"] = {
+                str(getattr(obj, "id", "")): {
+                    "fx": float(getattr(obj, "fx", 0.016)),
+                    "fy": float(getattr(obj, "fy", 0.20)),
+                    "width_frac": float(getattr(obj, "width_frac", 0.30)),
+                    "height_frac": float(getattr(obj, "height_frac", 0.14)),
+                }
+                for obj in objects
+                if getattr(obj, "type", None) == "legend" and getattr(obj, "id", "")
+            }
+        png_data = self._encode_drawn_png()
         if include_context:
             return png_data, ruler_context or {}
         return png_data
+
+    def _encode_drawn_png(self) -> bytes:
+        """이미 canvas.draw()된 figure를 재렌더 없이 PNG로 인코딩."""
+        buffer = BytesIO()
+        canvas = self.figure.canvas
+        if hasattr(canvas, "buffer_rgba"):
+            try:
+                import numpy as np
+                from PIL import Image
+
+                rgba = np.asarray(canvas.buffer_rgba())
+                Image.fromarray(rgba).save(buffer, format="PNG")
+                return buffer.getvalue()
+            except Exception:
+                buffer = BytesIO()
+        if hasattr(canvas, "print_png"):
+            canvas.print_png(buffer)
+            return buffer.getvalue()
+        self.figure.savefig(buffer, format="png", facecolor="white")
+        return buffer.getvalue()
 
     def _build_ruler_context(
         self, draw_result: Any, params: dict[str, Any]
@@ -115,7 +181,16 @@ class PreviewRenderer:
         else:
             label_data = []
 
+        # PNG(buffer_rgba)와 동일한 픽셀 크기 — get_width_height와 어긋나면 호버 좌표가 전부 틀림
         image_width, image_height = self.figure.canvas.get_width_height()
+        try:
+            rgba = getattr(self.figure.canvas, "buffer_rgba", None)
+            if rgba is not None:
+                arr = rgba()
+                image_height = int(arr.shape[0])
+                image_width = int(arr.shape[1])
+        except Exception:
+            pass
         points: list[dict[str, Any]] = []
         if ax is not None:
             renderer = self.figure.canvas.get_renderer()
@@ -218,6 +293,7 @@ class PreviewRenderer:
             "params": {
                 "normalization": params.get("normalization"),
                 "use_bark_units": bool(params.get("use_bark_units", False)),
+                "f1_scale": str(params.get("f1_scale", "linear")),
                 "f2_scale": str(params.get("f2_scale", "linear")),
             },
         }

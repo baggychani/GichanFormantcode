@@ -1434,21 +1434,29 @@ html[data-theme="light"] .orbit-b {
   line-height: 1.45;
 }
 
-.switch-row input {
+.settings-switch-control {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 24px;
+  flex: 0 0 auto;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+}
+
+.settings-switch-control > i {
   position: relative;
   width: 32px;
   height: 18px;
-  flex: 0 0 auto;
-  margin: 0;
   border: 1px solid var(--gf-border-medium);
   border-radius: 999px;
-  appearance: none;
   background: var(--gf-surface-input);
-  cursor: pointer;
   transition: all var(--gf-duration) var(--gf-ease);
 }
 
-.switch-row input::after {
+.settings-switch-control > i b {
   position: absolute;
   top: 3px;
   left: 3px;
@@ -1460,16 +1468,18 @@ html[data-theme="light"] .orbit-b {
   transition: all var(--gf-duration) var(--gf-ease);
 }
 
-.switch-row input:checked {
+.settings-switch-control > i.is-on {
   border-color: var(--gf-accent-border);
   background: var(--gf-accent-muted);
 }
 
-.switch-row input:checked::after {
+.settings-switch-control > i.is-on b {
   left: 17px;
   background: var(--gf-accent);
   box-shadow: 0 0 8px var(--gf-accent-glow);
 }
+
+.settings-switch-control:disabled { cursor: not-allowed; opacity: .45; }
 
 .field-caption {
   display: block;

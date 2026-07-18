@@ -97,10 +97,17 @@ class PlotEngine:
         return front + tail
 
     def _to_mpl_linestyle(self, ell_style):
-        """디자인/레이어의 ell_style('-', '--', '---')을 matplotlib linestyle로 변환. '---' = 긴 대시."""
+        """디자인/레이어의 ell_style('-', '--', '---')을 matplotlib linestyle로 변환.
+        PySide STYLE_VALS: '-' 실선, '---' 긴 점선, '--' 짧은 점선.
+        """
         if ell_style == "---":
-            return (0, (6.0, 3.0))  # 6pt dash, 3pt gap
-        return ell_style if ell_style in ("-", "--", ":") else "--"
+            return (0, (8.0, 4.5))  # 긴 대시
+        if ell_style == "--":
+            return (0, (3.5, 3.0))  # 짧은 대시 (기본 -- 보다 간격 확보)
+        if ell_style == ":":
+            # 하위호환: 예전 React 점선 → 짧은 대시로 취급
+            return (0, (3.5, 3.0))
+        return ell_style if ell_style == "-" else "--"
 
     @staticmethod
     def _resolve_centroid_marker(marker, default_face="black", base_size=62):

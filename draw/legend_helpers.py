@@ -8,13 +8,16 @@ from typing import Any
 from draw.draw_common import LegendEntry, LegendObject
 
 # 박스 내부 레이아웃 (박스 너비 대비 비율)
-LEGEND_ICON_LEFT = 0.04
-LEGEND_ICON_RIGHT = 0.30
-LEGEND_TEXT_START = 0.44
-LEGEND_RIGHT_PAD = 0.04
-LEGEND_REF_ROW_H = 0.033
-LEGEND_BOX_PAD_Y = 0.006
-LEGEND_BOX_PAD_X_RATIO = 0.08
+LEGEND_ICON_LEFT = 0.03
+LEGEND_ICON_RIGHT = 0.26
+LEGEND_TEXT_START = 0.36
+LEGEND_RIGHT_PAD = 0.08
+LEGEND_REF_ROW_H = 0.036
+LEGEND_BOX_PAD_Y = 0.012
+# 왼쪽만 좁히고 오른쪽은 기존 여백 유지 (대칭 축소 금지)
+LEGEND_BOX_PAD_X_LEFT_RATIO = 0.034
+LEGEND_BOX_PAD_X_RIGHT_RATIO = 0.07
+LEGEND_BOX_PAD_X_RATIO = LEGEND_BOX_PAD_X_LEFT_RATIO  # 하위호환 별칭
 
 
 def find_legend_object(draw_objects: list) -> LegendObject | None:
@@ -158,10 +161,16 @@ def create_legend_object(popup: Any, *, is_compare: bool) -> LegendObject:
         fy=fy,
         width_frac=width_frac,
         height_frac=height_frac,
-        show_border=False,
-        show_fill=False,
-        fill_opacity=0.92,
-        font_size=10.0,
+        show_border=True,
+        border_style="-",
+        border_color="#3f4650",
+        show_fill=True,
+        fill_color="#ffffff",
+        fill_opacity=1.0,
+        font_size=9.0,
+        font_family="Noto Sans KR",
+        font_weight="regular",
+        font_italic=False,
     )
 
 
@@ -180,16 +189,43 @@ def clamp_legend_bounds(legend: LegendObject) -> None:
     legend.height_frac = max(0.028, min(float(legend.height_frac), 0.92))
     legend.fx = max(m, min(float(legend.fx), 1.0 - legend.width_frac - m))
     legend.fy = max(legend.height_frac + m, min(float(legend.fy), 1.0 - m))
-    legend.font_size = max(7.0, min(float(legend.font_size), 28.0))
+    legend.font_size = max(6.0, min(float(legend.font_size), 20.0))
 
 
-def _legend_font_family(popup: Any) -> list[str]:
+def _legend_font_family(popup: Any, legend: LegendObject | None = None) -> list[str]:
+    requested = getattr(legend, "font_family", None) if legend is not None else None
+    if requested == "Noto Sans KR":
+        return ["Noto Sans KR", "Malgun Gothic", "DejaVu Sans"]
+    if requested == "Noto Serif KR":
+        return ["Noto Serif KR", "Times New Roman", "DejaVu Serif"]
+    if requested == "Charis SIL":
+        return ["Charis SIL", "DejaVu Serif"]
+    if requested == "Andika":
+        return ["Andika", "DejaVu Sans"]
     ds = getattr(popup, "design_settings", None) or {}
     common = ds.get("common", {}) if isinstance(ds, dict) else {}
     font_style = common.get("font_style") or ds.get("font_style", "serif")
     if font_style == "serif":
         return ["Times New Roman", "Noto Serif KR", "DejaVu Serif"]
     return ["DejaVu Sans", "Malgun Gothic"]
+
+
+def _estimate_text_width_frac(text: str, font_size: float) -> float:
+    """렌더러 없을 때 한글/영문 폭 추정 (figure fraction, ~8in @120dpi 기준)."""
+    width = 0.0
+    # 10pt 한글 ≈ figure width의 ~1.4%
+    unit = float(font_size) / 10.0
+    for ch in text:
+        code = ord(ch)
+        if code > 0x2E80 or ("\uac00" <= ch <= "\ud7a3"):
+            width += 0.014 * unit
+        elif ch.isupper() or ch.isdigit():
+            width += 0.009 * unit
+        elif ch in "_-./ ":
+            width += 0.0055 * unit
+        else:
+            width += 0.0075 * unit
+    return width
 
 
 def _measure_text_width_frac(
@@ -201,7 +237,15 @@ def _measure_text_width_frac(
     """텍스트 너비를 figure fraction으로 반환."""
     if not text:
         return 0.0
-    renderer = fig.canvas.get_renderer() if fig and fig.canvas else None
+    estimate = _estimate_text_width_frac(text, font_size)
+    renderer = None
+    if fig is not None and getattr(fig, "canvas", None) is not None:
+        try:
+            renderer = fig.canvas.get_renderer()
+        except Exception:
+            renderer = None
+    if renderer is None:
+        return estimate
     temp = fig.text(
         0,
         0,
@@ -212,12 +256,14 @@ def _measure_text_width_frac(
         visible=False,
     )
     try:
-        if renderer is None:
-            return len(text) * float(font_size) * 0.0065
         bbox = temp.get_window_extent(renderer=renderer)
         fig_bbox = fig.bbox
         fig_w = max(float(fig_bbox.width), 1.0)
-        return float(bbox.width) / fig_w * 1.04
+        measured = float(bbox.width) / fig_w * 1.04
+        # 폰트 미로드 등으로 측정이 붕괴했을 때만 추정값 사용
+        if measured < estimate * 0.45:
+            return estimate
+        return measured
     finally:
         temp.remove()
 
@@ -228,9 +274,10 @@ def legend_box_content_bounds(
     """패딩을 뺀 내용 영역 (x0, y0, x1, y1) — figure fraction."""
     x0, y0, x1, y1 = legend_box_axes_bounds(legend)
     box_w = x1 - x0
-    pad_x = box_w * LEGEND_BOX_PAD_X_RATIO
+    pad_left = box_w * LEGEND_BOX_PAD_X_LEFT_RATIO
+    pad_right = box_w * LEGEND_BOX_PAD_X_RIGHT_RATIO
     pad_y = LEGEND_BOX_PAD_Y
-    return x0 + pad_x, y0 + pad_y, x1 - pad_x, y1 - pad_y
+    return x0 + pad_left, y0 + pad_y, x1 - pad_right, y1 - pad_y
 
 
 def legend_row_pitch(legend: LegendObject, entry_count: int) -> float:
@@ -259,12 +306,13 @@ def ensure_legend_content_fits(
     if not rows or fig is None:
         return
 
-    font_family = _legend_font_family(popup)
-    pad_ratio = LEGEND_BOX_PAD_X_RATIO
-    inner_ratio = max(0.5, 1.0 - 2 * pad_ratio)
-    margin = 1.06
+    font_family = _legend_font_family(popup, legend)
+    inner_ratio = max(
+        0.5, 1.0 - LEGEND_BOX_PAD_X_LEFT_RATIO - LEGEND_BOX_PAD_X_RIGHT_RATIO
+    )
+    margin = 1.18
 
-    for _ in range(6):
+    for _ in range(8):
         reconcile_legend_box_height(legend)
         scale = legend_content_scale(legend, len(rows))
         effective_font = float(getattr(legend, "font_size", 10.0)) * scale
@@ -287,7 +335,8 @@ def ensure_legend_content_fits(
             text_w *= margin
             required_right = max(required_right, text_start_x + text_w)
 
-        required_cx1 = required_right + LEGEND_RIGHT_PAD * content_w
+        # 오른쪽 여백은 content 비율이 아니라 figure fraction 하한으로 확보
+        required_cx1 = required_right + max(LEGEND_RIGHT_PAD * content_w, 0.018)
         if required_cx1 <= cx1 + 1e-5:
             break
 
@@ -295,5 +344,5 @@ def ensure_legend_content_fits(
         if required_box_w <= box_w + 1e-5:
             break
 
-        legend.width_frac = float(legend.width_frac) * (required_box_w / box_w)
+        legend.width_frac = min(0.92, float(legend.width_frac) * (required_box_w / box_w))
         clamp_legend_bounds(legend)

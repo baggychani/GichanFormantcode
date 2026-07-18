@@ -1,5 +1,12 @@
 # GichanFormant Working Rules
 
+## MANDATORY: No Checkbox UI
+
+- Never use checkbox controls in the application UI. Use a visible toggle switch
+  with `role="switch"` and `aria-checked` for binary settings, including modal
+  dialogs and export options. This is a shared project rule and must remain in
+  this tracked file, not only in local ignored agent instructions.
+
 ## Text Encoding
 
 - Store all source code, JSON, TOML, Markdown, and test fixtures as UTF-8.

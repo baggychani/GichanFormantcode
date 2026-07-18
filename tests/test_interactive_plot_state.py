@@ -34,6 +34,20 @@ def test_interactive_options_validate_nested_values():
                 "line_width": 3,
                 "arrow_mode": "end",
                 "arrow_head": "open",
+                "semi": True,
+            }, {
+                "type": "legend",
+                "name": "파일 안내",
+                "entries": [{"series_id": 0, "text": "매우 긴 파일 이름도 범례 안에서 유지됩니다"}],
+                "show_border": True,
+                "border_style": "--",
+                "border_color": "#3f4650",
+                "show_fill": True,
+                "fill_opacity": 0.8,
+                "font_family": "Noto Serif KR",
+                "font_weight": "bold",
+                "font_italic": True,
+                "semi": True,
             }],
         }
     )
@@ -44,6 +58,9 @@ def test_interactive_options_validate_nested_values():
     assert options["label_offsets"] == {"a": (12.5, -4.0)}
     assert options["draw_objects"][0]["arrow_mode"] == "end"
     assert options["draw_objects"][0]["line_width"] == 3.0
+    assert options["draw_objects"][1]["border_style"] == "--"
+    assert options["draw_objects"][1]["fill_opacity"] == 0.8
+    assert all(item["semi"] for item in options["draw_objects"])
 
     with pytest.raises(InteractiveOptionsError, match="less than"):
         validate_interactive_options(
@@ -72,7 +89,10 @@ def test_plot_session_roundtrip_and_index_removal():
                 "layer_order": ["a", "i"],
                 "locked_layers": ["a"],
                 "label_offsets": {"a": [12, -4]},
-                "draw_objects": [{"type": "line", "points": [[500, 300], [1500, 700]], "arrow_mode": "all"}],
+                "draw_objects": [
+                    {"type": "line", "points": [[500, 300], [1500, 700]], "arrow_mode": "all"},
+                    {"type": "legend", "entries": [{"series_id": 0, "text": "파일"}], "show_fill": True},
+                ],
             }
         ),
         1,
@@ -86,6 +106,7 @@ def test_plot_session_roundtrip_and_index_removal():
     assert restored.layer_order_by_file[1] == ["a", "i"]
     assert restored.label_offsets_by_file[1]["a"] == (12.0, -4.0)
     assert restored.draw_objects_by_file[1][0]["arrow_mode"] == "all"
+    assert restored.draw_objects_by_file[1][1]["type"] == "legend"
 
     restored.remove_file(0)
     assert restored.vowel_filter_state_by_file[0]["a"] == "SEMI"

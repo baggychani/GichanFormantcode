@@ -37,7 +37,8 @@ def format_ref_label(
         if is_snapped:
             return f"  {value:.2f}"
         return f"  {value:.1f}"
-    return f"  {int(value)}"
+    # Hz 등: 레이어 이름(프론트 Math.round)과 플롯 라벨을 동일하게
+    return f"  {int(round(float(value)))}"
 
 
 def _plot_coord_to_data_value(
