@@ -1175,6 +1175,33 @@ html[data-theme="light"] .orbit-b {
     var(--gf-surface-panel);
 }
 
+.settings-panel.is-attention {
+  position: relative;
+  z-index: 3;
+  animation: settings-attention 940ms var(--gf-ease) 280ms both;
+}
+.settings-panel.is-attention::before {
+  content: "";
+  position: absolute;
+  z-index: 0;
+  inset: 8px 7px;
+  border: 1px solid var(--gf-accent-border);
+  border-radius: 10px;
+  pointer-events: none;
+  animation: settings-attention-ring 1200ms ease-out 280ms both;
+}
+.settings-panel.is-attention > * { position: relative; z-index: 1; }
+@keyframes settings-attention {
+  0%, 100% { box-shadow: inset 0 0 0 rgba(119, 242, 210, 0); }
+  26% { box-shadow: inset 0 0 34px rgba(119, 242, 210, .13); }
+  58% { box-shadow: inset 0 0 12px rgba(119, 242, 210, .06); }
+}
+@keyframes settings-attention-ring {
+  0% { opacity: 0; transform: scale(.985); }
+  24% { opacity: 1; transform: scale(1); }
+  100% { opacity: 0; transform: scale(1.015); }
+}
+
 .settings-header {
   display: flex;
   align-items: center;

@@ -41,6 +41,7 @@ class InteractiveRenderer:
                 layer_overrides=prepared.get("layer_overrides"),
                 layer_order=prepared.get("layer_order"),
                 custom_label_offsets=prepared.get("custom_label_offsets"),
+                draw_objects=prepared.get("draw_objects"),
             )
             buffer = BytesIO()
             if fmt == "svg":
@@ -60,6 +61,7 @@ class InteractiveRenderer:
                 layer_overrides=prepared.get("layer_overrides"),
                 layer_order=prepared.get("layer_order"),
                 custom_label_offsets=prepared.get("custom_label_offsets"),
+                draw_objects=prepared.get("draw_objects"),
                 include_context=True,
             )
         except Exception as exc:  # noqa: BLE001 - render boundary

@@ -153,7 +153,10 @@ def _render_line(ax, obj, *, line_alpha: float) -> list:
     style = getattr(obj, "line_style", "-") or "-"
     color_hex = getattr(obj, "line_color", "#000000") or "#000000"
     rgba_color = mcolors.to_rgba(color_hex, float(line_alpha))
-    linewidth = 1.0
+    try:
+        linewidth = max(0.5, float(getattr(obj, "line_width", 1.0)))
+    except (TypeError, ValueError):
+        linewidth = 1.0
     (line,) = ax.plot(
         xs,
         ys,

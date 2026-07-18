@@ -262,6 +262,8 @@ function MainWorkspace() {
   // Keep request ids newer than events left behind by a previous window.
   const previewRequestRef = useRef(Date.now() * 1000);
   const [dragOver, setDragOver] = useState(false);
+  const [settingsAttention, setSettingsAttention] = useState(false);
+  const settingsAttentionTimersRef = useRef<number[]>([]);
   const [combinedVisible, setCombinedVisible] = useState(() => {
     const saved = window.localStorage.getItem("gichanformant-show-combined");
     return saved === "true";
@@ -324,6 +326,18 @@ function MainWorkspace() {
     setBusy(busyCountRef.current > 0);
   }, []);
 
+  const signalSettingsAttention = useCallback(() => {
+    settingsAttentionTimersRef.current.forEach((timer) => window.clearTimeout(timer));
+    setSettingsAttention(false);
+    const startTimer = window.setTimeout(() => setSettingsAttention(true), 280);
+    const endTimer = window.setTimeout(() => setSettingsAttention(false), 1980);
+    settingsAttentionTimersRef.current = [startTimer, endTimer];
+  }, []);
+
+  useEffect(() => () => {
+    settingsAttentionTimersRef.current.forEach((timer) => window.clearTimeout(timer));
+  }, []);
+
   const requestMainPreview = useCallback(() => {
     void callSidecar("request_preview", { request_id: ++previewRequestRef.current }).catch((err) => {
       if (aliveRef.current) setError(String(err));
@@ -378,6 +392,9 @@ function MainWorkspace() {
         if (response.load_result.success_count > 0 || response.state.capabilities.can_plot) {
           requestMainPreview();
         }
+        if (response.load_result.success_count > 0) {
+          signalSettingsAttention();
+        }
         if (!aliveRef.current) return;
         if (response.load_result.failed.length > 0 || skippedCount > 0) {
           const failedCount = response.load_result.failed.length + skippedCount;
@@ -390,7 +407,7 @@ function MainWorkspace() {
         if (aliveRef.current) endBusy();
       }
     },
-    [beginBusy, endBusy, pushStatus, requestMainPreview],
+    [beginBusy, endBusy, pushStatus, requestMainPreview, signalSettingsAttention],
   );
 
   useEffect(() => {
@@ -924,7 +941,7 @@ function MainWorkspace() {
         </div>
       </main>
 
-      <aside className="settings-panel">
+      <aside className={`settings-panel ${settingsAttention ? "is-attention" : ""}`}>
         <div className="settings-header">
           <div className="settings-title">
             <SlidersHorizontal size={16} />

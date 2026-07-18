@@ -27,6 +27,14 @@ def test_interactive_options_validate_nested_values():
             "layer_order": ["a"],
             "locked_layers": ["a"],
             "label_offsets": {"a": [12.5, -4]},
+            "draw_objects": [{
+                "type": "line",
+                "points": [[500, 300], [1500, 700]],
+                "line_color": "#2563eb",
+                "line_width": 3,
+                "arrow_mode": "end",
+                "arrow_head": "open",
+            }],
         }
     )
 
@@ -34,6 +42,8 @@ def test_interactive_options_validate_nested_values():
     assert options["sigma"] == "2.5"
     assert options["design"]["tick_label_size"] == 15
     assert options["label_offsets"] == {"a": (12.5, -4.0)}
+    assert options["draw_objects"][0]["arrow_mode"] == "end"
+    assert options["draw_objects"][0]["line_width"] == 3.0
 
     with pytest.raises(InteractiveOptionsError, match="less than"):
         validate_interactive_options(
@@ -62,6 +72,7 @@ def test_plot_session_roundtrip_and_index_removal():
                 "layer_order": ["a", "i"],
                 "locked_layers": ["a"],
                 "label_offsets": {"a": [12, -4]},
+                "draw_objects": [{"type": "line", "points": [[500, 300], [1500, 700]], "arrow_mode": "all"}],
             }
         ),
         1,
@@ -74,6 +85,7 @@ def test_plot_session_roundtrip_and_index_removal():
     assert restored.vowel_filter_state_by_file[1]["a"] == "SEMI"
     assert restored.layer_order_by_file[1] == ["a", "i"]
     assert restored.label_offsets_by_file[1]["a"] == (12.0, -4.0)
+    assert restored.draw_objects_by_file[1][0]["arrow_mode"] == "all"
 
     restored.remove_file(0)
     assert restored.vowel_filter_state_by_file[0]["a"] == "SEMI"

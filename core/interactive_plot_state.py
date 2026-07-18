@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from copy import deepcopy
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field, is_dataclass
 import math
 import re
 from typing import Any, Mapping
@@ -31,6 +31,9 @@ _ALLOWED_MARKERS = {"o", "s", "^", "D", "wo", "ws", "x", "a"}
 _HEX_COLOR = re.compile(r"^#[0-9a-fA-F]{6}$")
 _RANGE_KEYS = ("y_min", "y_max", "x_min", "x_max")
 _VISIBILITY = {"ON", "SEMI", "OFF"}
+_DRAW_LINE_STYLES = {"-", "--", ":", "-."}
+_DRAW_ARROW_MODES = {"none", "end", "all"}
+_DRAW_ARROW_HEADS = {"stealth", "open", "latex"}
 
 
 class InteractiveOptionsError(ValueError):
@@ -102,6 +105,50 @@ def _validate_design(raw: Any, *, partial: bool) -> dict[str, Any]:
     return merged
 
 
+def _validate_draw_objects(raw: Any) -> list[dict[str, Any]]:
+    if not isinstance(raw, list) or len(raw) > 512:
+        raise InteractiveOptionsError("draw_objects must be an array with at most 512 items")
+    result: list[dict[str, Any]] = []
+    for item in raw:
+        if not isinstance(item, Mapping) or item.get("type", "line") != "line":
+            raise InteractiveOptionsError("only line draw objects are supported")
+        points = item.get("points")
+        if not isinstance(points, list) or not 2 <= len(points) <= 128:
+            raise InteractiveOptionsError("a line must contain between 2 and 128 points")
+        normalized_points = []
+        for point in points:
+            if not isinstance(point, (list, tuple)) or len(point) != 2:
+                raise InteractiveOptionsError("draw line points must contain x and y")
+            normalized_points.append([
+                _finite_number(point[0], "draw_objects.points.x", -1_000_000, 1_000_000),
+                _finite_number(point[1], "draw_objects.points.y", -1_000_000, 1_000_000),
+            ])
+        color = item.get("line_color", "#2563eb")
+        if not isinstance(color, str) or not _HEX_COLOR.fullmatch(color):
+            raise InteractiveOptionsError("draw_objects.line_color must be a hex color")
+        style = item.get("line_style", "-")
+        if style not in _DRAW_LINE_STYLES:
+            raise InteractiveOptionsError("unsupported draw line style")
+        arrow_mode = item.get("arrow_mode", "none")
+        if arrow_mode not in _DRAW_ARROW_MODES:
+            raise InteractiveOptionsError("unsupported draw arrow mode")
+        arrow_head = item.get("arrow_head", "stealth")
+        if arrow_head not in _DRAW_ARROW_HEADS:
+            raise InteractiveOptionsError("unsupported draw arrow head")
+        result.append({
+            "type": "line",
+            "id": str(item.get("id", ""))[:64],
+            "points": normalized_points,
+            "line_color": color,
+            "line_style": style,
+            "line_width": _finite_number(item.get("line_width", 2), "draw_objects.line_width", 0.5, 12),
+            "arrow_mode": arrow_mode,
+            "arrow_head": arrow_head,
+            "visible": bool(item.get("visible", True)),
+        })
+    return result
+
+
 def validate_interactive_options(raw: Any) -> dict[str, Any]:
     """Return a normalized, JSON-safe interactive render/session payload."""
     if not isinstance(raw, Mapping):
@@ -117,6 +164,7 @@ def validate_interactive_options(raw: Any) -> dict[str, Any]:
         "layer_order",
         "locked_layers",
         "label_offsets",
+        "draw_objects",
         "batch_options",
     }
     unknown = set(raw) - allowed
@@ -215,6 +263,8 @@ def validate_interactive_options(raw: Any) -> dict[str, Any]:
                 _finite_number(value[1], f"label_offsets.{vowel}.y", -1_000_000, 1_000_000),
             )
         result["label_offsets"] = normalized_offsets
+    if "draw_objects" in raw:
+        result["draw_objects"] = _validate_draw_objects(raw["draw_objects"])
     if "batch_options" in raw:
         batch = raw["batch_options"]
         allowed_batch = {"apply_global_design", "apply_layer_design", "apply_layer_visibility", "apply_label_positions"}
@@ -277,6 +327,8 @@ class PlotSessionState:
                 **self.label_offsets_by_file.get(self.current_idx, {}),
                 **dict(options["label_offsets"]),
             }
+        if "draw_objects" in options:
+            self.draw_objects_by_file[self.current_idx] = deepcopy(options["draw_objects"])
         self.revision += 1
 
     def remove_file(self, removed_idx: int) -> None:
@@ -303,6 +355,10 @@ class PlotSessionState:
         self.revision += 1
 
     def to_public_dict(self) -> dict[str, Any]:
+        draw_objects = {
+            str(index): [asdict(obj) if is_dataclass(obj) else deepcopy(obj) for obj in objects]
+            for index, objects in self.draw_objects_by_file.items()
+        }
         return {
             "revision": self.revision,
             "active": self.active,
@@ -320,6 +376,7 @@ class PlotSessionState:
             ),
             "layer_order_by_file": deepcopy(self.layer_order_by_file),
             "label_offsets_by_file": deepcopy(self.label_offsets_by_file),
+            "draw_objects_by_file": draw_objects,
         }
 
     def to_project_dict(self) -> dict[str, Any]:

@@ -4,7 +4,8 @@ from __future__ import annotations
 
 from io import BytesIO
 import math
-from typing import Any
+from types import SimpleNamespace
+from typing import Any, Mapping
 
 from core.normalization_service import normalize_dataframe
 
@@ -25,6 +26,7 @@ class PreviewRenderer:
         layer_overrides: dict[str, dict[str, Any]] | None = None,
         layer_order: list[str] | None = None,
         custom_label_offsets: dict[str, tuple[float, float]] | None = None,
+        draw_objects: list[Mapping[str, Any]] | None = None,
         include_context: bool = False,
     ) -> bytes | tuple[bytes, dict[str, Any]]:
         self.figure.clear()
@@ -56,9 +58,35 @@ class PreviewRenderer:
                 manual_ranges=ranges,
                 filter_state=filter_state,
                 design_settings=design_settings,
-            layer_overrides=layer_overrides,
-            layer_order=layer_order,
-            custom_label_offsets=custom_label_offsets,
+                layer_overrides=layer_overrides,
+                layer_order=layer_order,
+                custom_label_offsets=custom_label_offsets,
+            )
+
+        if draw_objects and self.figure.axes:
+            from draw.draw_layer_render import render_draw_objects
+
+            objects = []
+            for raw in draw_objects:
+                if not isinstance(raw, Mapping) or raw.get("type", "line") != "line":
+                    continue
+                points = raw.get("points")
+                if not isinstance(points, list) or len(points) < 2:
+                    continue
+                objects.append(SimpleNamespace(
+                    type="line",
+                    visible=bool(raw.get("visible", True)),
+                    points=[tuple(point) for point in points],
+                    line_color=raw.get("line_color", "#2563eb"),
+                    line_style=raw.get("line_style", "-"),
+                    line_width=float(raw.get("line_width", 2)),
+                    arrow_mode=raw.get("arrow_mode", "none"),
+                    arrow_head=raw.get("arrow_head", "stealth"),
+                ))
+            render_draw_objects(
+                self.figure.axes[0],
+                objects,
+                SimpleNamespace(design_settings=design_settings),
             )
 
         # The ruler must snap to the same rendered points as PySide.  Capture

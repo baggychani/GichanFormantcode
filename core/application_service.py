@@ -426,6 +426,9 @@ class ApplicationService:
                 )),
                 **deepcopy(session.label_offsets_by_file.get(current_index, {})),
             } if batch_options.get("apply_label_positions", True) else {},
+            "draw_objects": deepcopy(
+                session.draw_objects_by_file.get(current_index, [])
+            ),
             "filename": str(current_data.get("name", "")),
             "request_id": options.get("request_id"),
             "revision": session.revision,

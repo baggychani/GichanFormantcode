@@ -66,6 +66,7 @@ export type ApplicationState = {
     layer_design_overrides_by_file: Record<string, Record<string, Record<string, unknown>>>;
     layer_locked_vowels_by_file: Record<string, string[]>;
     layer_order_by_file: Record<string, string[]>;
+    draw_objects_by_file: Record<string, Array<Record<string, unknown>>>;
   };
   sources: SourceInfo[];
   capabilities: {

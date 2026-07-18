@@ -5,6 +5,8 @@ import { listen } from "@tauri-apps/api/event";
 import { open, save } from "@tauri-apps/plugin-dialog";
 import {
   ArrowUpRight,
+  ArrowLeftRight,
+  ArrowRight,
   BarChart3,
   Bold,
   ChevronDown,
@@ -49,7 +51,21 @@ type RulerDisplayMode = "hz" | "bark";
 type LeftPanel = "analysis" | "global-design";
 type RightPanel = "layers" | "drawing";
 type DrawTool = "text" | "line" | "area" | "reference" | "legend";
-type VowelAnalysisPage = "formant" | "distance" | "pillai";
+type DrawArrowMode = "none" | "end" | "all";
+type DrawArrowHead = "stealth" | "open" | "latex";
+type DrawPoint = { x: number; y: number; label?: string };
+type DrawLineObject = {
+  type: "line";
+  id: string;
+  points: Array<[number, number]>;
+  line_color: string;
+  line_style: string;
+  line_width: number;
+  arrow_mode: DrawArrowMode;
+  arrow_head: DrawArrowHead;
+  visible: boolean;
+};
+type VowelAnalysisPage = "home" | "formant" | "distance" | "pillai";
 type VowelAnalysisResult = {
   index: number;
   name: string;
@@ -299,18 +315,24 @@ function AnalysisFigure({ page }: { page: VowelAnalysisPage }) {
 }
 
 function VowelAnalysisShell({ currentSource, sources, currentIndex, displayIndex, onNavigate, onClose }: { currentSource: SourceInfo | undefined; sources: SourceInfo[]; currentIndex: number; displayIndex: number; onNavigate: (index: number) => void; onClose: () => void }) {
-  const [page, setPage] = useState<VowelAnalysisPage>("formant");
+  const [page, setPage] = useState<VowelAnalysisPage>("home");
+  const [lobbyAnimationEnabled, setLobbyAnimationEnabled] = useState(true);
+  const lobbyShownRef = useRef(false);
   const [analysisData, setAnalysisData] = useState<VowelAnalysisResult | null>(null);
+  const [analysisLoading, setAnalysisLoading] = useState(true);
   const analysisBodyRef = useRef<HTMLDivElement | null>(null);
   const analysisScrollByFileRef = useRef(new Map<number, number>());
   const previousAnalysisIndexRef = useRef(currentIndex);
   useEffect(() => {
-    setAnalysisData(null);
+    setAnalysisLoading(true);
     let active = true;
     void callSidecar<VowelAnalysisResult>("get_vowel_analysis", { index: currentIndex }).then((result) => {
-      if (active) setAnalysisData(result);
+      if (active) {
+        setAnalysisData(result);
+        setAnalysisLoading(false);
+      }
     }).catch(() => {
-      // Keep the shell hidden when the replacement analysis cannot be loaded.
+      if (active) setAnalysisLoading(false);
     });
     return () => { active = false; };
   }, [currentIndex]);
@@ -324,7 +346,6 @@ function VowelAnalysisShell({ currentSource, sources, currentIndex, displayIndex
     });
     return () => window.cancelAnimationFrame(frame);
   }, [currentIndex]);
-  if (!analysisData) return null;
   const analysisPairs = analysisData ? Object.keys(analysisData.statistics).flatMap((left, index, vowels) => vowels.slice(index + 1).map((right) => ({ left, right, key: `${left}::${right}` }))) : [];
   const pages: Array<{ id: VowelAnalysisPage; label: string; detail: string }> = [
     { id: "formant", label: "모음별 통계", detail: "중심점과 분포" },
@@ -336,19 +357,41 @@ function VowelAnalysisShell({ currentSource, sources, currentIndex, displayIndex
     : page === "distance"
       ? { kicker: "02 · VOWEL DISTANCE", title: "모음 사이의 간격을 비교합니다", copy: "중심점 간 거리와 모음 내부 분산을 함께 살펴볼 수 있도록 준비 중입니다." }
       : { kicker: "03 · GROUP SEPARATION", title: "모음 조합의 분리도를 확인합니다", copy: "선택한 모음 조합이 통계적으로 얼마나 분리되는지 보여주는 분석 페이지입니다." };
+  const analysisFileName = currentSource?.name ?? "-";
+  const analysisFileMatch = analysisFileName.match(/^(.*?)(\.[^.]+)?$/);
+  const analysisFileStem = analysisFileMatch?.[1] || analysisFileName;
+  const analysisFileExt = analysisFileMatch?.[2] ?? "";
+  const goToAnalysisPage = (next: VowelAnalysisPage) => {
+    if (next === "home") setLobbyAnimationEnabled(!lobbyShownRef.current);
+    else lobbyShownRef.current = true;
+    setPage(next);
+  };
 
   return (
     <div className="vowel-analysis-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
-      <section className="vowel-analysis-shell" role="dialog" aria-modal="true" aria-labelledby="vowel-analysis-title">
+      <section className={`vowel-analysis-shell ${page === "home" ? "is-lobby" : ""} ${page === "home" && lobbyAnimationEnabled ? "is-lobby-first" : ""}`} role="dialog" aria-modal="true" aria-labelledby="vowel-analysis-title">
         <header className="vowel-analysis-header">
-          <div className="vowel-analysis-title"><div className="vowel-analysis-mark"><BarChart3 size={18} /></div><div><span className="section-eyebrow">모음 공간 분석실</span><h2 id="vowel-analysis-title">모음 상세 분석</h2><p>{currentSource?.name ?? "현재 데이터"}의 모음 공간을 수치와 분포로 읽습니다.</p></div></div>
+          <div className="vowel-analysis-title"><div className="vowel-analysis-mark"><BarChart3 size={18} /></div><div><span className="section-eyebrow">모음 공간 분석실</span><h2 id="vowel-analysis-title">모음 상세 분석</h2><p>포먼트 통계, 거리, 집단 분리를 필요한 화면으로 꺼내 봅니다.</p></div></div>
           <button type="button" className="vowel-analysis-close" onClick={onClose} aria-label="분석 창 닫기"><X size={18} /></button>
         </header>
-        <div className="analysis-file-switcher"><button type="button" onClick={() => onNavigate(sources[Math.max(0, displayIndex - 1)]?.index ?? currentIndex)} disabled={displayIndex <= 0} aria-label="이전 파일">‹</button><div><span>분석 파일</span><strong>{displayIndex + 1} / {sources.length}</strong><b title={currentSource?.name}>{currentSource?.name ?? "-"}</b></div><button type="button" onClick={() => onNavigate(sources[Math.min(sources.length - 1, displayIndex + 1)]?.index ?? currentIndex)} disabled={displayIndex >= sources.length - 1} aria-label="다음 파일">›</button></div>
-        <nav className="vowel-analysis-tabs" aria-label="모음 분석 페이지">{pages.map((item) => <button key={item.id} type="button" className={page === item.id ? "is-active" : ""} onClick={() => setPage(item.id)}><strong>{item.label}</strong><small>{item.detail}</small></button>)}</nav>
-        <div className="vowel-analysis-body" ref={analysisBodyRef}>
+        {page !== "home" ? <div className="analysis-file-switcher"><button type="button" onClick={() => onNavigate(sources[Math.max(0, displayIndex - 1)]?.index ?? currentIndex)} disabled={displayIndex <= 0} aria-label="이전 파일">‹</button><div><span className="analysis-file-meta"><span>분석 파일</span><strong>{displayIndex + 1} / {sources.length}</strong></span><b className="analysis-file-name" title={analysisFileName}><span>{analysisFileStem}</span>{analysisFileExt ? <em>{analysisFileExt}</em> : null}</b></div><button type="button" onClick={() => onNavigate(sources[Math.min(sources.length - 1, displayIndex + 1)]?.index ?? currentIndex)} disabled={displayIndex >= sources.length - 1} aria-label="다음 파일">›</button></div> : null}
+        {page !== "home" ? <nav className="vowel-analysis-tabs" aria-label="모음 분석 페이지"><button type="button" className="analysis-home-tab" onClick={() => goToAnalysisPage("home")}><ChevronLeft size={14} /><span><strong>전체 보기</strong><small>분석 항목</small></span></button>{pages.map((item) => <button key={item.id} type="button" className={page === item.id ? "is-active" : ""} onClick={() => goToAnalysisPage(item.id)}><strong>{item.label}</strong><small>{item.detail}</small></button>)}</nav> : null}
+        <div className={`vowel-analysis-body ${page === "home" ? "is-lobby" : ""}`} ref={analysisBodyRef}>
+          {page === "home" ? <div className="analysis-lobby">
+            <section className="analysis-lobby-intro">
+              <span>ANALYSIS SUITE</span>
+              <strong>모음 공간을 더 자세한 수치들로 분석할 수 있습니다.</strong>
+              <p>모음별 분포 통계, 중심점 간 거리, 겹침 정도 등 다양한 통계를 확인하고 내보낼 수 있습니다.</p>
+            </section>
+            <section className="analysis-lobby-grid">
+              <button type="button" className="analysis-bento analysis-bento-formant is-primary" onClick={() => goToAnalysisPage("formant")}><span>01</span><strong>모음별 통계</strong><p>평균 · 표준편차 · 범위 · 중심 거리 · n</p></button>
+              <button type="button" className="analysis-bento analysis-bento-distance" onClick={() => goToAnalysisPage("distance")}><span>02</span><strong>중심점 거리</strong><p>Euclidean · Mahalanobis</p></button>
+              <button type="button" className="analysis-bento analysis-bento-pillai" onClick={() => goToAnalysisPage("pillai")}><span>03</span><strong>Pillai Score</strong><p>score · p-value</p></button>
+              <div className="analysis-bento analysis-bento-export export-bento"><Download size={18} /><strong>분석표 내보내기</strong><p>표 형식 데이터로 저장</p></div>
+            </section>
+          </div> : null}
           <div className="vowel-analysis-hero"><div className="analysis-hero-copy"><span className="analysis-kicker">{hero.kicker}</span><h3>{hero.title}</h3><p>{hero.copy}</p></div><AnalysisFigure page={page} /></div>
-          <section className="analysis-detail-panel"><div className="analysis-detail-heading"><div><span className="analysis-kicker">RESULTS</span><h4>{page === "formant" ? "모음별 통계" : page === "distance" ? "선택 모음 간 거리" : "모음 조합별 Pillai Score"}</h4></div><span>{analysisData ? String(analysisData.metadata.total_points ?? 0) + " tokens" : "계산 중"}</span></div>{analysisData ? page === "formant" ? <div className="analysis-result-table analysis-formant-table"><div className="analysis-result-row analysis-result-head"><span>모음</span><span>F1 평균 ± SD</span><span>F1 범위</span><span>{analysisData.x_label ?? "F2"} 평균 ± SD</span><span>{analysisData.x_label ?? "F2"} 범위</span><span>중심 거리</span><span>n</span></div>{Object.entries(analysisData.statistics).map(([vowel, stat]) => <div className="analysis-result-row" key={vowel}><strong>{vowel}</strong><span>{stat.y_mean.toFixed(1)} ± {stat.y_std.toFixed(1)}</span><span>{stat.y_min.toFixed(1)}–{stat.y_max.toFixed(1)}</span><span>{stat.x_mean.toFixed(1)} ± {stat.x_std.toFixed(1)}</span><span>{stat.x_min.toFixed(1)}–{stat.x_max.toFixed(1)}</span><span>{(analysisData.centroid_distances[vowel]?.distance_to_centroid ?? 0).toFixed(1)}</span><span>{stat.count}</span></div>)}</div> : analysisPairs.length ? <div className="analysis-result-table"><div className="analysis-result-row analysis-result-head"><span>모음 조합</span><span>{page === "distance" ? "Euclidean" : "Pillai Score"}</span><span>{page === "distance" ? "Mahalanobis" : "p-value"}</span></div>{analysisPairs.map((pair) => { const euclidean = analysisData.pairwise_euclidean[pair.key]; const mahalanobis = analysisData.pairwise_mahalanobis[pair.key]; const pillai = analysisData.pillai_scores[pair.key]; return <div className="analysis-result-row" key={pair.key}><strong>{pair.left} - {pair.right}</strong><span>{page === "distance" ? (euclidean ?? 0).toFixed(3) : pillai?.score == null ? "N/A" : pillai.score.toFixed(4)}</span><span>{page === "distance" ? (mahalanobis ?? 0).toFixed(3) : pillai?.p_value == null ? "N/A" : pillai.p_value.toFixed(4)}</span></div>; })}</div> : <div className="analysis-result-empty">모음 두 개 이상을 선택하면 조합별 결과가 표시됩니다.</div> : <div className="analysis-result-empty">분석 데이터를 불러오는 중입니다.</div>}</section>
+          <section className="analysis-detail-panel"><div className="analysis-detail-heading"><div><span className="analysis-kicker">RESULTS</span><h4>{page === "formant" ? "모음별 통계" : page === "distance" ? "선택 모음 간 거리" : "모음 조합별 Pillai Score"}</h4></div><span>{analysisLoading ? "계산 중" : analysisData ? String(analysisData.metadata.total_points ?? 0) + " tokens" : "데이터 없음"}</span></div>{analysisData ? page === "formant" ? <div className="analysis-result-table analysis-formant-table"><div className="analysis-result-row analysis-result-head"><span>모음</span><span>F1 평균 ± SD</span><span>F1 범위</span><span>{analysisData.x_label ?? "F2"} 평균 ± SD</span><span>{analysisData.x_label ?? "F2"} 범위</span><span>중심 거리</span><span>n</span></div>{Object.entries(analysisData.statistics).map(([vowel, stat]) => <div className="analysis-result-row" key={vowel}><strong>{vowel}</strong><span>{stat.y_mean.toFixed(1)} ± {stat.y_std.toFixed(1)}</span><span>{stat.y_min.toFixed(1)}–{stat.y_max.toFixed(1)}</span><span>{stat.x_mean.toFixed(1)} ± {stat.x_std.toFixed(1)}</span><span>{stat.x_min.toFixed(1)}–{stat.x_max.toFixed(1)}</span><span>{(analysisData.centroid_distances[vowel]?.distance_to_centroid ?? 0).toFixed(1)}</span><span>{stat.count}</span></div>)}</div> : analysisPairs.length ? <div className="analysis-result-table"><div className="analysis-result-row analysis-result-head"><span>모음 조합</span><span>{page === "distance" ? "Euclidean" : "Pillai Score"}</span><span>{page === "distance" ? "Mahalanobis" : "p-value"}</span></div>{analysisPairs.map((pair) => { const euclidean = analysisData.pairwise_euclidean[pair.key]; const mahalanobis = analysisData.pairwise_mahalanobis[pair.key]; const pillai = analysisData.pillai_scores[pair.key]; return <div className="analysis-result-row" key={pair.key}><strong>{pair.left} - {pair.right}</strong><span>{page === "distance" ? (euclidean ?? 0).toFixed(3) : pillai?.score == null ? "N/A" : pillai.score.toFixed(4)}</span><span>{page === "distance" ? (mahalanobis ?? 0).toFixed(3) : pillai?.p_value == null ? "N/A" : pillai.p_value.toFixed(4)}</span></div>; })}</div> : <div className="analysis-result-empty">모음 두 개 이상을 선택하면 조합별 결과가 표시됩니다.</div> : <div className="analysis-result-empty">분석 데이터를 불러오는 중입니다.</div>}</section>
         </div>
       </section>
     </div>
@@ -387,6 +430,12 @@ export function InteractivePlotWindow() {
   const [drawTool, setDrawTool] = useState<DrawTool>("line");
   const [drawColor, setDrawColor] = useState<string | null>("#2563eb");
   const [drawWidth, setDrawWidth] = useState(2);
+  const [drawLineStyle, setDrawLineStyle] = useState("-");
+  const [drawArrowMode, setDrawArrowMode] = useState<DrawArrowMode>("none");
+  const [drawArrowHead, setDrawArrowHead] = useState<DrawArrowHead>("stealth");
+  const [drawLinesByFile, setDrawLinesByFile] = useState<Record<number, DrawLineObject[]>>({});
+  const [drawingPoints, setDrawingPoints] = useState<DrawPoint[]>([]);
+  const [drawHover, setDrawHover] = useState<{ point: DrawPoint; clientX: number; clientY: number; snapped: boolean } | null>(null);
   const [globalDesignLocked, setGlobalDesignLocked] = useState(true);
   const [leftOpen, setLeftOpen] = useState(true);
   const [rightOpen, setRightOpen] = useState(true);
@@ -438,6 +487,9 @@ export function InteractivePlotWindow() {
   const plotPaperRef = useRef<HTMLDivElement | null>(null);
   const plotImageRef = useRef<HTMLImageElement | null>(null);
   const plotLabelFrameRef = useRef<number | null>(null);
+  const drawIdRef = useRef(0);
+  const plotLabelDragStartRef = useRef<{ x: number; y: number } | null>(null);
+  const plotLabelHasMovedRef = useRef(false);
   const globalDesignByFileRef = useRef(new Map<string, DesignSettings>());
   const designInitializedRef = useRef(false);
 
@@ -582,6 +634,7 @@ export function InteractivePlotWindow() {
   const currentSourcePosition = Math.max(0, sources.findIndex((source) => source.index === currentIndex));
   const hasCombined = currentSource?.is_combined === true;
   const currentFileKey = currentSource ? String(currentSource.path ?? `${currentSource.index}:${currentSource.name}`) : "";
+  const currentDrawLines = drawLinesByFile[currentIndex] ?? [];
   const currentVowels = state?.current_vowels ?? [];
   const plotType = analysis?.type ?? "f1_f2";
   const xAxis = X_AXIS_LABEL[plotType] ?? "F2";
@@ -635,6 +688,7 @@ export function InteractivePlotWindow() {
     const sessionOverrides = session?.layer_design_overrides_by_file?.[sessionKey] as LayerOverrides | undefined;
     const sessionLocked = session?.layer_locked_vowels_by_file?.[sessionKey];
     const sessionOrder = session?.layer_order_by_file?.[sessionKey];
+    const sessionDrawLines = session?.draw_objects_by_file?.[sessionKey] as DrawLineObject[] | undefined;
     setLayerState(sessionState ?? cached?.state ?? Object.fromEntries(currentVowels.map((vowel) => [vowel, "ON"])));
     setLayerOverrides(sessionOverrides ?? cached?.overrides ?? {});
     setRanges(Object.keys(session?.ranges ?? {}).length === 4 ? session!.ranges as Ranges : defaultRanges);
@@ -651,6 +705,11 @@ export function InteractivePlotWindow() {
     selectionAnchorRef.current = defaultOrder[0] ?? "";
     setExpandedLayers(cached?.expanded ? new Set(cached.expanded) : new Set());
     setLockedLayers(sessionLocked ? new Set(sessionLocked) : cached ? new Set(cached.locked) : new Set());
+    if (sessionDrawLines) {
+      setDrawLinesByFile((previous) => ({ ...previous, [currentIndex]: sessionDrawLines }));
+    }
+    setDrawingPoints([]);
+    setDrawHover(null);
     const storedOrder = sessionOrder ?? cached?.order ?? layerOrderRef.current;
     const sameSet = storedOrder.length === defaultOrder.length && storedOrder.every((vowel) => defaultOrder.includes(vowel));
     const nextOrder = sameSet ? storedOrder : defaultOrder;
@@ -667,6 +726,7 @@ export function InteractivePlotWindow() {
     layerOverrides?: LayerOverrides;
     layerOrder?: string[];
     labelOffsets?: Record<string, [number, number]>;
+    drawObjects?: DrawLineObject[];
   } = {}) => {
     if (!state?.capabilities.can_plot) return;
     if (renderTimerRef.current !== null) {
@@ -685,6 +745,7 @@ export function InteractivePlotWindow() {
           layer_overrides: overrides.layerOverrides ?? layerOverrides,
           layer_order: overrides.layerOrder ?? layerOrder,
           locked_layers: [...lockedLayers],
+          draw_objects: overrides.drawObjects ?? currentDrawLines,
           ...(overrides.labelOffsets ? { label_offsets: overrides.labelOffsets } : {}),
           request_id: requestId,
         },
@@ -840,6 +901,24 @@ export function InteractivePlotWindow() {
           void saveProject();
         }
         return;
+        }
+      if (tool === "draw" && (event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "z") {
+        event.preventDefault();
+        setDrawingPoints((previous) => previous.slice(0, -1));
+        setMessage("현재 선의 마지막 점을 되돌렸습니다.");
+        return;
+      }
+      if (tool === "draw" && event.key === "Escape") {
+        event.preventDefault();
+        setDrawingPoints([]);
+        setDrawHover(null);
+        setMessage("선 그리기를 취소했습니다.");
+        return;
+      }
+      if (tool === "draw" && (event.key === "Enter" || event.key === "Return")) {
+        event.preventDefault();
+        finishDrawLine(drawingPoints);
+        return;
       }
       if (event.altKey || event.ctrlKey || event.metaKey) return;
       const target = event.target as HTMLElement | null;
@@ -920,7 +999,7 @@ export function InteractivePlotWindow() {
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [analysis?.normalization, canNavigate, currentSourcePosition, navigateByPosition, navigating, rulerSettingsOpen, sources, tool]);
+  }, [analysis?.normalization, canNavigate, currentSourcePosition, drawArrowHead, drawArrowMode, drawColor, drawLineStyle, drawWidth, drawingPoints, navigateByPosition, navigating, rulerSettingsOpen, sources, tool]);
 
   const updateDesign = (patch: Partial<DesignSettings>) => {
     const next = { ...design, ...patch };
@@ -1242,8 +1321,17 @@ export function InteractivePlotWindow() {
 
   const activateDrawTool = async (next: DrawTool) => {
     setDrawTool(next);
+    setRightPanel("drawing");
+    setRightOpen(true);
+    if (next === "line") {
+      setTool("draw");
+      setDrawingPoints([]);
+      setDrawHover(null);
+      setMessage("선을 그립니다. 점을 클릭하고 Enter 또는 더블클릭으로 확정하세요.");
+      return;
+    }
     setTool("select");
-    setMessage(`${next === "text" ? "텍스트" : next === "line" ? "선" : next === "area" ? "영역" : next === "reference" ? "기준선" : "범례"} 그리기 도구를 선택했습니다.`);
+    setMessage(`${next === "text" ? "텍스트" : next === "area" ? "영역" : next === "reference" ? "기준선" : "범례"} 그리기 도구를 선택했습니다.`);
     await openLegacyPlot();
   };
 
@@ -1411,14 +1499,71 @@ export function InteractivePlotWindow() {
     return nearest;
   };
 
+  const drawPointClient = (point: DrawPoint) => {
+    const geometry = rulerImageGeometry();
+    if (!geometry || !rulerContext) return null;
+    const xRatio = (point.x - rulerContext.xlim[0]) / Math.max(1e-9, rulerContext.xlim[1] - rulerContext.xlim[0]);
+    const yRatio = (point.y - rulerContext.ylim[0]) / Math.max(1e-9, rulerContext.ylim[1] - rulerContext.ylim[0]);
+    const px = rulerContext.axes_bbox.left + xRatio * rulerContext.axes_bbox.width;
+    const py = rulerContext.axes_bbox.bottom + yRatio * rulerContext.axes_bbox.height;
+    return { x: geometry.left + px * geometry.scale, y: geometry.top + (rulerContext.image_height - py) * geometry.scale };
+  };
+
+  const drawPointAtClient = (clientX: number, clientY: number) => {
+    const geometry = rulerImageGeometry();
+    if (!geometry || !rulerContext) return null;
+    const snapped = nearestRulerPoint(clientX, clientY);
+    if (snapped) {
+      return { point: { x: snapped.x, y: snapped.y, label: snapped.label }, clientX, clientY, snapped: true };
+    }
+    return null;
+  };
+
+  const persistDrawLines = (lines: DrawLineObject[]) => {
+    setDrawLinesByFile((previous) => ({ ...previous, [currentIndex]: lines }));
+    void renderInteractive({ drawObjects: lines });
+  };
+
+  const finishDrawLine = (points: DrawPoint[]) => {
+    if (points.length < 2) {
+      setDrawingPoints([]);
+      setDrawHover(null);
+      return;
+    }
+    const line: DrawLineObject = {
+      type: "line",
+      id: `react-line-${currentIndex}-${Date.now()}-${drawIdRef.current++}`,
+      points: points.map(({ x, y }) => [x, y]),
+      line_color: drawColor ?? "#2563eb",
+      line_style: drawLineStyle,
+      line_width: drawWidth,
+      arrow_mode: drawArrowMode,
+      arrow_head: drawArrowHead,
+      visible: true,
+    };
+    persistDrawLines([...currentDrawLines, line]);
+    setDrawingPoints([]);
+    setDrawHover(null);
+    setMessage(`선 ${currentDrawLines.length + 1}개를 추가했습니다. 필요하면 설정에서 화살표를 바꿀 수 있습니다.`);
+  };
+
   const rulerLocalPoint = (clientX: number, clientY: number) => {
     const box = plotPaperRef.current?.getBoundingClientRect();
     return box ? { x: clientX - box.left, y: clientY - box.top } : null;
   };
 
   const handleRulerMove = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (tool === "draw") {
+      setDrawHover(drawPointAtClient(event.clientX, event.clientY));
+      return;
+    }
     if (tool === "label" && draggingPlotLabel) {
       const local = rulerLocalPoint(event.clientX, event.clientY);
+      const start = plotLabelDragStartRef.current;
+      if (start && Math.hypot(event.clientX - start.x, event.clientY - start.y) > 4) {
+        plotLabelHasMovedRef.current = true;
+      }
+      if (!plotLabelHasMovedRef.current) return;
       if (local && plotLabelFrameRef.current === null) {
         plotLabelFrameRef.current = requestAnimationFrame(() => {
           plotLabelFrameRef.current = null;
@@ -1442,6 +1587,19 @@ export function InteractivePlotWindow() {
   };
 
   const handleRulerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (tool === "draw" && event.button === 0) {
+      event.preventDefault();
+      const hit = drawPointAtClient(event.clientX, event.clientY);
+      if (!hit) {
+        setMessage("데이터 점 가까이에서 클릭하면 선의 점으로 스냅합니다.");
+        return;
+      }
+      const nextPoints = [...drawingPoints, hit.point];
+      setDrawingPoints(nextPoints);
+      setMessage(hit.snapped ? `${hit.point.label || "점"}에 스냅했습니다. 다음 점을 선택하세요.` : "선의 다음 점을 선택하세요.");
+      if (event.detail >= 2) finishDrawLine(nextPoints);
+      return;
+    }
     if (tool === "label" && event.button === 0) {
       event.preventDefault();
       event.stopPropagation();
@@ -1450,7 +1608,9 @@ export function InteractivePlotWindow() {
         setDraggingPlotLabel(label.vowel);
         setPlotLabelPreviewVowel(label.vowel);
         setHoveredPlotLabel(label.vowel);
-        setPlotLabelPointer(rulerLocalPoint(event.clientX, event.clientY));
+        plotLabelDragStartRef.current = { x: event.clientX, y: event.clientY };
+        plotLabelHasMovedRef.current = false;
+        setPlotLabelPointer(null);
         event.currentTarget.setPointerCapture(event.pointerId);
       }
       return;
@@ -1477,23 +1637,28 @@ export function InteractivePlotWindow() {
     if (!label) return;
     void renderInteractive({ labelOffsets: { [label.vowel]: [0, 0] } });
     setDraggingPlotLabel(null);
+    plotLabelDragStartRef.current = null;
+    plotLabelHasMovedRef.current = false;
     setPlotLabelPreviewVowel(null);
     setPlotLabelPointer(null);
     setMessage(`${label.vowel} 라벨을 기본 위치로 되돌렸습니다.`);
   };
 
   const handleRulerUp = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (tool === "draw") return;
     if (tool === "label" && draggingPlotLabel && rulerContext) {
       const label = rulerContext.labels.find((item) => item.vowel === draggingPlotLabel);
       const data = plotDataFromClient(event.clientX, event.clientY);
-      if (label && data) {
+      if (label && data && plotLabelHasMovedRef.current) {
         const offsets = { [label.vowel]: [data.x - label.cx, data.y - label.cy] as [number, number] };
         void renderInteractive({ labelOffsets: offsets });
         setMessage(`${label.vowel} 라벨 위치를 저장했습니다.`);
       }
       setDraggingPlotLabel(null);
       // Keep the optimistic preview in place until preview_ready replaces the image.
-      setPlotLabelPreviewVowel(label?.vowel ?? null);
+      setPlotLabelPreviewVowel(plotLabelHasMovedRef.current ? label?.vowel ?? null : null);
+      plotLabelDragStartRef.current = null;
+      plotLabelHasMovedRef.current = false;
     }
     if (plotLabelFrameRef.current !== null) {
       cancelAnimationFrame(plotLabelFrameRef.current);
@@ -1574,6 +1739,8 @@ export function InteractivePlotWindow() {
       setDraggingPlotLabel(null);
       setHoveredPlotLabel(null);
       setPlotLabelPointer(null);
+      plotLabelDragStartRef.current = null;
+      plotLabelHasMovedRef.current = false;
     }
   }, [tool]);
 
@@ -1583,6 +1750,12 @@ export function InteractivePlotWindow() {
       distance: rulerDistanceLabelWithSettings(measurement.p1, measurement.p2),
     })));
   }, [rulerDisplayMode, rulerGeometryMode]);
+
+  const drawPointLocal = (point: DrawPoint) => {
+    const screen = drawPointClient(point);
+    const paper = plotPaperRef.current?.getBoundingClientRect();
+    return screen && paper ? { x: screen.x - paper.left, y: screen.y - paper.top } : null;
+  };
 
   const fileCounter = useMemo(() => `${sources.length ? currentIndex + 1 : 0} / ${sources.length}`, [currentIndex, sources.length]);
   const effective = <K extends keyof DesignSettings,>(key: K): DesignSettings[K] => (selectedOverride[key] ?? design[key]) as DesignSettings[K];
@@ -1666,7 +1839,7 @@ export function InteractivePlotWindow() {
 
               <section className="control-section"><div className="section-heading"><div><span>03</span><strong>신뢰 타원</strong></div></div><div className="segmented-row"><button type="button" className={design.ell_thick === 0.5 ? "is-active" : ""} onClick={() => updateDesign({ ell_thick: 0.5 })}>얇게</button><button type="button" className={design.ell_thick === 1 ? "is-active" : ""} onClick={() => updateDesign({ ell_thick: 1 })}>보통</button><button type="button" className={design.ell_thick === 2 ? "is-active" : ""} onClick={() => updateDesign({ ell_thick: 2 })}>굵게</button></div><div className="segmented-row"><button type="button" className={design.ell_style === "-" ? "is-active" : ""} onClick={() => updateDesign({ ell_style: "-" })}>실선</button><button type="button" className={design.ell_style === "--" ? "is-active" : ""} onClick={() => updateDesign({ ell_style: "--" })}>파선</button><button type="button" className={design.ell_style === ":" ? "is-active" : ""} onClick={() => updateDesign({ ell_style: ":" })}>점선</button></div><div className="palette-picker-row"><PalettePicker label="선 색상" value={design.ell_color} onChange={(ell_color) => updateDesign({ ell_color })} allowTransparent /><PalettePicker label="채우기" value={design.ell_fill_color} onChange={(ell_fill_color) => updateDesign({ ell_fill_color })} allowTransparent /></div><label className="opacity-control"><span>채우기 투명도 <b>{Math.round(design.ell_fill_opacity * 100)}%</b></span><input type="range" min="0" max="60" value={design.ell_fill_opacity * 100} onChange={(event) => updateDesign({ ell_fill_opacity: Number(event.target.value) / 100 })} /></label></section>
 
-              <section className="control-section"><div className="section-heading"><div><span>04</span><strong>플롯 배경과 축</strong></div></div><div className="switch-stack"><ToggleSwitch label="격자 표시" checked={design.show_grid} onChange={() => updateDesign({ show_grid: !design.show_grid })} /><ToggleSwitch label="테두리 축" checked={design.box_spines} onChange={() => updateDesign({ box_spines: !design.box_spines })} /><ToggleSwitch label="축 단위 표시" checked={design.show_axis_units} onChange={() => updateDesign({ show_axis_units: !design.show_axis_units })} /></div><label className="opacity-control"><span>눈금 숫자 크기 <b>{Number(design.tick_label_size ?? 13)}pt</b></span><input type="range" min="8" max="24" step="1" value={Number(design.tick_label_size ?? 13)} onChange={(event) => updateDesign({ tick_label_size: Number(event.target.value) })} /></label>{design.show_grid ? <label className="opacity-control"><span>격자 투명도 <b>{Math.round(design.grid_opacity * 100)}%</b></span><input type="range" min="5" max="80" value={design.grid_opacity * 100} onChange={(event) => updateDesign({ grid_opacity: Number(event.target.value) / 100 })} /></label> : null}</section>
+              <section className="control-section"><div className="section-heading"><div><span>04</span><strong>플롯 배경과 축</strong></div></div><div className="switch-stack"><ToggleSwitch label="격자 표시" checked={design.show_grid} onChange={() => updateDesign({ show_grid: !design.show_grid })} /><ToggleSwitch label="테두리 축" checked={design.box_spines} onChange={() => updateDesign({ box_spines: !design.box_spines })} /><ToggleSwitch label="축 단위 표시" checked={design.show_axis_units} onChange={() => updateDesign({ show_axis_units: !design.show_axis_units })} /></div><label className="opacity-control"><span>눈금 숫자 크기 <b>{Number(design.tick_label_size ?? 13)}pt</b></span><input type="range" min="10" max="18" step="1" value={Number(design.tick_label_size ?? 13)} onChange={(event) => updateDesign({ tick_label_size: Number(event.target.value) })} /></label>{design.show_grid ? <label className="opacity-control"><span>격자 투명도 <b>{Math.round(design.grid_opacity * 100)}%</b></span><input type="range" min="5" max="80" value={design.grid_opacity * 100} onChange={(event) => updateDesign({ grid_opacity: Number(event.target.value) / 100 })} /></label> : null}</section>
 
               <details className="advanced-options"><summary>고급 옵션 <ChevronDown size={14} /></summary><div className="advanced-body"><div className="switch-stack"><ToggleSwitch label="라벨 슬래시 감싸기" checked={design.label_slash_wrap} onChange={() => updateDesign({ label_slash_wrap: !design.label_slash_wrap })} /><ToggleSwitch label="보조 눈금" checked={design.show_minor_ticks} onChange={() => updateDesign({ show_minor_ticks: !design.show_minor_ticks })} /><ToggleSwitch label="축 위치 반전" checked={design.axis_position_swap} onChange={() => updateDesign({ axis_position_swap: !design.axis_position_swap })} /><ToggleSwitch label="세로축 라벨 회전" checked={design.y_label_rotation} onChange={() => updateDesign({ y_label_rotation: !design.y_label_rotation })} /></div></div></details>
               </fieldset>
@@ -1678,7 +1851,12 @@ export function InteractivePlotWindow() {
 
       <section className={`interactive-plot-stage tool-${tool}`}>
         <div className="plot-toolbar"><div className="toolbar-leading">{!leftOpen ? <button className="sidebar-reopen" onClick={() => setLeftOpen(true)}><PanelLeftOpen size={16} /> 도구</button> : null}<div className="toolbar-group"><button className={tool === "select" ? "is-active" : ""} onClick={() => setTool("select")}><MousePointer2 size={16} /> 선택</button><div className="ruler-tool-cluster"><button className={tool === "ruler" ? "is-active" : ""} onClick={() => setTool("ruler")}><Ruler size={16} /> 눈금자</button><button type="button" className={`tool-settings-button ${rulerSettingsOpen ? "is-active" : ""}`} onClick={() => setRulerSettingsOpen((previous) => !previous)} aria-label="눈금자 설정" title="눈금자 설정"><SlidersHorizontal size={14} /></button>{rulerSettingsOpen ? <div className="ruler-settings-popover"><div className="ruler-settings-header"><strong>눈금자 설정</strong><span>측정 방식</span></div><div className="ruler-mode-choices"><button type="button" className={`ruler-mode-choice ${rulerGeometryMode === "direct" ? "is-active" : ""}`} onClick={() => setRulerGeometryMode("direct")}><svg viewBox="0 0 44 22" aria-hidden><line x1="5" y1="17" x2="39" y2="5" /><circle cx="5" cy="17" r="2" /><circle cx="39" cy="5" r="2" /></svg><span>직선</span></button><button type="button" className={`ruler-mode-choice ${rulerGeometryMode === "right-triangle" ? "is-active" : ""}`} onClick={() => setRulerGeometryMode("right-triangle")}><svg viewBox="0 0 44 22" aria-hidden><path d="M5 17H39V5" /><line className="hypotenuse" x1="5" y1="17" x2="39" y2="5" /><path className="right-angle" d="M34 17v-5h5" /></svg><span>Δx · Δy</span></button></div><div className="ruler-unit-row"><span>표시 단위</span><div className="ruler-unit-toggles"><button type="button" className={`ruler-unit-toggle ${rulerDisplayMode === "hz" ? "is-on" : ""}`} aria-pressed={rulerDisplayMode === "hz"} onClick={() => setRulerDisplayMode("hz")}>Hz</button><button type="button" className={`ruler-unit-toggle ${rulerDisplayMode === "bark" ? "is-on" : ""}`} aria-pressed={rulerDisplayMode === "bark"} onClick={() => setRulerDisplayMode("bark")}>Bark</button></div></div></div> : null}</div><button className={tool === "label" ? "is-active" : ""} onClick={() => { setTool("label"); setMessage("라벨 이동 모드 · 라벨을 드래그하세요."); }}><MousePointer2 size={16} /> 라벨 이동</button><button className={tool === "draw" ? "is-active" : ""} onClick={() => { setTool("draw"); setRightPanel("drawing"); setRightOpen(true); }}><PenLine size={16} /> 그리기</button></div></div><div className="toolbar-context"><span>{analysis?.normalization ?? "정규화 없음"}</span><span>{analysis?.origin === "top_right" ? "Praat 좌표" : "수학 좌표"}</span>{!rightOpen ? <button className="sidebar-reopen" onClick={() => setRightOpen(true)}>레이어 <PanelRightOpen size={16} /></button> : null}</div></div>
-        <div className="plot-canvas-shell"><div className="plot-paper" ref={plotPaperRef}>{previewUrl ? <><img ref={plotImageRef} src={previewUrl} alt={`${currentSource?.name ?? "현재 파일"} 포먼트 플롯`} draggable={false} /><div className="ruler-overlay" onPointerMove={handleRulerMove} onPointerDown={handleRulerDown} onPointerUp={handleRulerUp} onPointerCancel={handleRulerUp} onDoubleClick={resetPlotLabel} onContextMenu={tool === "label" ? resetPlotLabel : handleRulerContextMenu}>
+        <div className="plot-canvas-shell"><div className="plot-paper" ref={plotPaperRef}>{previewUrl ? <><img ref={plotImageRef} src={previewUrl} alt={`${currentSource?.name ?? "현재 파일"} 포먼트 플롯`} draggable={false} /><div className="ruler-overlay" onPointerMove={handleRulerMove} onPointerDown={handleRulerDown} onPointerUp={handleRulerUp} onPointerCancel={handleRulerUp} onDoubleClick={(event) => { if (tool === "draw") { event.preventDefault(); finishDrawLine(drawingPoints); } else resetPlotLabel(event); }} onContextMenu={tool === "label" ? resetPlotLabel : handleRulerContextMenu}>
+          <svg className="draw-line-layer" aria-hidden>
+            {drawingPoints.length > 0 ? <polyline className="draw-line-live" points={drawingPoints.map((point) => drawPointLocal(point)).filter((point): point is { x: number; y: number } => Boolean(point)).map((point) => `${point.x},${point.y}`).join(" ")} fill="none" stroke={drawColor ?? "#2563eb"} strokeWidth={drawWidth} strokeDasharray="5 5" strokeLinecap="round" vectorEffect="non-scaling-stroke" /> : null}
+            {tool === "draw" && drawingPoints.length > 0 && drawHover ? (() => { const from = drawPointLocal(drawingPoints[drawingPoints.length - 1]); const to = drawPointLocal(drawHover.point); return from && to ? <line className="draw-line-guide" x1={from.x} y1={from.y} x2={to.x} y2={to.y} stroke={drawColor ?? "#2563eb"} strokeWidth={drawWidth} strokeDasharray="3 5" vectorEffect="non-scaling-stroke" /> : null; })() : null}
+            {tool === "draw" ? drawingPoints.map((point, index) => { const local = drawPointLocal(point); return local ? <circle key={`draw-point-${index}`} className="draw-line-point" cx={local.x} cy={local.y} r={index === drawingPoints.length - 1 ? 5 : 3.5} fill="white" stroke={drawColor ?? "#2563eb"} strokeWidth="2" /> : null; }) : null}
+          </svg>
           {tool === "label" && rulerContext ? rulerContext.labels.map((label) => { const screen = plotLabelClient(label); const box = plotLabelBoxClient(label); const paper = plotPaperRef.current?.getBoundingClientRect(); if (!screen || !paper) return null; const isDragging = draggingPlotLabel === label.vowel && plotLabelPointer !== null; const isPreviewing = plotLabelPreviewVowel === label.vowel && plotLabelPointer !== null; const isHovered = hoveredPlotLabel === label.vowel; const anchorOffsetX = box ? box.left - screen.x : 0; const anchorOffsetY = box ? box.top - screen.y : 0; const left = isPreviewing ? plotLabelPointer.x + anchorOffsetX : box ? box.left - paper.left : screen.x - paper.left; const top = isPreviewing ? plotLabelPointer.y + anchorOffsetY : box ? box.top - paper.top : screen.y - paper.top; const labelDesign = { ...design, ...(layerOverrides[label.vowel] ?? {}) }; const rawWeight = String(labelDesign.font_weight ?? ""); const rawBold = String(labelDesign.lbl_bold); const isBold = rawWeight === "bold" || (!rawWeight && (rawBold === "true" || rawBold === "bold" || rawBold === "medium")); const previewStyle = { color: String(label.lbl_color ?? labelDesign.lbl_color ?? "#ff0000"), fontSize: `${Number(label.fontsize ?? labelDesign.lbl_size ?? 18)}pt`, fontWeight: isBold ? 700 : 400, fontStyle: label.lbl_italic ?? labelDesign.lbl_italic ? "italic" as const : "normal" as const, fontFamily: labelDesign.font_style === "sans" ? "var(--gf-font-sans)" : "var(--gf-font-serif)" }; const boxStyle = box ? { width: box.width, height: box.height } : {}; return <span className={`plot-label-hit-target ${isDragging ? "is-dragging" : ""} ${isHovered ? "is-hovered" : ""}`} key={`label-${label.vowel}`} style={{ left, top, ...boxStyle }} title={`${label.vowel} 라벨 이동`}><span className="plot-label-hit-text" style={previewStyle}>{label.display_vowel ?? label.vowel}</span>{isPreviewing ? <span className="plot-label-drag-preview" style={previewStyle}>{label.display_vowel ?? label.vowel}</span> : null}</span>; }) : null}
          {tool === "ruler" ? rulerMeasurements.map((measurement, index) => { const a = rulerPointClient(measurement.p1); const b = rulerPointClient(measurement.p2); const paper = plotPaperRef.current?.getBoundingClientRect(); if (!a || !b || !paper) return null; const x1 = a.x - paper.left; const y1 = a.y - paper.top; const x2 = b.x - paper.left; const y2 = b.y - paper.top; const triangleLabels = rulerGeometryMode === "right-triangle" ? rulerTriangleLabels(measurement.p1, measurement.p2) : null; const dx = x2 - x1; const dy = y2 - y1; const length = Math.max(1, Math.hypot(dx, dy)); const hypotenuseAngle = Math.atan2(dy, dx) * 180 / Math.PI; const readableAngle = hypotenuseAngle > 90 || hypotenuseAngle < -90 ? hypotenuseAngle + 180 : hypotenuseAngle; const hypotenuseOffset = 18; const hypotenuseLabelX = (x1 + x2) / 2 - (dy / length) * hypotenuseOffset; const hypotenuseLabelY = (y1 + y2) / 2 + (dx / length) * hypotenuseOffset; return <div className="ruler-measurement" key={`${measurement.p1.x}-${measurement.p2.x}-${index}`}><svg className="ruler-line-layer" aria-hidden>{rulerGeometryMode === "right-triangle" ? <><polyline points={`${x1},${y1} ${x2},${y1} ${x2},${y2}`} /><line x1={x1} y1={y1} x2={x2} y2={y2} /></> : <line x1={x1} y1={y1} x2={x2} y2={y2} />}</svg><span className="ruler-point ruler-point-start" style={{ left: x1, top: y1, borderColor: measurement.p1.color }} /><span className="ruler-point ruler-point-end" style={{ left: x2, top: y2, borderColor: measurement.p2.color }} />{triangleLabels ? <><span className="ruler-side-label ruler-side-label-horizontal" style={{ left: (x1 + x2) / 2, top: y1 + 6 }}>{triangleLabels.horizontal}</span><span className="ruler-side-label ruler-side-label-vertical" style={{ left: x2 + 6, top: (y1 + y2) / 2 }}>{triangleLabels.vertical}</span><span className="ruler-side-label ruler-side-label-hypotenuse" style={{ left: hypotenuseLabelX, top: hypotenuseLabelY, transform: `translate(-50%, -50%) rotate(${readableAngle}deg)` }}>{triangleLabels.hypotenuse}</span></> : <button type="button" tabIndex={-1} aria-label={`거리 ${measurement.distance}`} className="ruler-label" style={{ left: measurement.labelX, top: measurement.labelY }} onPointerDown={(event) => { event.stopPropagation(); setDraggingRulerLabel(index); event.currentTarget.setPointerCapture(event.pointerId); }}>{measurement.distance}</button>}</div>; }) : null}
           {tool === "ruler" && rulerStart ? (() => { const screen = rulerPointClient(rulerStart); const paper = plotPaperRef.current?.getBoundingClientRect(); return screen && paper ? <span className={`ruler-snap-marker ${rulerStart.type === "mean" ? "is-mean" : "is-raw"}`} style={{ left: screen.x - paper.left, top: screen.y - paper.top, borderColor: rulerStart.color }} /> : null; })() : null}
@@ -1803,13 +1981,18 @@ export function InteractivePlotWindow() {
               <div className="drawing-panel-heading"><span>현재 도구</span><strong>{drawTool === "text" ? "텍스트" : drawTool === "line" ? "선" : drawTool === "area" ? "영역" : drawTool === "reference" ? "기준선" : "범례"}</strong></div>
               <div className="palette-picker-row"><PalettePicker label="그리기 색상" value={drawColor} onChange={setDrawColor} /></div>
               <label className="opacity-control"><span>선 두께 <b>{drawWidth}px</b></span><input type="range" min="1" max="8" value={drawWidth} onChange={(event) => setDrawWidth(Number(event.target.value))} /></label>
+              {drawTool === "line" ? <>
+                <div className="drawing-style-group"><span className="drawing-style-caption">선 스타일</span><div className="segmented-row"><button type="button" className={drawLineStyle === "-" ? "is-active" : ""} onClick={() => setDrawLineStyle("-")} title="실선"><i className="line-style-swatch" /></button><button type="button" className={drawLineStyle === "--" ? "is-active" : ""} onClick={() => setDrawLineStyle("--")} title="파선"><i className="line-style-swatch is-dashed" /></button><button type="button" className={drawLineStyle === ":" ? "is-active" : ""} onClick={() => setDrawLineStyle(":")} title="점선"><i className="line-style-swatch is-dotted" /></button><button type="button" className={drawLineStyle === "-." ? "is-active" : ""} onClick={() => setDrawLineStyle("-.")} title="일점쇄선"><i className="line-style-swatch is-dash-dot" /></button></div></div>
+                <div className="drawing-style-group"><span className="drawing-style-caption">화살표 위치</span><div className="segmented-row"><button type="button" className={drawArrowMode === "none" ? "is-active" : ""} onClick={() => setDrawArrowMode("none")} title="화살표 없음"><PenLine size={14} /></button><button type="button" className={drawArrowMode === "end" ? "is-active" : ""} onClick={() => setDrawArrowMode("end")} title="끝점"><ArrowRight size={15} /></button><button type="button" className={drawArrowMode === "all" ? "is-active" : ""} onClick={() => setDrawArrowMode("all")} title="모든 구간"><ArrowLeftRight size={15} /></button></div></div>
+                {drawArrowMode !== "none" ? <div className="drawing-style-group"><span className="drawing-style-caption">화살표 모양</span><div className="segmented-row"><button type="button" className={drawArrowHead === "stealth" ? "is-active" : ""} onClick={() => setDrawArrowHead("stealth")}>Stealth</button><button type="button" className={drawArrowHead === "open" ? "is-active" : ""} onClick={() => setDrawArrowHead("open")}>Open</button><button type="button" className={drawArrowHead === "latex" ? "is-active" : ""} onClick={() => setDrawArrowHead("latex")}>LaTeX</button></div></div> : null}
+              </> : null}
               <button type="button" className="wide-action primary" onClick={() => activateDrawTool(drawTool)}><PenLine size={14} /> 캔버스에서 그리기</button>
             </section>
           </div>
           <div className="layer-splitter" role="separator" aria-orientation="horizontal" aria-label="그리기 디자인과 목록 높이 조절" onPointerDown={beginLayerPanelResize} onPointerMove={resizeLayerPanels} onPointerUp={endLayerPanelResize} onPointerCancel={endLayerPanelResize} onLostPointerCapture={cancelLayerPanelResize}><i /></div>
           <div className="drawing-layer-dock">
-            <div className="drawing-list-toolbar"><span>그리기 레이어</span><button type="button" disabled>일괄 삭제</button></div>
-            <div className="drawing-empty"><PenLine size={20} /><strong>아직 그리기 레이어가 없습니다</strong><span>도구를 선택한 뒤 플롯 위에서 그려 주세요.</span><button type="button" onClick={() => void openLegacyPlot()}>PySide 고급 그리기 <ArrowUpRight size={12} /></button></div>
+            <div className="drawing-list-toolbar"><span>그리기 레이어 <b>{currentDrawLines.length}</b></span><button type="button" disabled={!currentDrawLines.length} onClick={() => persistDrawLines([])}>모두 지우기</button></div>
+            {currentDrawLines.length ? <div className="drawing-line-list">{currentDrawLines.map((line, index) => <div className="drawing-line-item" key={line.id}><i style={{ "--line-color": line.line_color } as CSSProperties} /><div><strong>선 {index + 1}</strong><small>{line.points.length}개 점 · {line.arrow_mode === "none" ? "화살표 없음" : line.arrow_mode === "end" ? "끝점 화살표" : "구간별 화살표"}</small></div><button type="button" onClick={() => persistDrawLines(currentDrawLines.filter((item) => item.id !== line.id))} aria-label={`선 ${index + 1} 삭제`} title="선 삭제"><X size={12} /></button></div>)}</div> : <div className="drawing-empty"><PenLine size={20} /><strong>아직 선이 없습니다</strong><span>선 도구를 선택한 뒤 플롯 위에서 점을 클릭해 주세요.</span></div>}
           </div>
         </div>
         )}
