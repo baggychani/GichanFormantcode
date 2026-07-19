@@ -64,6 +64,7 @@ class PreviewRenderer:
             )
 
         objects = []
+        text_layer_refs: list = []
         if draw_objects and self.figure.axes:
             from draw.draw_layer_render import render_draw_objects
 
@@ -103,6 +104,47 @@ class PreviewRenderer:
                         semi=bool(raw.get("semi", False)),
                     ))
                     continue
+                if raw.get("type", "line") == "polygon":
+                    points = raw.get("points")
+                    if not isinstance(points, list) or len(points) < 3:
+                        continue
+                    objects.append(SimpleNamespace(
+                        type="polygon",
+                        id=str(raw.get("id", "")),
+                        visible=bool(raw.get("visible", True)),
+                        points=[tuple(point) for point in points],
+                        border_style=str(raw.get("border_style", "-")),
+                        border_color=raw.get("border_color", "#000000"),
+                        fill_color=raw.get("fill_color", "#3366CC"),
+                        fill_opacity=float(raw.get("fill_opacity", 0.15)),
+                        show_area_label=bool(raw.get("show_area_label", False)),
+                        semi=bool(raw.get("semi", False)),
+                    ))
+                    continue
+                if raw.get("type", "line") == "text":
+                    text = str(raw.get("text", "") or "")
+                    if not text.strip():
+                        continue
+                    objects.append(SimpleNamespace(
+                        type="text",
+                        id=str(raw.get("id", "")),
+                        name=str(raw.get("name", "")),
+                        text=text,
+                        x=float(raw.get("x", 0)),
+                        y=float(raw.get("y", 0)),
+                        font_size=float(raw.get("font_size", 13)),
+                        font_family=str(raw.get("font_family", "Noto Sans KR") or "Noto Sans KR"),
+                        font_weight=str(raw.get("font_weight") or ("bold" if raw.get("font_bold") else "regular")),
+                        font_bold=bool(raw.get("font_bold", False)),
+                        font_italic=bool(raw.get("font_italic", False)),
+                        line_spacing=float(raw.get("line_spacing", 1.15) or 1.15),
+                        text_color=str(raw.get("text_color", "#303133") or "#303133"),
+                        axis_units=str(raw.get("axis_units", "Hz") or "Hz"),
+                        visible=bool(raw.get("visible", True)),
+                        locked=False,
+                        semi=bool(raw.get("semi", False)),
+                    ))
+                    continue
                 if raw.get("type", "line") != "line":
                     continue
                 points = raw.get("points")
@@ -114,7 +156,7 @@ class PreviewRenderer:
                     points=[tuple(point) for point in points],
                     line_color=raw.get("line_color", "#2563eb"),
                     line_style=raw.get("line_style", "-"),
-                    line_width=float(raw.get("line_width", 2)),
+                    line_width=float(raw.get("line_width", 0.5)),
                     arrow_mode=raw.get("arrow_mode", "none"),
                     arrow_head=raw.get("arrow_head", "stealth"),
                     semi=bool(raw.get("semi", False)),
@@ -127,6 +169,7 @@ class PreviewRenderer:
                     normalization=params.get("normalization"),
                     fixed_plot_params=params,
                 ),
+                text_layer_refs=text_layer_refs,
             )
 
         # draw 한 번으로 ruler 좌표 + PNG를 같이 뽑는다 (savefig 재렌더 방지)
@@ -144,6 +187,54 @@ class PreviewRenderer:
                 for obj in objects
                 if getattr(obj, "type", None) == "legend" and getattr(obj, "id", "")
             }
+            # 라벨 bbox와 동일: PNG 상단 원점 픽셀 (figure fraction 금지)
+            text_bounds: dict[str, dict[str, float]] = {}
+            try:
+                renderer = self.figure.canvas.get_renderer()
+            except Exception:
+                renderer = None
+            img_h = float(ruler_context.get("image_height") or 0)
+            ax0 = self.figure.axes[0] if self.figure.axes else None
+            if renderer is not None and img_h > 0:
+                for arts, obj, _old in text_layer_refs:
+                    obj_id = str(getattr(obj, "id", "") or "")
+                    if not obj_id:
+                        continue
+                    art_list = arts if isinstance(arts, list) else [arts]
+                    x0 = y0 = float("inf")
+                    x1 = y1 = float("-inf")
+                    for art in art_list:
+                        try:
+                            bb = art.get_window_extent(renderer)
+                        except Exception:
+                            continue
+                        x0 = min(x0, float(bb.x0), float(bb.x1))
+                        x1 = max(x1, float(bb.x0), float(bb.x1))
+                        y0 = min(y0, float(bb.y0), float(bb.y1))
+                        y1 = max(y1, float(bb.y0), float(bb.y1))
+                    if x0 == float("inf"):
+                        continue
+                    pad_x = max(2.0, (x1 - x0) * 0.08)
+                    pad_y = max(2.0, (y1 - y0) * 0.08)
+                    apx = apy = None
+                    if ax0 is not None:
+                        try:
+                            apx, apy = ax0.transData.transform(
+                                (float(getattr(obj, "x", 0)), float(getattr(obj, "y", 0)))
+                            )
+                        except Exception:
+                            apx = apy = None
+                    text_bounds[obj_id] = {
+                        "x": float(getattr(obj, "x", 0)),
+                        "y": float(getattr(obj, "y", 0)),
+                        "left": float(x0 - pad_x),
+                        "top": float(img_h - (y1 + pad_y)),
+                        "width": float((x1 - x0) + 2 * pad_x),
+                        "height": float((y1 - y0) + 2 * pad_y),
+                        "apx": float(apx) if apx is not None else float(x0),
+                        "apy": float(apy) if apy is not None else float(y0),
+                    }
+            ruler_context["text_bounds"] = text_bounds
         png_data = self._encode_drawn_png()
         if include_context:
             return png_data, ruler_context or {}

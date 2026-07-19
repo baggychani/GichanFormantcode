@@ -36,6 +36,22 @@ def test_apply_text_settings_partial_update():
     assert obj.text_color == "#303133"
 
 
+def test_apply_text_settings_font_family_weight_spacing():
+    obj = TextObject(text="x")
+    apply_text_settings(
+        obj,
+        {
+            "font_family": "Andika",
+            "font_weight": "semibold",
+            "line_spacing": 1.6,
+        },
+    )
+    assert obj.font_family == "Andika"
+    assert obj.font_weight == "semibold"
+    assert obj.font_bold is True
+    assert obj.line_spacing == 1.6
+
+
 def test_apply_text_settings_clamps_font_size():
     obj = TextObject(text="x")
     apply_text_settings(obj, {"font_size": 500.0})
@@ -66,12 +82,42 @@ def test_render_text_object_mixed_korean_ipa():
     assert len(artists) >= 2
 
 
+def test_render_text_object_uses_requested_font_family():
+    ax, _fig, _canvas = _make_ax()
+    ctx = SimpleNamespace(design_settings={"font_style": "sans"})
+    obj = TextObject(
+        text="hello",
+        x=1500.0,
+        y=500.0,
+        font_family="Andika",
+        font_weight="bold",
+    )
+    artists = render_text_object(ax, obj, ctx, show_editor_chrome=False)
+    assert artists
+    family = artists[0].get_fontproperties().get_family()
+    assert "Andika" in family
+
+
 def test_render_text_object_multiline():
     ax, _fig, _canvas = _make_ax()
     ctx = SimpleNamespace(design_settings={"font_style": "sans"})
     obj = TextObject(text="line1\nline2", x=1000.0, y=600.0)
     artists = render_text_object(ax, obj, ctx)
     assert len(artists) >= 2
+
+
+def test_multiline_order_on_inverted_yaxis():
+    """포먼트처럼 Y축 반전일 때 첫 줄이 시각적으로 위에 와야 함."""
+    ax, _fig, canvas = _make_ax()
+    ax.set_ylim(1000, 200)  # inverted
+    canvas.draw()
+    ctx = SimpleNamespace(design_settings={"font_style": "sans"})
+    obj = TextObject(text="AAA\nBBB", x=1500.0, y=500.0, font_size=12.0)
+    artists = render_text_object(ax, obj, ctx, show_editor_chrome=False)
+    texts = [a for a in artists if hasattr(a, "get_text")]
+    assert len(texts) >= 2
+    by_content = {a.get_text(): a for a in texts}
+    assert by_content["AAA"].get_position()[1] < by_content["BBB"].get_position()[1]
 
 
 def test_render_text_object_empty_or_hidden():

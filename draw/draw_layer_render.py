@@ -167,9 +167,9 @@ def _render_line(ax, obj, *, line_alpha: float) -> list:
     color_hex = getattr(obj, "line_color", "#000000") or "#000000"
     rgba_color = mcolors.to_rgba(color_hex, float(line_alpha))
     try:
-        linewidth = max(0.5, float(getattr(obj, "line_width", 1.0)))
+        linewidth = max(0.25, min(3.0, float(getattr(obj, "line_width", 0.5))))
     except (TypeError, ValueError):
-        linewidth = 1.0
+        linewidth = 0.5
     (line,) = ax.plot(
         xs,
         ys,
@@ -274,7 +274,12 @@ def _render_line(ax, obj, *, line_alpha: float) -> list:
 def _render_polygon(ax, obj, *, is_semi: bool):
     from matplotlib.patches import Polygon as MplPolygon
 
-    face_alpha = 0.15 if not is_semi else 0.06
+    try:
+        fill_opacity = float(getattr(obj, "fill_opacity", 0.15))
+    except (TypeError, ValueError):
+        fill_opacity = 0.15
+    fill_opacity = max(0.0, min(1.0, fill_opacity))
+    face_alpha = fill_opacity * (0.4 if is_semi else 1.0)
     edge_alpha = 1.0 if not is_semi else 0.4
 
     border_style = getattr(obj, "border_style", "-") or "-"

@@ -47,7 +47,7 @@ class LineObject:
     semi: bool = False
     line_style: str = "-"
     line_color: str = "#000000"
-    line_width: float = 1.0
+    line_width: float = 0.5
     arrow_mode: str = "none"  # "none" | "end" | "all"
     arrow_head: str = "stealth"  # "stealth" | "open" | "latex"
 
@@ -71,6 +71,7 @@ class PolygonObject:
     border_style: str = "-"
     border_color: str = "#000000"
     fill_color: str | None = "#3366CC"
+    fill_opacity: float = 0.15
 
 
 @dataclass
@@ -128,8 +129,11 @@ class TextObject:
     x: float = 0.0
     y: float = 0.0
     font_size: float = 13.0
+    font_family: str = "Noto Sans KR"
+    font_weight: str = "regular"
     font_bold: bool = False
     font_italic: bool = False
+    line_spacing: float = 1.15
     text_color: str = "#303133"
     axis_units: str = "Hz"
     id: str = field(default_factory=lambda: uuid.uuid4().hex[:8])

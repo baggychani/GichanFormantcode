@@ -197,6 +197,80 @@ def _validate_draw_objects(raw: Any) -> list[dict[str, Any]]:
                 "visible": bool(item.get("visible", True)),
             })
             continue
+        if object_type == "polygon":
+            points = item.get("points")
+            if not isinstance(points, list) or not 3 <= len(points) <= 128:
+                raise InteractiveOptionsError("a polygon must contain between 3 and 128 points")
+            normalized_points = []
+            for point in points:
+                if not isinstance(point, (list, tuple)) or len(point) != 2:
+                    raise InteractiveOptionsError("draw polygon points must contain x and y")
+                normalized_points.append([
+                    _finite_number(point[0], "draw_objects.points.x", -1_000_000, 1_000_000),
+                    _finite_number(point[1], "draw_objects.points.y", -1_000_000, 1_000_000),
+                ])
+            border_color = item.get("border_color", "#000000")
+            if not isinstance(border_color, str) or not _HEX_COLOR.fullmatch(border_color):
+                raise InteractiveOptionsError("polygon.border_color must be a hex color")
+            fill_color = item.get("fill_color", "#3366CC")
+            if fill_color is not None:
+                if not isinstance(fill_color, str):
+                    raise InteractiveOptionsError("polygon.fill_color must be a hex color or transparent")
+                if fill_color.lower() != "transparent" and not _HEX_COLOR.fullmatch(fill_color):
+                    raise InteractiveOptionsError("polygon.fill_color must be a hex color or transparent")
+            border_style = item.get("border_style", "-")
+            if border_style not in _DRAW_BORDER_STYLES:
+                raise InteractiveOptionsError("unsupported polygon border style")
+            result.append({
+                "type": "polygon",
+                "id": str(item.get("id", ""))[:64],
+                "points": normalized_points,
+                "border_style": border_style,
+                "border_color": border_color,
+                "fill_color": fill_color,
+                "fill_opacity": _finite_number(item.get("fill_opacity", 0.15), "polygon.fill_opacity", 0, 1),
+                "show_area_label": bool(item.get("show_area_label", False)),
+                "semi": bool(item.get("semi", False)),
+                "visible": bool(item.get("visible", True)),
+            })
+            continue
+        if object_type == "text":
+            text = str(item.get("text", ""))
+            if len(text) > 4096:
+                raise InteractiveOptionsError("draw text is too long")
+            if not text.strip():
+                raise InteractiveOptionsError("draw text must not be empty")
+            text_color = item.get("text_color", "#303133")
+            if not isinstance(text_color, str) or not _HEX_COLOR.fullmatch(text_color):
+                raise InteractiveOptionsError("text.text_color must be a hex color")
+            font_family = item.get("font_family", "Noto Sans KR")
+            if font_family not in _DRAW_FONT_FAMILIES:
+                raise InteractiveOptionsError("unsupported text font family")
+            font_weight = item.get("font_weight")
+            if font_weight is None:
+                font_weight = "bold" if item.get("font_bold", False) else "regular"
+            if font_weight not in _DRAW_FONT_WEIGHTS:
+                raise InteractiveOptionsError("unsupported text font weight")
+            axis_units = str(item.get("axis_units", "Hz") or "Hz")[:32]
+            result.append({
+                "type": "text",
+                "id": str(item.get("id", ""))[:64],
+                "name": str(item.get("name", ""))[:128],
+                "text": text,
+                "x": _finite_number(item.get("x", 0), "text.x", -1_000_000, 1_000_000),
+                "y": _finite_number(item.get("y", 0), "text.y", -1_000_000, 1_000_000),
+                "font_size": _finite_number(item.get("font_size", 13), "text.font_size", 4, 32),
+                "font_family": font_family,
+                "font_weight": font_weight,
+                "font_bold": font_weight in {"bold", "semibold"} or bool(item.get("font_bold", False)),
+                "font_italic": bool(item.get("font_italic", False)),
+                "line_spacing": _finite_number(item.get("line_spacing", 1.15), "text.line_spacing", 0.8, 2.5),
+                "text_color": text_color,
+                "axis_units": axis_units,
+                "semi": bool(item.get("semi", False)),
+                "visible": bool(item.get("visible", True)),
+            })
+            continue
         if object_type != "line":
             raise InteractiveOptionsError("unsupported draw object type")
         points = item.get("points")
@@ -228,7 +302,7 @@ def _validate_draw_objects(raw: Any) -> list[dict[str, Any]]:
             "points": normalized_points,
             "line_color": color,
             "line_style": style,
-            "line_width": _finite_number(item.get("line_width", 2), "draw_objects.line_width", 0.5, 12),
+            "line_width": _finite_number(item.get("line_width", 0.5), "draw_objects.line_width", 0.25, 3),
             "arrow_mode": arrow_mode,
             "arrow_head": arrow_head,
             "semi": bool(item.get("semi", False)),

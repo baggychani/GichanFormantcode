@@ -24,10 +24,15 @@ def is_korean_char(ch: str) -> bool:
     return PlotEngine._is_korean(ch)
 
 
-def font_family_for_run(*, is_korean: bool, font_style: str) -> tuple[list[str], bool]:
+def font_family_for_run(
+    *,
+    is_korean: bool,
+    font_style: str,
+    font_family: str | None = None,
+) -> tuple[list[str], bool]:
     """(fontfamily_list, serif_use_medium) — plot_engine._label_font_family 와 동일."""
     sample = "가" if is_korean else "a"
-    return resolve_label_font_family(sample, font_style)
+    return resolve_label_font_family(sample, font_style, font_family)
 
 
 def font_properties_for_run(
@@ -35,12 +40,23 @@ def font_properties_for_run(
     is_korean: bool,
     font_style: str,
     font_size: float,
-    font_bold: bool,
+    font_bold: bool = False,
+    font_weight: str | None = None,
+    preferred_family: str | None = None,
 ) -> FontProperties:
     family, serif_use_medium = font_family_for_run(
-        is_korean=is_korean, font_style=font_style
+        is_korean=is_korean,
+        font_style=font_style,
+        font_family=preferred_family,
     )
-    if serif_use_medium and not font_bold:
+    requested = str(font_weight or "").lower()
+    if requested in {"bold", "semibold"}:
+        weight = "bold" if requested == "bold" else "semibold"
+    elif requested == "medium":
+        weight = "medium"
+    elif requested == "regular":
+        weight = "medium" if serif_use_medium else "normal"
+    elif serif_use_medium and not font_bold:
         weight = "medium"
     else:
         weight = "bold" if font_bold else "normal"

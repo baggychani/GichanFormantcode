@@ -96,13 +96,12 @@ export function DataGuide({ open, onClose }: DataGuideProps) {
   if (!open) return null;
 
   return (
-    <div className="guide-backdrop" onMouseDown={onClose}>
+    <div className="guide-backdrop" role="presentation">
       <section
         className="guide-dialog"
         role="dialog"
         aria-modal="true"
         aria-labelledby="data-guide-title"
-        onMouseDown={(event) => event.stopPropagation()}
       >
         <header className="guide-header">
           <div className="guide-brand">

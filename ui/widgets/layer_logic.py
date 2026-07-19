@@ -140,10 +140,27 @@ def apply_text_settings(obj: object, cfg: Dict[str, Any]) -> None:
             setattr(obj, "font_size", max(4.0, min(float(cfg.get("font_size")), 200.0)))
         except (TypeError, ValueError):
             pass
-    if "font_bold" in cfg:
-        setattr(obj, "font_bold", bool(cfg.get("font_bold")))
+    if "font_family" in cfg:
+        family = str(cfg.get("font_family") or "").strip()
+        if family:
+            setattr(obj, "font_family", family)
+    if "font_weight" in cfg:
+        weight = str(cfg.get("font_weight") or "regular")
+        if weight in {"regular", "medium", "semibold", "bold"}:
+            setattr(obj, "font_weight", weight)
+            setattr(obj, "font_bold", weight in {"bold", "semibold"})
+    if "font_bold" in cfg and "font_weight" not in cfg:
+        bold = bool(cfg.get("font_bold"))
+        setattr(obj, "font_bold", bold)
+        if not getattr(obj, "font_weight", None):
+            setattr(obj, "font_weight", "bold" if bold else "regular")
     if "font_italic" in cfg:
         setattr(obj, "font_italic", bool(cfg.get("font_italic")))
+    if "line_spacing" in cfg:
+        try:
+            setattr(obj, "line_spacing", max(0.8, min(float(cfg.get("line_spacing")), 2.5)))
+        except (TypeError, ValueError):
+            pass
     if "text_color" in cfg:
         setattr(obj, "text_color", cfg.get("text_color") or "#303133")
 

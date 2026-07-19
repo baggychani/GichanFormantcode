@@ -48,6 +48,27 @@ def test_interactive_options_validate_nested_values():
                 "font_weight": "bold",
                 "font_italic": True,
                 "semi": True,
+            }, {
+                "type": "polygon",
+                "id": "poly-1",
+                "points": [[500, 300], [1500, 300], [1000, 700], [500, 300]],
+                "border_style": "-",
+                "border_color": "#000000",
+                "fill_color": "#3366CC",
+                "show_area_label": False,
+                "semi": True,
+            }, {
+                "type": "text",
+                "id": "txt-1",
+                "text": "첫 줄\n둘째 줄",
+                "x": 1500,
+                "y": 500,
+                "font_size": 14,
+                "font_bold": True,
+                "font_italic": False,
+                "line_spacing": 1.4,
+                "text_color": "#303133",
+                "semi": True,
             }],
         }
     )
@@ -60,6 +81,14 @@ def test_interactive_options_validate_nested_values():
     assert options["draw_objects"][0]["line_width"] == 3.0
     assert options["draw_objects"][1]["border_style"] == "--"
     assert options["draw_objects"][1]["fill_opacity"] == 0.8
+    assert options["draw_objects"][2]["type"] == "polygon"
+    assert options["draw_objects"][2]["fill_color"] == "#3366CC"
+    assert options["draw_objects"][2]["show_area_label"] is False
+    assert options["draw_objects"][3]["type"] == "text"
+    assert options["draw_objects"][3]["text"] == "첫 줄\n둘째 줄"
+    assert options["draw_objects"][3]["font_size"] == 14.0
+    assert options["draw_objects"][3]["font_bold"] is True
+    assert options["draw_objects"][3]["line_spacing"] == 1.4
     assert all(item["semi"] for item in options["draw_objects"])
 
     with pytest.raises(InteractiveOptionsError, match="less than"):
@@ -70,6 +99,10 @@ def test_interactive_options_validate_nested_values():
         validate_interactive_options({"filter_state": {"a": "MAYBE"}})
     with pytest.raises(InteractiveOptionsError, match="hex color"):
         validate_interactive_options({"design": {"lbl_color": "red"}})
+    with pytest.raises(InteractiveOptionsError, match="must not be empty"):
+        validate_interactive_options({
+            "draw_objects": [{"type": "text", "text": "  \n  ", "x": 1, "y": 2}],
+        })
 
 
 def test_plot_session_roundtrip_and_index_removal():

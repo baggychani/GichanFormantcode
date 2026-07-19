@@ -1,4 +1,4 @@
-"""Matplotlib figure fraction 범례 렌더."""
+"""Matplotlib figure fraction 범례 렌더 — 픽셀 고정 레이아웃."""
 
 from __future__ import annotations
 
@@ -11,14 +11,8 @@ from matplotlib.patches import Rectangle
 from core.compare_settings import get_series_design_cfg
 from draw.draw_common import LegendObject
 from draw.legend_helpers import (
-    LEGEND_ICON_LEFT,
-    LEGEND_ICON_RIGHT,
-    LEGEND_TEXT_START,
-    ensure_legend_content_fits,
+    build_legend_pixel_layout,
     legend_box_axes_bounds,
-    legend_box_content_bounds,
-    legend_content_scale,
-    legend_row_pitch,
     _legend_font_family,
 )
 from engine.plot_engine import PlotEngine
@@ -56,18 +50,18 @@ def _resolve_entry_style(
     else:
         cfg = ds if isinstance(ds, dict) else {}
 
-    pe = PlotEngine()
-    ell_color = pe._resolve_plot_color(cfg.get("ell_color"), "#606060")
+    engine = PlotEngine()
+    ell_color = engine._resolve_plot_color(cfg.get("ell_color"), "#606060")
     ell_style = cfg.get("ell_style", "-") or "-"
     ell_thick = float(cfg.get("ell_thick", 2.0) or 2.0)
     centroid_marker = cfg.get("centroid_marker", "o") or "o"
 
     if is_compare:
-        default_face = pe._resolve_plot_color(cfg.get("raw_color"), ell_color)
+        default_face = engine._resolve_plot_color(cfg.get("raw_color"), ell_color)
     else:
         default_face = "black"
 
-    mpl_marker, face_c, edge_c, marker_lw, marker_size = pe._resolve_centroid_marker(
+    mpl_marker, face_c, edge_c, marker_lw, marker_size = engine._resolve_centroid_marker(
         centroid_marker,
         default_face=default_face,
         base_size=36,
@@ -100,23 +94,20 @@ def render_legend(
 
     fig = ax.figure
     entries = list(getattr(legend, "entries", []) or [])
-    ensure_legend_content_fits(legend, fig, popup, entries=entries)
+    layout = build_legend_pixel_layout(legend, fig, popup, entries=entries)
 
     x0, y0, x1, y1 = legend_box_axes_bounds(legend)
     alpha = 0.35 if getattr(legend, "semi", False) else 1.0
     trans = fig.transFigure
     show_border = bool(getattr(legend, "show_border", False))
-    # 예전에는 show_border 하나로 테두리+흰 배경을 함께 켰음.
     if hasattr(legend, "show_fill"):
         show_fill = bool(getattr(legend, "show_fill", False))
     else:
         show_fill = show_border
     box_w = x1 - x0
     box_h = y1 - y0
-    n_entries = max(len(entries), 1)
-    row_pitch = legend_row_pitch(legend, n_entries)
-    scale = legend_content_scale(legend, n_entries)
-    font_size = float(getattr(legend, "font_size", 10.0)) * scale
+    font_size = layout.font_size
+    scale = max(0.85, min(1.6, font_size / 10.0))
     chrome = show_editor_chrome and selected
 
     if show_fill or show_border or chrome:
@@ -156,16 +147,17 @@ def render_legend(
     font_weight = str(getattr(legend, "font_weight", "regular") or "regular")
     font_weight = "bold" if font_weight in {"bold", "semibold"} else "normal"
     font_style = "italic" if bool(getattr(legend, "font_italic", False)) else "normal"
-    cx0, _cy0, cx1, cy1 = legend_box_content_bounds(legend)
-    content_w = cx1 - cx0
-    icon_left = cx0 + LEGEND_ICON_LEFT * content_w
-    icon_right = cx0 + LEGEND_ICON_RIGHT * content_w
+
+    fx = float(legend.fx)
+    fy = float(legend.fy)
+    icon_left = layout.icon_left_frac(fx)
+    icon_right = layout.icon_right_frac(fx)
     icon_mid = (icon_left + icon_right) / 2
-    gap = 0.015 * content_w
-    text_x = cx0 + LEGEND_TEXT_START * content_w
+    gap_frac = (layout.gap * 0.35) / layout.fig_w
+    text_x = layout.text_x_frac(fx)
 
     for i, entry in enumerate(entries):
-        row_y = cy1 - row_pitch * (i + 0.5)
+        row_y = layout.row_y_frac(fy, i)
         style = _resolve_entry_style(
             popup,
             int(getattr(entry, "series_id", 0)),
@@ -175,7 +167,7 @@ def render_legend(
         marker_size = style["marker_size"] * scale
         marker_lw = style["marker_lw"] * scale
         (line_left,) = ax.plot(
-            [icon_left, icon_mid - gap],
+            [icon_left, icon_mid - gap_frac],
             [row_y, row_y],
             transform=trans,
             color=mcolors.to_rgba(style["line_color"], alpha),
@@ -186,7 +178,7 @@ def render_legend(
             clip_on=False,
         )
         (line_right,) = ax.plot(
-            [icon_mid + gap, icon_right],
+            [icon_mid + gap_frac, icon_right],
             [row_y, row_y],
             transform=trans,
             color=mcolors.to_rgba(style["line_color"], alpha),

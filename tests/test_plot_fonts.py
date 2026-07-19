@@ -21,3 +21,13 @@ def test_font_family_for_run():
     ipa_sans, medium2 = font_family_for_run(is_korean=False, font_style="sans")
     assert ipa_sans == ["Andika"]
     assert medium2 is False
+
+
+def test_font_family_for_run_prefers_requested_family():
+    family, _medium = font_family_for_run(
+        is_korean=True,
+        font_style="sans",
+        font_family="Andika",
+    )
+    assert family[0] == "Andika"
+    assert "Noto Sans KR" in family

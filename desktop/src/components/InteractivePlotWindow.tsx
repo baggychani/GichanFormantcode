@@ -7,8 +7,6 @@ import {
   ArrowUpRight,
   ArrowDown,
   ArrowUp,
-  ArrowLeftRight,
-  ArrowRight,
   BarChart3,
   Bold,
   ChevronDown,
@@ -46,7 +44,9 @@ type SidecarEvent = { event: string; payload: Record<string, unknown> };
 type Tool = "select" | "ruler" | "label" | "draw";
 type RulerPoint = { x: number; y: number; px: number; py: number; type: "raw" | "mean"; label: string; color: string; raw_f1?: number; raw_f2?: number };
 type PlotLabel = { vowel: string; display_vowel?: string; cx: number; cy: number; lx: number; ly: number; px: number; py: number; lpx: number; lpy: number; bbox?: { left: number; top: number; width: number; height: number } | null; fontsize?: number; ha?: "left" | "center" | "right"; va?: "bottom" | "center" | "top"; lbl_color?: string; lbl_bold?: boolean | string; lbl_italic?: boolean };
-type RulerContext = { image_width: number; image_height: number; axes_bbox: { left: number; bottom: number; width: number; height: number }; points: RulerPoint[]; labels: PlotLabel[]; xlim: [number, number]; ylim: [number, number]; legend_bounds?: Record<string, { fx: number; fy: number; width_frac: number; height_frac: number }>; params: { normalization?: string | null; use_bark_units?: boolean; f1_scale?: string; f2_scale?: string } };
+/** 라벨 bbox와 동일 — PNG 상단 원점 픽셀 */
+type TextBounds = { x: number; y: number; left: number; top: number; width: number; height: number; apx: number; apy: number };
+type RulerContext = { image_width: number; image_height: number; axes_bbox: { left: number; bottom: number; width: number; height: number }; points: RulerPoint[]; labels: PlotLabel[]; xlim: [number, number]; ylim: [number, number]; legend_bounds?: Record<string, { fx: number; fy: number; width_frac: number; height_frac: number }>; text_bounds?: Record<string, TextBounds>; params: { normalization?: string | null; use_bark_units?: boolean; f1_scale?: string; f2_scale?: string } };
 type RulerMeasurement = { p1: RulerPoint; p2: RulerPoint; labelX: number; labelY: number; distance: string };
 type RulerGeometryMode = "direct" | "right-triangle";
 type RulerDisplayMode = "hz" | "bark";
@@ -55,7 +55,7 @@ type RightPanel = "layers" | "drawing";
 type DrawTool = "text" | "line" | "area" | "reference" | "legend";
 type DrawArrowMode = "none" | "end" | "all";
 type DrawArrowHead = "stealth" | "open" | "latex";
-type DrawPoint = { x: number; y: number; label?: string };
+type DrawPoint = { x: number; y: number; label?: string; px?: number; py?: number };
 type DrawLineObject = {
   type: "line";
   id: string;
@@ -104,7 +104,36 @@ type DrawReferenceObject = {
   visible: boolean;
   semi: boolean;
 };
-type DrawObject = DrawLineObject | DrawLegendObject | DrawReferenceObject;
+type DrawPolygonObject = {
+  type: "polygon";
+  id: string;
+  points: Array<[number, number]>;
+  border_style: string;
+  border_color: string;
+  fill_color: string | null;
+  fill_opacity: number;
+  show_area_label: boolean;
+  visible: boolean;
+  semi: boolean;
+};
+type DrawTextObject = {
+  type: "text";
+  id: string;
+  text: string;
+  x: number;
+  y: number;
+  font_size: number;
+  font_family: string;
+  font_weight: DesignSettings["font_weight"];
+  font_bold: boolean;
+  font_italic: boolean;
+  line_spacing: number;
+  text_color: string;
+  axis_units: string;
+  visible: boolean;
+  semi: boolean;
+};
+type DrawObject = DrawLineObject | DrawLegendObject | DrawReferenceObject | DrawPolygonObject | DrawTextObject;
 type ReferencePreview = {
   mode: "horizontal" | "vertical";
   plotValue: number;
@@ -116,6 +145,53 @@ type ReferencePreview = {
   y2: number;
 };
 type LegendDraft = Omit<DrawLegendObject, "type" | "id"> & { id: string };
+type DrawEditorMode = "defaults" | "layer";
+type DrawEditorKind = "line" | "legend" | "reference" | "polygon" | "text";
+type LineStyleDraft = {
+  line_color: string;
+  line_style: string;
+  line_width: number;
+  arrow_mode: DrawArrowMode;
+  arrow_head: DrawArrowHead;
+};
+type PolygonStyleDraft = {
+  border_style: string;
+  border_color: string;
+  fill_color: string | null;
+  fill_opacity: number;
+};
+type ReferenceStyleDraft = {
+  mode: "horizontal" | "vertical";
+  line_style: string;
+  line_color: string | null;
+  valueLabel?: string;
+};
+type TextStyleDraft = {
+  text: string;
+  font_size: number;
+  font_family: string;
+  font_weight: DesignSettings["font_weight"];
+  font_italic: boolean;
+  line_spacing: number;
+  text_color: string;
+};
+type TextInputState = {
+  x: number;
+  y: number;
+  axis_units: string;
+  draft: string;
+};
+type LegendStyleDefaults = Pick<
+  DrawLegendObject,
+  "name" | "font_size" | "font_family" | "font_weight" | "font_italic" | "show_border" | "border_style" | "border_color" | "show_fill" | "fill_color" | "fill_opacity"
+>;
+type DrawHoverState = {
+  point: DrawPoint;
+  clientX: number;
+  clientY: number;
+  snapped: boolean;
+  rulerPoint: RulerPoint | null;
+};
 type VowelAnalysisPage = "home" | "formant" | "distance" | "pillai";
 type VowelAnalysisResult = {
   index: number;
@@ -356,6 +432,66 @@ function axisPreviewFontFamily(design: Pick<DesignSettings, "font_style" | "font
   return '"Noto Sans KR", "Andika", "Malgun Gothic", sans-serif';
 }
 
+const DRAW_LINE_DEFAULT_COLOR = "#000000";
+const DRAW_LINE_WIDTH_MIN = 0.25;
+const DRAW_LINE_WIDTH_MAX = 3;
+const DRAW_LINE_WIDTH_STEP = 0.25;
+const DRAW_LINE_DEFAULT_WIDTH = 0.5;
+const DRAW_POLYGON_DEFAULT_FILL = "#3366CC";
+const DRAW_POLYGON_DEFAULT_BORDER = "#000000";
+const DRAW_TEXT_DEFAULT_COLOR = "#303133";
+const DRAW_TEXT_DEFAULT_SIZE = 13;
+const DRAW_TEXT_DEFAULT_FAMILY = "Noto Sans KR";
+const DRAW_TEXT_DEFAULT_LINE_SPACING = 1.15;
+const DRAW_TEXT_SIZE_MIN = 4;
+const DRAW_TEXT_SIZE_MAX = 32;
+const DRAW_TEXT_LINE_SPACING_MIN = 0.8;
+const DRAW_TEXT_LINE_SPACING_MAX = 2.5;
+
+const clampDrawLineWidth = (value: number) => {
+  const stepped = Math.round(value / DRAW_LINE_WIDTH_STEP) * DRAW_LINE_WIDTH_STEP;
+  return Math.min(DRAW_LINE_WIDTH_MAX, Math.max(DRAW_LINE_WIDTH_MIN, Number(stepped.toFixed(2))));
+};
+
+const clampDrawTextFontSize = (value: number) => (
+  Math.min(DRAW_TEXT_SIZE_MAX, Math.max(DRAW_TEXT_SIZE_MIN, Math.round(Number.isFinite(value) ? value : DRAW_TEXT_DEFAULT_SIZE)))
+);
+
+const clampDrawTextLineSpacing = (value: number) => {
+  const n = Number.isFinite(value) ? value : DRAW_TEXT_DEFAULT_LINE_SPACING;
+  return Math.min(DRAW_TEXT_LINE_SPACING_MAX, Math.max(DRAW_TEXT_LINE_SPACING_MIN, Number(n.toFixed(2))));
+};
+
+/** PySide create_trajectory_icon 대응 — 화살표 위치/모양 미리보기. */
+function TrajectoryIcon({ mode, head }: { mode: DrawArrowMode; head?: DrawArrowHead }) {
+  const headStyle = head ?? "stealth";
+  const tips = mode === "end" ? [44] : mode === "all" ? [27, 44] : [];
+  const length = 8.5;
+  const width = 4.6;
+  const cy = 12;
+  return (
+    <svg className="trajectory-icon" viewBox="0 0 54 24" width="44" height="20" aria-hidden>
+      <line x1="10" y1={cy} x2="44" y2={cy} stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" />
+      {tips.map((ax) => {
+        if (headStyle === "open") {
+          return (
+            <g key={`open-${ax}`}>
+              <line x1={ax - length} y1={cy - width} x2={ax} y2={cy} stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" />
+              <line x1={ax - length} y1={cy + width} x2={ax} y2={cy} stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" />
+            </g>
+          );
+        }
+        if (headStyle === "latex") {
+          return <polygon key={`latex-${ax}`} points={`${ax},${cy} ${ax - length},${cy - width} ${ax - length},${cy + width}`} fill="currentColor" />;
+        }
+        const indent = 3.6;
+        return <polygon key={`stealth-${ax}`} points={`${ax},${cy} ${ax - length},${cy - width} ${ax - length + indent},${cy} ${ax - length},${cy + width}`} fill="currentColor" />;
+      })}
+      {[10, 27, 44].map((x) => <circle key={x} cx={x} cy={cy} r="2" fill="currentColor" />)}
+    </svg>
+  );
+}
+
 function ToggleSwitch({ label, checked, onChange, disabled = false }: { label: string; checked: boolean; onChange: () => void; disabled?: boolean }) {
   return (
     <button type="button" className="setting-switch" role="switch" aria-checked={checked} onClick={onChange} disabled={disabled}>
@@ -380,7 +516,7 @@ function MarkerPicker({ value, onChange, disabled = false }: { value: string; on
 }
 
 function PalettePicker({ label, value, onChange, allowTransparent = false, disabled = false }: { label: string; value: string | null; onChange: (color: string | null) => void; allowTransparent?: boolean; disabled?: boolean }) {
-  const colors = ["#202938", "#606060", "#9ca3af", "#FF0000", "#ef2929", "#f97316", "#eab308", "#16a34a", "#0891b2", "#2563eb", "#7c3aed"];
+  const colors = ["#000000", "#202938", "#606060", "#9ca3af", "#FF0000", "#ef2929", "#f97316", "#eab308", "#16a34a", "#0891b2", "#2563eb", "#7c3aed"];
   return (
     <details className="palette-picker">
       <summary aria-disabled={disabled}><span>{label}</span><i className={!value ? "is-transparent" : ""} style={value ? { background: value } : undefined} /></summary>
@@ -495,7 +631,7 @@ function VowelAnalysisShell({ currentSource, sources, currentIndex, displayIndex
   };
 
   return (
-    <div className="vowel-analysis-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
+    <div className="vowel-analysis-backdrop" role="presentation">
       <section className={`vowel-analysis-shell ${page === "home" ? "is-lobby" : ""} ${page === "home" && lobbyAnimationEnabled ? "is-lobby-first" : ""}`} role="dialog" aria-modal="true" aria-labelledby="vowel-analysis-title">
         <header className="vowel-analysis-header">
           <div className="vowel-analysis-title"><div className="vowel-analysis-mark"><BarChart3 size={18} /></div><div><span className="section-eyebrow">모음 공간 분석실</span><h2 id="vowel-analysis-title">모음 상세 분석</h2></div></div>
@@ -555,22 +691,64 @@ export function InteractivePlotWindow() {
   const [leftPanel, setLeftPanel] = useState<LeftPanel>("analysis");
   const [rightPanel, setRightPanel] = useState<RightPanel>("layers");
   const [drawTool, setDrawTool] = useState<DrawTool | null>(null);
-  const [drawColor, setDrawColor] = useState<string | null>("#2563eb");
-  const [drawWidth, setDrawWidth] = useState(2);
+  const [drawColor, setDrawColor] = useState<string | null>(DRAW_LINE_DEFAULT_COLOR);
+  const [drawWidth, setDrawWidth] = useState(DRAW_LINE_DEFAULT_WIDTH);
   const [drawLineStyle, setDrawLineStyle] = useState("-");
   const [drawArrowMode, setDrawArrowMode] = useState<DrawArrowMode>("none");
   const [drawArrowHead, setDrawArrowHead] = useState<DrawArrowHead>("stealth");
+  const [drawRefColor, setDrawRefColor] = useState<string | null>(null);
+  const [drawRefStyle, setDrawRefStyle] = useState("-");
+  const [drawPolyBorderStyle, setDrawPolyBorderStyle] = useState("-");
+  const [drawPolyBorderColor, setDrawPolyBorderColor] = useState(DRAW_POLYGON_DEFAULT_BORDER);
+  const [drawPolyFillColor, setDrawPolyFillColor] = useState<string | null>(DRAW_POLYGON_DEFAULT_FILL);
+  const [drawPolyFillOpacity, setDrawPolyFillOpacity] = useState(0.15);
+  const [drawTextFontSize, setDrawTextFontSize] = useState(DRAW_TEXT_DEFAULT_SIZE);
+  const [drawTextFontFamily, setDrawTextFontFamily] = useState(DRAW_TEXT_DEFAULT_FAMILY);
+  const [drawTextFontWeight, setDrawTextFontWeight] = useState<DesignSettings["font_weight"]>("regular");
+  const [drawTextItalic, setDrawTextItalic] = useState(false);
+  const [drawTextLineSpacing, setDrawTextLineSpacing] = useState(DRAW_TEXT_DEFAULT_LINE_SPACING);
+  const [drawTextColor, setDrawTextColor] = useState(DRAW_TEXT_DEFAULT_COLOR);
+  const [draggingTextId, setDraggingTextId] = useState<string | null>(null);
+  const [hoveredDrawTextId, setHoveredDrawTextId] = useState<string | null>(null);
+  const [textDragPointer, setTextDragPointer] = useState<{ x: number; y: number } | null>(null);
+  const textDragRef = useRef<{ id: string; offsetX: number; offsetY: number } | null>(null);
+  const textDragFrameRef = useRef<number | null>(null);
+  const textHasMovedRef = useRef(false);
+  const [legendDefaults, setLegendDefaults] = useState<LegendStyleDefaults>({
+    name: "범례",
+    font_size: 9,
+    font_family: "Noto Sans KR",
+    font_weight: "regular",
+    font_italic: false,
+    show_border: true,
+    border_style: "-",
+    border_color: "#3f4650",
+    show_fill: true,
+    fill_color: "#ffffff",
+    fill_opacity: 1,
+  });
   const [drawObjectsByFile, setDrawObjectsByFile] = useState<Record<number, DrawObject[]>>({});
   const [drawingPoints, setDrawingPoints] = useState<DrawPoint[]>([]);
-  const [drawHover, setDrawHover] = useState<{ point: DrawPoint; clientX: number; clientY: number; snapped: boolean } | null>(null);
+  const [drawHover, setDrawHover] = useState<DrawHoverState | null>(null);
   const [draggingDrawObject, setDraggingDrawObject] = useState<string | null>(null);
   const [drawDropTarget, setDrawDropTarget] = useState<{ id: string; after: boolean } | null>(null);
+  const [selectedDrawObjectId, setSelectedDrawObjectId] = useState<string | null>(null);
+  const [selectedDrawObjectIds, setSelectedDrawObjectIds] = useState<Set<string>>(() => new Set());
+  const drawSelectionAnchorRef = useRef("");
   const [draggingLegend, setDraggingLegend] = useState(false);
   const [legendDragPreview, setLegendDragPreview] = useState<Pick<DrawLegendObject, "fx" | "fy" | "width_frac" | "height_frac"> | null>(null);
   const [referenceMode, setReferenceMode] = useState<"horizontal" | "vertical">("horizontal");
   const [referencePreview, setReferencePreview] = useState<ReferencePreview | null>(null);
-  const [legendEditorOpen, setLegendEditorOpen] = useState(false);
+  const [drawEditorOpen, setDrawEditorOpen] = useState(false);
+  const [drawEditorMode, setDrawEditorMode] = useState<DrawEditorMode>("defaults");
+  const [drawEditorKind, setDrawEditorKind] = useState<DrawEditorKind>("line");
+  const [drawEditorObjectId, setDrawEditorObjectId] = useState<string | null>(null);
+  const [lineDraft, setLineDraft] = useState<LineStyleDraft | null>(null);
+  const [polygonDraft, setPolygonDraft] = useState<PolygonStyleDraft | null>(null);
+  const [referenceDraft, setReferenceDraft] = useState<ReferenceStyleDraft | null>(null);
   const [legendDraft, setLegendDraft] = useState<LegendDraft | null>(null);
+  const [textDraft, setTextDraft] = useState<TextStyleDraft | null>(null);
+  const [textInput, setTextInput] = useState<TextInputState | null>(null);
   const [globalDesignLocked, setGlobalDesignLocked] = useState(true);
   const [leftOpen, setLeftOpen] = useState(true);
   const [rightOpen, setRightOpen] = useState(true);
@@ -629,8 +807,12 @@ export function InteractivePlotWindow() {
   const legendFrameRef = useRef<number | null>(null);
   const referencePointerRef = useRef<ReferencePreview | null>(null);
   const referenceMoveRef = useRef<(clientX: number, clientY: number) => void>(() => {});
+  const lineMoveRef = useRef<(clientX: number, clientY: number) => void>(() => {});
+  const areaMoveRef = useRef<(clientX: number, clientY: number) => void>(() => {});
   const legendPointerRef = useRef<Pick<DrawLegendObject, "fx" | "fy" | "width_frac" | "height_frac"> | null>(null);
-  const drawObjectDragRef = useRef<{ id: string; startY: number; moved: boolean } | null>(null);
+  const drawObjectDragRef = useRef<{ id: string; ids: string[]; startY: number; moved: boolean } | null>(null);
+  const saveDrawEditorRef = useRef<() => void>(() => {});
+  const closeDrawEditorRef = useRef<() => void>(() => {});
   const globalDesignByFileRef = useRef(new Map<string, DesignSettings>());
   const designInitializedRef = useRef(false);
 
@@ -745,15 +927,36 @@ export function InteractivePlotWindow() {
   }, [batchExportBusy, batchExportOpen]);
 
   useEffect(() => {
-    if (!legendEditorOpen) return;
+    if (!drawEditorOpen) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        event.stopPropagation();
+        closeDrawEditorRef.current();
+        return;
+      }
+      if (event.key !== "Enter" && event.key !== "Return") return;
+      const target = event.target as HTMLElement | null;
+      if (target?.closest("textarea, select, [contenteditable='true']")) return;
+      event.preventDefault();
+      event.stopPropagation();
+      saveDrawEditorRef.current();
+    };
+    window.addEventListener("keydown", onKeyDown, true);
+    return () => window.removeEventListener("keydown", onKeyDown, true);
+  }, [drawEditorOpen]);
+
+  useEffect(() => {
+    if (!textInput) return;
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key !== "Escape") return;
       event.preventDefault();
-      setLegendEditorOpen(false);
+      event.stopPropagation();
+      setTextInput(null);
     };
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, [legendEditorOpen]);
+    window.addEventListener("keydown", onKeyDown, true);
+    return () => window.removeEventListener("keydown", onKeyDown, true);
+  }, [textInput]);
 
   useEffect(() => {
     if (!vowelAnalysisOpen) return;
@@ -851,6 +1054,12 @@ export function InteractivePlotWindow() {
 
   useEffect(() => {
     currentIndexRef.current = currentIndex;
+  }, [currentIndex]);
+
+  useEffect(() => {
+    setSelectedDrawObjectId(null);
+    setSelectedDrawObjectIds(new Set());
+    drawSelectionAnchorRef.current = "";
   }, [currentIndex]);
 
   useEffect(() => {
@@ -1082,22 +1291,26 @@ export function InteractivePlotWindow() {
         }
         return;
         }
-      if (tool === "draw" && (event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "z") {
+      if (tool === "draw" && (drawTool === "line" || drawTool === "area") && (event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "z") {
         event.preventDefault();
         setDrawingPoints((previous) => previous.slice(0, -1));
-        setMessage("현재 선의 마지막 점을 되돌렸습니다.");
+        setMessage(drawTool === "area" ? "현재 영역의 마지막 점을 되돌렸습니다." : "현재 선의 마지막 점을 되돌렸습니다.");
         return;
       }
-      if (tool === "draw" && event.key === "Escape") {
+      if (tool === "draw" && (drawTool === "line" || drawTool === "area") && event.key === "Escape") {
         event.preventDefault();
         setDrawingPoints([]);
         setDrawHover(null);
-        setMessage("선 그리기를 취소했습니다.");
+        setMessage(drawTool === "area" ? "영역 그리기를 취소했습니다." : "선 그리기를 취소했습니다.");
         return;
       }
       if (tool === "draw" && (event.key === "Enter" || event.key === "Return")) {
+        if (drawEditorOpen) return;
+        const keyTarget = event.target as HTMLElement | null;
+        if (keyTarget?.closest("textarea, select, [contenteditable='true']")) return;
         event.preventDefault();
-        finishDrawLine(drawingPoints);
+        if (drawTool === "area") finishDrawPolygon(drawingPoints);
+        else if (drawTool === "line") finishDrawLine(drawingPoints);
         return;
       }
       if (event.altKey || event.ctrlKey || event.metaKey) return;
@@ -1175,14 +1388,7 @@ export function InteractivePlotWindow() {
       if (tool === "draw" && ["1", "2", "3", "4", "5"].includes(event.key)) {
         event.preventDefault();
         const next = (event.key === "1" ? "line" : event.key === "2" ? "area" : event.key === "3" ? "text" : event.key === "4" ? "reference" : "legend") as DrawTool;
-        setDrawTool(next);
-        setDrawingPoints([]);
-        setDrawHover(null);
-        setReferencePreview(null);
-        if (next === "reference") setMessage(referenceMode === "horizontal" ? "수평 기준선 · 마우스를 올리면 미리보기가 보입니다." : "수직 기준선 · 마우스를 올리면 미리보기가 보입니다.");
-        else if (next === "line") setMessage("선을 그립니다. 점을 클릭하고 Enter 또는 더블클릭으로 확정하세요.");
-        else if (next === "legend") setMessage("범례 도구를 선택했습니다.");
-        else setMessage(`${next === "text" ? "텍스트" : "영역"} 도구를 선택했습니다.`);
+        void activateDrawTool(next);
         return;
       }
       if (event.key === "Home" || event.key === "End") {
@@ -1197,7 +1403,7 @@ export function InteractivePlotWindow() {
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [analysis?.normalization, canNavigate, currentSourcePosition, drawArrowHead, drawArrowMode, drawColor, drawLineStyle, drawWidth, drawingPoints, navigateByPosition, navigating, rulerSettingsOpen, sources, tool]);
+  }, [analysis?.normalization, canNavigate, currentSourcePosition, drawArrowHead, drawArrowMode, drawColor, drawEditorOpen, drawLineStyle, drawTool, drawWidth, drawingPoints, navigateByPosition, navigating, rulerSettingsOpen, sources, tool]);
 
   const updateDesign = (patch: Partial<DesignSettings>) => {
     const next = { ...design, ...patch };
@@ -1529,26 +1735,24 @@ export function InteractivePlotWindow() {
     if (!nextTool) setMessage("그리기 도구를 선택하세요.");
   };
 
-  const activateDrawTool = async (next: DrawTool) => {
-    if (next === "line" || next === "legend" || next === "reference") {
-      enterDrawMode(next);
-      if (next === "legend" && !currentLegend) {
-        const legend = createDefaultLegend();
-        persistDrawObjects([...currentDrawObjects, legend]);
-        setMessage("범례를 추가했습니다. 플롯에서 드래그해 위치를 옮기거나 범례 편집을 여세요.");
-      } else if (next === "reference") {
-        setMessage(referenceMode === "horizontal" ? "수평 기준선 · 마우스를 올리면 미리보기가 보입니다." : "수직 기준선 · 마우스를 올리면 미리보기가 보입니다.");
-      } else {
-        setMessage(next === "line" ? "선을 그립니다. 점을 클릭하고 Enter 또는 더블클릭으로 확정하세요." : "범례를 선택했습니다. 플롯에서 드래그해 위치를 옮길 수 있습니다.");
-      }
-      return;
+  const activateDrawTool = (next: DrawTool) => {
+    enterDrawMode(next);
+    if (next === "legend" && !currentLegend) {
+      const legend = createDefaultLegend();
+      persistDrawObjects([...currentDrawObjects, legend]);
+      focusDrawObject(legend.id);
+      setMessage("범례를 추가했습니다. 플롯에서 드래그해 위치를 옮기거나 팔레트로 편집하세요.");
+    } else if (next === "reference") {
+      setMessage(referenceMode === "horizontal" ? "수평 기준선 · 마우스를 올리면 미리보기가 보입니다." : "수직 기준선 · 마우스를 올리면 미리보기가 보입니다.");
+    } else if (next === "area") {
+      setMessage("영역을 그립니다. 점을 스냅하고 Enter 또는 시작점 재클릭으로 닫으세요.");
+    } else if (next === "text") {
+      setMessage("캔버스를 더블클릭하여 텍스트를 배치하세요.");
+    } else if (next === "line") {
+      setMessage("선을 그립니다. 점을 클릭하고 Enter 또는 더블클릭으로 확정하세요.");
+    } else {
+      setMessage("범례를 선택했습니다. 플롯에서 드래그해 위치를 옮길 수 있습니다.");
     }
-    setDrawTool(next);
-    setRightPanel("drawing");
-    setRightOpen(true);
-    setTool("select");
-    setMessage(`${next === "text" ? "텍스트" : "영역"} 그리기 도구를 선택했습니다.`);
-    await openLegacyPlot();
   };
 
   const openLegacyPlot = async () => {
@@ -1727,6 +1931,124 @@ export function InteractivePlotWindow() {
     return { x, y, px, py };
   };
 
+  /** PySide event.inaxes — 축 안 더블클릭만 텍스트 배치 */
+  const plotDataInAxesFromClient = (clientX: number, clientY: number) => {
+    const data = plotDataFromClient(clientX, clientY);
+    if (!data || !rulerContext) return null;
+    const box = rulerContext.axes_bbox;
+    if (
+      data.px < box.left
+      || data.px > box.left + box.width
+      || data.py < box.bottom
+      || data.py > box.bottom + box.height
+    ) {
+      return null;
+    }
+    return data;
+  };
+
+  /** 라벨 plotLabelClient / plotLabelBoxClient 와 동일 좌표계 */
+  const drawTextAnchorClient = (object: DrawTextObject) => {
+    const geometry = rulerImageGeometry();
+    if (!geometry || !rulerContext) return null;
+    const bounds = rulerContext.text_bounds?.[object.id];
+    const imgH = rulerContext.image_height || geometry.srcH;
+    if (bounds && Number.isFinite(bounds.apx) && Number.isFinite(bounds.apy)) {
+      return {
+        x: geometry.left + bounds.apx * geometry.scale,
+        y: geometry.top + (imgH - bounds.apy) * geometry.scale,
+      };
+    }
+    const box = rulerContext.axes_bbox;
+    if (box.width <= 0 || box.height <= 0) return null;
+    const xRatio = (object.x - rulerContext.xlim[0]) / Math.max(1e-9, rulerContext.xlim[1] - rulerContext.xlim[0]);
+    const yRatio = (object.y - rulerContext.ylim[0]) / Math.max(1e-9, rulerContext.ylim[1] - rulerContext.ylim[0]);
+    const px = box.left + xRatio * box.width;
+    const py = box.bottom + yRatio * box.height;
+    return {
+      x: geometry.left + px * geometry.scale,
+      y: geometry.top + (imgH - py) * geometry.scale,
+    };
+  };
+
+  const drawTextBoxClient = (object: DrawTextObject) => {
+    const geometry = rulerImageGeometry();
+    if (!geometry || !rulerContext) return null;
+    const bounds = rulerContext.text_bounds?.[object.id];
+    if (!bounds) return null;
+    return {
+      left: geometry.left + bounds.left * geometry.scale,
+      top: geometry.top + bounds.top * geometry.scale,
+      width: Math.max(8, bounds.width * geometry.scale),
+      height: Math.max(8, bounds.height * geometry.scale),
+    };
+  };
+
+  const hitDrawTextAt = (clientX: number, clientY: number): DrawTextObject | null => {
+    for (const object of currentDrawObjects) {
+      if (object.type !== "text" || !object.visible) continue;
+      const box = drawTextBoxClient(object);
+      if (!box) continue;
+      const pad = 6;
+      if (
+        clientX >= box.left - pad
+        && clientX <= box.left + box.width + pad
+        && clientY >= box.top - pad
+        && clientY <= box.top + box.height + pad
+      ) {
+        return object;
+      }
+    }
+    return null;
+  };
+
+  const openTextInputAt = (clientX: number, clientY: number) => {
+    if (hitDrawTextAt(clientX, clientY)) return;
+    const data = plotDataInAxesFromClient(clientX, clientY);
+    if (!data) {
+      setMessage("축 영역 안에서 더블클릭하세요.");
+      return;
+    }
+    const useBark = analysis?.use_bark_units ?? rulerContext?.params.use_bark_units ?? false;
+    setTextInput({
+      x: data.x,
+      y: data.y,
+      axis_units: useBark ? "Bark" : "Hz",
+      draft: "",
+    });
+  };
+
+  const confirmTextInput = () => {
+    if (!textInput) return;
+    const content = textInput.draft;
+    if (!content.trim()) {
+      setMessage("텍스트가 비어 있으면 배치할 수 없습니다.");
+      return;
+    }
+    const textObj: DrawTextObject = {
+      type: "text",
+      id: `react-text-${currentIndex}-${Date.now()}-${drawIdRef.current++}`,
+      text: content,
+      x: textInput.x,
+      y: textInput.y,
+      font_size: clampDrawTextFontSize(drawTextFontSize),
+      font_family: drawTextFontFamily || DRAW_TEXT_DEFAULT_FAMILY,
+      font_weight: normalizedFontWeight(drawTextFontFamily || DRAW_TEXT_DEFAULT_FAMILY, drawTextFontWeight),
+      font_bold: ["bold", "semibold"].includes(normalizedFontWeight(drawTextFontFamily || DRAW_TEXT_DEFAULT_FAMILY, drawTextFontWeight)),
+      font_italic: drawTextItalic,
+      line_spacing: clampDrawTextLineSpacing(drawTextLineSpacing),
+      text_color: drawTextColor || DRAW_TEXT_DEFAULT_COLOR,
+      axis_units: textInput.axis_units,
+      visible: true,
+      semi: false,
+    };
+    const count = currentDrawObjects.filter((object) => object.type === "text").length;
+    persistDrawObjects([...currentDrawObjects, textObj]);
+    focusDrawObject(textObj.id);
+    setTextInput(null);
+    setMessage(`텍스트 ${count + 1}개를 추가했습니다. 팔레트로 스타일을 수정할 수 있습니다.`);
+  };
+
   const nearestPlotLabel = (clientX: number, clientY: number) => {
     if (!rulerContext) return null;
     let nearest: PlotLabel | null = null;
@@ -1769,46 +2091,123 @@ export function InteractivePlotWindow() {
     return { x: geometry.left + px * geometry.scale, y: geometry.top + (imgH - py) * geometry.scale };
   };
 
-  const drawPointAtClient = (clientX: number, clientY: number) => {
-    const geometry = rulerImageGeometry();
-    if (!geometry || !rulerContext) return null;
+  /** 호버용: 스냅 우선(transData px/py 포함), 없으면 커서 data(가이드만). 클릭은 스냅만. */
+  const drawHoverAtClient = (clientX: number, clientY: number): DrawHoverState | null => {
+    if (!rulerContext) return null;
     const snapped = nearestRulerPoint(clientX, clientY);
     if (snapped) {
-      return { point: { x: snapped.x, y: snapped.y, label: snapped.label }, clientX, clientY, snapped: true };
+      return {
+        point: { x: snapped.x, y: snapped.y, label: snapped.label, px: snapped.px, py: snapped.py },
+        clientX,
+        clientY,
+        snapped: true,
+        rulerPoint: snapped,
+      };
     }
-    return null;
+    const data = plotDataFromClient(clientX, clientY);
+    if (!data) return null;
+    return { point: { x: data.x, y: data.y }, clientX, clientY, snapped: false, rulerPoint: null };
   };
 
   const createDefaultLegend = (): DrawLegendObject => ({
     type: "legend",
     id: `react-legend-${currentIndex}-${Date.now()}-${drawIdRef.current++}`,
-    name: "범례",
+    name: legendDefaults.name || "범례",
     entries: [{ series_id: 0, text: (currentSource?.name ?? "데이터").replace(/\.[^.]+$/, "") }],
     fx: 0.035,
     fy: 0.205,
     width_frac: 0.30,
     height_frac: 0.14,
-    font_size: 9,
-    font_family: "Noto Sans KR",
-    font_weight: "regular",
-    font_italic: false,
-    show_border: true,
-    border_style: "-",
-    border_color: "#3f4650",
-    show_fill: true,
-    fill_color: "#ffffff",
-    fill_opacity: 1,
+    font_size: legendDefaults.font_size,
+    font_family: legendDefaults.font_family,
+    font_weight: legendDefaults.font_weight,
+    font_italic: legendDefaults.font_italic,
+    show_border: legendDefaults.show_border,
+    border_style: legendDefaults.border_style,
+    border_color: legendDefaults.border_color,
+    show_fill: legendDefaults.show_fill,
+    fill_color: legendDefaults.fill_color,
+    fill_opacity: legendDefaults.fill_opacity,
     visible: true,
     semi: false,
   });
 
   const persistDrawObjects = (objects: DrawObject[]) => {
     setDrawObjectsByFile((previous) => ({ ...previous, [currentIndex]: objects }));
+    const alive = new Set(objects.map((object) => object.id));
+    setSelectedDrawObjectIds((previous) => {
+      const next = new Set([...previous].filter((id) => alive.has(id)));
+      if (next.size !== previous.size) {
+        const primary = selectedDrawObjectId && next.has(selectedDrawObjectId)
+          ? selectedDrawObjectId
+          : [...next][0] ?? null;
+        setSelectedDrawObjectId(primary);
+        drawSelectionAnchorRef.current = primary ?? "";
+      } else if (selectedDrawObjectId && !alive.has(selectedDrawObjectId)) {
+        setSelectedDrawObjectId(null);
+        drawSelectionAnchorRef.current = "";
+      }
+      return next.size === previous.size ? previous : next;
+    });
     void renderInteractive({ drawObjects: objects });
   };
 
-  const persistDrawLines = (lines: DrawLineObject[]) => {
-    persistDrawObjects([...currentDrawObjects.filter((object) => object.type !== "line"), ...lines]);
+  /** 목록은 위=앞(최신). 저장 배열은 아래→위(렌더 마지막이 위). */
+  const drawObjectsTopFirst = useMemo(
+    () => [...currentDrawObjects].reverse(),
+    [currentDrawObjects],
+  );
+
+  const selectDrawObject = (id: string, event: ReactMouseEvent<HTMLButtonElement>) => {
+    event.preventDefault();
+    const order = drawObjectsTopFirst.map((object) => object.id);
+    const anchor = drawSelectionAnchorRef.current;
+    const withRange = event.shiftKey && anchor && order.includes(anchor);
+    if (withRange) {
+      const start = order.indexOf(anchor);
+      const end = order.indexOf(id);
+      const range = order.slice(Math.min(start, end), Math.max(start, end) + 1);
+      setSelectedDrawObjectIds((previous) => {
+        if (event.ctrlKey || event.metaKey) return new Set([...previous, ...range]);
+        return new Set(range);
+      });
+      setSelectedDrawObjectId(id);
+      return;
+    }
+    if (event.ctrlKey || event.metaKey) {
+      setSelectedDrawObjectIds((previous) => {
+        const next = new Set(previous);
+        if (next.has(id)) next.delete(id);
+        else next.add(id);
+        const nextPrimary = next.has(id) ? id : [...next][0] ?? null;
+        setSelectedDrawObjectId(nextPrimary);
+        if (next.size) drawSelectionAnchorRef.current = nextPrimary ?? "";
+        return next;
+      });
+      return;
+    }
+    if (selectedDrawObjectId === id) {
+      setSelectedDrawObjectId(null);
+      setSelectedDrawObjectIds(new Set());
+      drawSelectionAnchorRef.current = "";
+      return;
+    }
+    setSelectedDrawObjectIds(new Set([id]));
+    setSelectedDrawObjectId(id);
+    drawSelectionAnchorRef.current = id;
+  };
+
+  const focusDrawObject = (id: string) => {
+    setSelectedDrawObjectIds(new Set([id]));
+    setSelectedDrawObjectId(id);
+    drawSelectionAnchorRef.current = id;
+  };
+
+  const deleteDrawObjects = (id: string) => {
+    const targets = selectedDrawObjectIds.has(id) && selectedDrawObjectIds.size > 1
+      ? selectedDrawObjectIds
+      : new Set([id]);
+    persistDrawObjects(currentDrawObjects.filter((object) => !targets.has(object.id)));
   };
 
   const toggleDrawObjectVisibility = (id: string) => {
@@ -1831,8 +2230,17 @@ export function InteractivePlotWindow() {
 
   const beginDrawObjectDrag = (event: ReactPointerEvent<HTMLButtonElement>, id: string) => {
     event.preventDefault();
-    drawObjectDragRef.current = { id, startY: event.clientY, moved: false };
+    const visualIds = drawObjectsTopFirst.map((object) => object.id);
+    const ids = selectedDrawObjectIds.has(id) && selectedDrawObjectIds.size > 1
+      ? visualIds.filter((item) => selectedDrawObjectIds.has(item))
+      : [id];
+    drawObjectDragRef.current = { id, ids, startY: event.clientY, moved: false };
     setDraggingDrawObject(id);
+    if (!selectedDrawObjectIds.has(id)) {
+      setSelectedDrawObjectIds(new Set([id]));
+      setSelectedDrawObjectId(id);
+      drawSelectionAnchorRef.current = id;
+    }
     event.currentTarget.setPointerCapture(event.pointerId);
   };
 
@@ -1843,10 +2251,10 @@ export function InteractivePlotWindow() {
     drag.moved = true;
     const element = document.elementFromPoint(event.clientX, event.clientY)?.closest<HTMLElement>("[data-draw-object-id]");
     if (!element) return;
-    const id = element.dataset.drawObjectId;
-    if (!id || id === drag.id) return;
+    const targetId = element.dataset.drawObjectId;
+    if (!targetId || drag.ids.includes(targetId)) return;
     const rect = element.getBoundingClientRect();
-    setDrawDropTarget({ id, after: event.clientY > rect.top + rect.height / 2 });
+    setDrawDropTarget({ id: targetId, after: event.clientY > rect.top + rect.height / 2 });
   };
 
   const commitDrawObjectDrag = (event: ReactPointerEvent<HTMLButtonElement>) => {
@@ -1854,13 +2262,15 @@ export function InteractivePlotWindow() {
     if (!drag) return;
     const target = drawDropTarget;
     if (drag.moved && target) {
-      const without = currentDrawObjects.filter((object) => object.id !== drag.id);
+      const visual = [...currentDrawObjects].reverse();
+      const draggedSet = new Set(drag.ids);
+      const without = visual.filter((object) => !draggedSet.has(object.id));
       const insertAt = without.findIndex((object) => object.id === target.id) + (target.after ? 1 : 0);
-      const dragged = currentDrawObjects.find((object) => object.id === drag.id);
-      if (dragged) {
-        const next = [...without];
-        next.splice(Math.max(0, insertAt), 0, dragged);
-        persistDrawObjects(next);
+      const dragged = visual.filter((object) => draggedSet.has(object.id));
+      if (dragged.length) {
+        const nextVisual = [...without];
+        nextVisual.splice(Math.max(0, insertAt), 0, ...dragged);
+        persistDrawObjects([...nextVisual].reverse());
       }
     }
     drawObjectDragRef.current = null;
@@ -1875,20 +2285,260 @@ export function InteractivePlotWindow() {
     setDrawDropTarget(null);
   };
 
-  const openLegendEditor = () => {
-    const legend = currentLegend ?? createDefaultLegend();
-    if (!currentLegend) persistDrawObjects([...currentDrawObjects, legend]);
-    setLegendDraft({ ...legend, entries: legend.entries.map((entry) => ({ ...entry })) });
-    setLegendEditorOpen(true);
+  const closeDrawEditor = () => {
+    setDrawEditorOpen(false);
+    setDrawEditorObjectId(null);
+    setLineDraft(null);
+    setPolygonDraft(null);
+    setReferenceDraft(null);
+    setLegendDraft(null);
+    setTextDraft(null);
   };
 
-  const saveLegendEditor = () => {
-    if (!legendDraft) return;
-    const nextLegend: DrawLegendObject = { type: "legend", ...legendDraft, entries: legendDraft.entries.map((entry, index) => ({ ...entry, series_id: Number.isFinite(entry.series_id) ? entry.series_id : index })) };
-    persistDrawObjects([...currentDrawObjects.filter((object) => object.type !== "legend"), nextLegend]);
-    setLegendEditorOpen(false);
-    setMessage("범례 설정을 저장했습니다.");
+  const openDrawDefaultsEditor = (kind?: DrawEditorKind) => {
+    const nextKind: DrawEditorKind = kind
+      ?? (drawTool === "legend" || drawTool === "reference" || drawTool === "line" || drawTool === "text"
+        ? drawTool
+        : drawTool === "area" ? "polygon" : "line");
+    setDrawEditorMode("defaults");
+    setDrawEditorKind(nextKind);
+    setDrawEditorObjectId(null);
+    setLineDraft(null);
+    setPolygonDraft(null);
+    setReferenceDraft(null);
+    setLegendDraft(null);
+    setTextDraft(null);
+    if (nextKind === "line") {
+      setLineDraft({
+        line_color: drawColor ?? DRAW_LINE_DEFAULT_COLOR,
+        line_style: drawLineStyle,
+        line_width: clampDrawLineWidth(drawWidth),
+        arrow_mode: drawArrowMode,
+        arrow_head: drawArrowHead,
+      });
+    } else if (nextKind === "polygon") {
+      setPolygonDraft({
+        border_style: drawPolyBorderStyle,
+        border_color: drawPolyBorderColor,
+        fill_color: drawPolyFillColor,
+        fill_opacity: drawPolyFillOpacity,
+      });
+    } else if (nextKind === "reference") {
+      setReferenceDraft({
+        mode: referenceMode,
+        line_style: drawRefStyle,
+        line_color: drawRefColor,
+      });
+    } else if (nextKind === "text") {
+      setTextDraft({
+        text: "",
+        font_size: drawTextFontSize,
+        font_family: drawTextFontFamily,
+        font_weight: normalizedFontWeight(drawTextFontFamily, drawTextFontWeight),
+        font_italic: drawTextItalic,
+        line_spacing: drawTextLineSpacing,
+        text_color: drawTextColor,
+      });
+    } else {
+      const legend = currentLegend;
+      setLegendDraft({
+        id: legend?.id ?? "legend-defaults",
+        name: legendDefaults.name,
+        entries: legend
+          ? legend.entries.map((entry) => ({ ...entry }))
+          : [{ series_id: 0, text: (currentSource?.name ?? "데이터").replace(/\.[^.]+$/, "") }],
+        fx: legend?.fx ?? 0.035,
+        fy: legend?.fy ?? 0.205,
+        width_frac: legend?.width_frac ?? 0.30,
+        height_frac: legend?.height_frac ?? 0.14,
+        font_size: legendDefaults.font_size,
+        font_family: legendDefaults.font_family,
+        font_weight: legendDefaults.font_weight,
+        font_italic: legendDefaults.font_italic,
+        show_border: legendDefaults.show_border,
+        border_style: legendDefaults.border_style,
+        border_color: legendDefaults.border_color,
+        show_fill: legendDefaults.show_fill,
+        fill_color: legendDefaults.fill_color,
+        fill_opacity: legendDefaults.fill_opacity,
+        visible: true,
+        semi: false,
+      });
+    }
+    setDrawEditorOpen(true);
   };
+
+  const openDrawLayerEditor = (object: DrawObject) => {
+    focusDrawObject(object.id);
+    setDrawEditorMode("layer");
+    setDrawEditorObjectId(object.id);
+    setLineDraft(null);
+    setPolygonDraft(null);
+    setReferenceDraft(null);
+    setLegendDraft(null);
+    setTextDraft(null);
+    if (object.type === "line") {
+      setDrawEditorKind("line");
+      setLineDraft({
+        line_color: object.line_color,
+        line_style: object.line_style,
+        line_width: clampDrawLineWidth(object.line_width),
+        arrow_mode: object.arrow_mode,
+        arrow_head: object.arrow_head,
+      });
+    } else if (object.type === "polygon") {
+      setDrawEditorKind("polygon");
+      setPolygonDraft({
+        border_style: object.border_style,
+        border_color: object.border_color,
+        fill_color: object.fill_color,
+        fill_opacity: Number.isFinite(object.fill_opacity) ? object.fill_opacity : 0.15,
+      });
+    } else if (object.type === "reference") {
+      setDrawEditorKind("reference");
+      setReferenceDraft({
+        mode: object.mode,
+        line_style: object.line_style,
+        line_color: object.line_color,
+        valueLabel: formatRefLabel(object.value, object.axis_units, true, analysis?.normalization ?? null).trim(),
+      });
+    } else if (object.type === "text") {
+      setDrawEditorKind("text");
+      const family = object.font_family || DRAW_TEXT_DEFAULT_FAMILY;
+      setTextDraft({
+        text: object.text,
+        font_size: clampDrawTextFontSize(object.font_size),
+        font_family: family,
+        font_weight: normalizedFontWeight(family, object.font_weight ?? (object.font_bold ? "bold" : "regular")),
+        font_italic: object.font_italic,
+        line_spacing: clampDrawTextLineSpacing(object.line_spacing ?? DRAW_TEXT_DEFAULT_LINE_SPACING),
+        text_color: object.text_color || DRAW_TEXT_DEFAULT_COLOR,
+      });
+    } else {
+      setDrawEditorKind("legend");
+      setLegendDraft({ ...object, entries: object.entries.map((entry) => ({ ...entry })) });
+    }
+    setDrawEditorOpen(true);
+  };
+
+  const saveDrawEditor = () => {
+    if (drawEditorKind === "line" && lineDraft) {
+      if (drawEditorMode === "defaults") {
+        setDrawColor(lineDraft.line_color);
+        setDrawLineStyle(lineDraft.line_style);
+        setDrawWidth(clampDrawLineWidth(lineDraft.line_width));
+        setDrawArrowMode(lineDraft.arrow_mode);
+        setDrawArrowHead(lineDraft.arrow_head);
+        setMessage("선 기본 스타일을 저장했습니다.");
+      } else if (drawEditorObjectId) {
+        const nextLine = { ...lineDraft, line_width: clampDrawLineWidth(lineDraft.line_width) };
+        persistDrawObjects(currentDrawObjects.map((object) => (
+          object.type === "line" && object.id === drawEditorObjectId
+            ? { ...object, ...nextLine }
+            : object
+        )));
+        setMessage("선 레이어를 수정했습니다.");
+      }
+    } else if (drawEditorKind === "polygon" && polygonDraft) {
+      const nextPoly = {
+        ...polygonDraft,
+        fill_opacity: Math.min(1, Math.max(0, Number(polygonDraft.fill_opacity) || 0)),
+      };
+      if (drawEditorMode === "defaults") {
+        setDrawPolyBorderStyle(nextPoly.border_style);
+        setDrawPolyBorderColor(nextPoly.border_color);
+        setDrawPolyFillColor(nextPoly.fill_color);
+        setDrawPolyFillOpacity(nextPoly.fill_opacity);
+        setMessage("영역 기본 스타일을 저장했습니다.");
+      } else if (drawEditorObjectId) {
+        persistDrawObjects(currentDrawObjects.map((object) => (
+          object.type === "polygon" && object.id === drawEditorObjectId
+            ? { ...object, ...nextPoly }
+            : object
+        )));
+        setMessage("영역 레이어를 수정했습니다.");
+      }
+    } else if (drawEditorKind === "reference" && referenceDraft) {
+      if (drawEditorMode === "defaults") {
+        setReferenceMode(referenceDraft.mode);
+        setDrawRefStyle(referenceDraft.line_style);
+        setDrawRefColor(referenceDraft.line_color);
+        setMessage("기준선 기본 스타일을 저장했습니다.");
+      } else if (drawEditorObjectId) {
+        persistDrawObjects(currentDrawObjects.map((object) => (
+          object.type === "reference" && object.id === drawEditorObjectId
+            ? { ...object, mode: referenceDraft.mode, line_style: referenceDraft.line_style, line_color: referenceDraft.line_color }
+            : object
+        )));
+        setMessage("기준선 레이어를 수정했습니다.");
+      }
+    } else if (drawEditorKind === "legend" && legendDraft) {
+      const nextLegend: DrawLegendObject = {
+        type: "legend",
+        ...legendDraft,
+        entries: legendDraft.entries.map((entry, index) => ({
+          ...entry,
+          series_id: Number.isFinite(entry.series_id) ? entry.series_id : index,
+        })),
+      };
+      if (drawEditorMode === "defaults") {
+        setLegendDefaults({
+          name: nextLegend.name,
+          font_size: nextLegend.font_size,
+          font_family: nextLegend.font_family,
+          font_weight: nextLegend.font_weight,
+          font_italic: nextLegend.font_italic,
+          show_border: nextLegend.show_border,
+          border_style: nextLegend.border_style,
+          border_color: nextLegend.border_color,
+          show_fill: nextLegend.show_fill,
+          fill_color: nextLegend.fill_color,
+          fill_opacity: nextLegend.fill_opacity,
+        });
+        setMessage("범례 기본 스타일을 저장했습니다.");
+      } else {
+        persistDrawObjects([...currentDrawObjects.filter((object) => object.type !== "legend"), nextLegend]);
+        setMessage("범례 레이어를 수정했습니다.");
+      }
+    } else if (drawEditorKind === "text" && textDraft) {
+      const family = textDraft.font_family || DRAW_TEXT_DEFAULT_FAMILY;
+      const weight = normalizedFontWeight(family, textDraft.font_weight);
+      const nextText = {
+        text: textDraft.text,
+        font_size: clampDrawTextFontSize(textDraft.font_size),
+        font_family: family,
+        font_weight: weight,
+        font_bold: weight === "bold" || weight === "semibold",
+        font_italic: textDraft.font_italic,
+        line_spacing: clampDrawTextLineSpacing(textDraft.line_spacing),
+        text_color: textDraft.text_color || DRAW_TEXT_DEFAULT_COLOR,
+      };
+      if (drawEditorMode === "defaults") {
+        setDrawTextFontSize(nextText.font_size);
+        setDrawTextFontFamily(nextText.font_family);
+        setDrawTextFontWeight(nextText.font_weight);
+        setDrawTextItalic(nextText.font_italic);
+        setDrawTextLineSpacing(nextText.line_spacing);
+        setDrawTextColor(nextText.text_color);
+        setMessage("텍스트 기본 스타일을 저장했습니다.");
+      } else if (drawEditorObjectId) {
+        if (!nextText.text.trim()) {
+          setMessage("텍스트가 비어 있으면 적용할 수 없습니다.");
+          return;
+        }
+        persistDrawObjects(currentDrawObjects.map((object) => (
+          object.type === "text" && object.id === drawEditorObjectId
+            ? { ...object, ...nextText }
+            : object
+        )));
+        setMessage("텍스트 레이어를 수정했습니다.");
+      }
+    }
+    closeDrawEditor();
+  };
+
+  saveDrawEditorRef.current = saveDrawEditor;
+  closeDrawEditorRef.current = closeDrawEditor;
 
   const finishDrawLine = (points: DrawPoint[]) => {
     if (points.length < 2) {
@@ -1900,18 +2550,52 @@ export function InteractivePlotWindow() {
       type: "line",
       id: `react-line-${currentIndex}-${Date.now()}-${drawIdRef.current++}`,
       points: points.map(({ x, y }) => [x, y]),
-      line_color: drawColor ?? "#2563eb",
+      line_color: drawColor ?? DRAW_LINE_DEFAULT_COLOR,
       line_style: drawLineStyle,
-      line_width: drawWidth,
+      line_width: clampDrawLineWidth(drawWidth),
       arrow_mode: drawArrowMode,
       arrow_head: drawArrowHead,
       visible: true,
       semi: false,
     };
-    persistDrawLines([...currentDrawLines, line]);
+    persistDrawObjects([...currentDrawObjects, line]);
+    focusDrawObject(line.id);
     setDrawingPoints([]);
     setDrawHover(null);
-    setMessage(`선 ${currentDrawLines.length + 1}개를 추가했습니다. 필요하면 설정에서 화살표를 바꿀 수 있습니다.`);
+    setMessage(`선 ${currentDrawLines.length + 1}개를 추가했습니다. 팔레트로 스타일을 수정할 수 있습니다.`);
+  };
+
+  const finishDrawPolygon = (points: DrawPoint[]) => {
+    const unique = points.length >= 2
+      && Math.hypot(points[0].x - points[points.length - 1].x, points[0].y - points[points.length - 1].y) < 1e-6
+      ? points.slice(0, -1)
+      : points;
+    if (unique.length < 3) {
+      setMessage("영역은 점 3개 이상이 필요합니다.");
+      return;
+    }
+    const closed: Array<[number, number]> = [
+      ...unique.map(({ x, y }): [number, number] => [x, y]),
+      [unique[0].x, unique[0].y],
+    ];
+    const polygon: DrawPolygonObject = {
+      type: "polygon",
+      id: `react-poly-${currentIndex}-${Date.now()}-${drawIdRef.current++}`,
+      points: closed,
+      border_style: drawPolyBorderStyle,
+      border_color: drawPolyBorderColor,
+      fill_color: drawPolyFillColor,
+      fill_opacity: drawPolyFillOpacity,
+      show_area_label: false,
+      visible: true,
+      semi: false,
+    };
+    const polyCount = currentDrawObjects.filter((object) => object.type === "polygon").length;
+    persistDrawObjects([...currentDrawObjects, polygon]);
+    focusDrawObject(polygon.id);
+    setDrawingPoints([]);
+    setDrawHover(null);
+    setMessage(`영역 ${polyCount + 1}개를 추가했습니다. 팔레트로 스타일을 수정할 수 있습니다.`);
   };
 
   const rulerLocalPoint = (clientX: number, clientY: number) => {
@@ -2004,8 +2688,8 @@ export function InteractivePlotWindow() {
         axis_units: unit,
         axis_name: axisName,
         axis_scale: scale,
-        line_style: "-",
-        line_color: null,
+        line_style: drawRefStyle,
+        line_color: drawRefColor,
         visible: true,
         semi: false,
       },
@@ -2075,10 +2759,70 @@ export function InteractivePlotWindow() {
     return () => window.removeEventListener("pointermove", onMove);
   }, [tool, drawTool]);
 
+  /** PySide DrawLineTool / DrawPolygonTool._on_move: paper 안이면 스냅/커서 hover */
+  const assignSnapDrawMove = (clientX: number, clientY: number) => {
+    const paper = plotPaperRef.current?.getBoundingClientRect();
+    const local = rulerLocalPoint(clientX, clientY);
+    if (!paper || !local) {
+      setDrawHover(null);
+      return;
+    }
+    if (local.x < 0 || local.y < 0 || local.x > paper.width || local.y > paper.height) {
+      setDrawHover(null);
+      return;
+    }
+    setDrawHover(drawHoverAtClient(clientX, clientY));
+  };
+
+  lineMoveRef.current = (clientX: number, clientY: number) => {
+    if (tool !== "draw" || drawTool !== "line") return;
+    assignSnapDrawMove(clientX, clientY);
+  };
+
+  areaMoveRef.current = (clientX: number, clientY: number) => {
+    if (tool !== "draw" || drawTool !== "area") return;
+    assignSnapDrawMove(clientX, clientY);
+  };
+
+  useEffect(() => {
+    if (tool !== "draw" || (drawTool !== "line" && drawTool !== "area")) {
+      if (drawTool !== "line" && drawTool !== "area") setDrawHover(null);
+      return;
+    }
+    const onMove = (event: PointerEvent) => {
+      if (drawTool === "area") areaMoveRef.current(event.clientX, event.clientY);
+      else lineMoveRef.current(event.clientX, event.clientY);
+    };
+    window.addEventListener("pointermove", onMove, { passive: true });
+    return () => window.removeEventListener("pointermove", onMove);
+  }, [tool, drawTool]);
+
   const handleRulerMove = (event: ReactPointerEvent<HTMLDivElement>) => {
     if (tool === "draw") {
+      if (textDragRef.current) {
+        const local = rulerLocalPoint(event.clientX, event.clientY);
+        if (local) {
+          textHasMovedRef.current = true;
+          if (textDragFrameRef.current === null) {
+            textDragFrameRef.current = requestAnimationFrame(() => {
+              textDragFrameRef.current = null;
+              setTextDragPointer(local);
+            });
+          }
+        }
+        return;
+      }
+      setHoveredDrawTextId(hitDrawTextAt(event.clientX, event.clientY)?.id ?? null);
       if (drawTool === "reference") {
         referenceMoveRef.current(event.clientX, event.clientY);
+        return;
+      }
+      if (drawTool === "line") {
+        lineMoveRef.current(event.clientX, event.clientY);
+        return;
+      }
+      if (drawTool === "area") {
+        areaMoveRef.current(event.clientX, event.clientY);
         return;
       }
       if (drawTool === "legend" && draggingLegend) {
@@ -2100,8 +2844,8 @@ export function InteractivePlotWindow() {
         }
         return;
       }
-      if (drawTool === "legend" || drawTool === "reference") return;
-      setDrawHover(drawPointAtClient(event.clientX, event.clientY));
+      if (drawTool === "legend" || drawTool === "text") return;
+      setDrawHover(drawHoverAtClient(event.clientX, event.clientY));
       return;
     }
     if (tool === "label" && draggingPlotLabel) {
@@ -2136,6 +2880,22 @@ export function InteractivePlotWindow() {
   const handleRulerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
     if (tool === "draw" && event.button === 0) {
       event.preventDefault();
+      const hitText = hitDrawTextAt(event.clientX, event.clientY);
+      if (hitText) {
+        const data = plotDataFromClient(event.clientX, event.clientY);
+        if (!data) return;
+        focusDrawObject(hitText.id);
+        textDragRef.current = {
+          id: hitText.id,
+          offsetX: hitText.x - data.x,
+          offsetY: hitText.y - data.y,
+        };
+        textHasMovedRef.current = false;
+        setDraggingTextId(hitText.id);
+        setTextDragPointer(null);
+        event.currentTarget.setPointerCapture(event.pointerId);
+        return;
+      }
       if (drawTool === "reference") {
         const placed = resolveReferencePlacement(event.clientX, event.clientY);
         if (!placed) {
@@ -2143,6 +2903,7 @@ export function InteractivePlotWindow() {
           return;
         }
         persistDrawObjects([...currentDrawObjects, placed.object]);
+        focusDrawObject(placed.object.id);
         // 클릭 직후 백엔드 렌더 전까지도 프리뷰를 유지 (PySide는 canvas artist로 즉시 보임)
         pushReferencePreview(placed.preview);
         setMessage(`${placed.object.mode === "horizontal" ? "수평" : "수직"} 기준선 ${placed.preview.label.trim()} 을(를) 추가했습니다.`);
@@ -2167,14 +2928,47 @@ export function InteractivePlotWindow() {
         event.currentTarget.setPointerCapture(event.pointerId);
         return;
       }
-      const hit = drawPointAtClient(event.clientX, event.clientY);
-      if (!hit) {
+      if (drawTool === "area") {
+        const snapped = nearestRulerPoint(event.clientX, event.clientY);
+        if (!snapped) {
+          setMessage("데이터 점 가까이에서 클릭하면 영역의 점으로 스냅합니다.");
+          return;
+        }
+        const point: DrawPoint = {
+          x: snapped.x,
+          y: snapped.y,
+          label: snapped.label,
+          px: snapped.px,
+          py: snapped.py,
+        };
+        if (drawingPoints.length >= 3) {
+          const firstLocal = drawPointLocal(drawingPoints[0]);
+          const snapLocal = drawPointLocal(point);
+          if (firstLocal && snapLocal && Math.hypot(firstLocal.x - snapLocal.x, firstLocal.y - snapLocal.y) < 20) {
+            finishDrawPolygon(drawingPoints);
+            return;
+          }
+        }
+        setDrawingPoints([...drawingPoints, point]);
+        setMessage(`${snapped.label || "점"}에 스냅했습니다. 다음 점을 선택하세요.`);
+        return;
+      }
+      if (drawTool !== "line") return;
+      const snapped = nearestRulerPoint(event.clientX, event.clientY);
+      if (!snapped) {
         setMessage("데이터 점 가까이에서 클릭하면 선의 점으로 스냅합니다.");
         return;
       }
-      const nextPoints = [...drawingPoints, hit.point];
+      const point: DrawPoint = {
+        x: snapped.x,
+        y: snapped.y,
+        label: snapped.label,
+        px: snapped.px,
+        py: snapped.py,
+      };
+      const nextPoints = [...drawingPoints, point];
       setDrawingPoints(nextPoints);
-      setMessage(hit.snapped ? `${hit.point.label || "점"}에 스냅했습니다. 다음 점을 선택하세요.` : "선의 다음 점을 선택하세요.");
+      setMessage(`${snapped.label || "점"}에 스냅했습니다. 다음 점을 선택하세요.`);
       if (event.detail >= 2) finishDrawLine(nextPoints);
       return;
     }
@@ -2224,6 +3018,28 @@ export function InteractivePlotWindow() {
 
   const handleRulerUp = (event: ReactPointerEvent<HTMLDivElement>) => {
     if (tool === "draw") {
+      if (textDragRef.current) {
+        const drag = textDragRef.current;
+        const data = plotDataFromClient(event.clientX, event.clientY);
+        if (data && textHasMovedRef.current) {
+          persistDrawObjects(currentDrawObjects.map((object) => (
+            object.type === "text" && object.id === drag.id
+              ? { ...object, x: data.x + drag.offsetX, y: data.y + drag.offsetY }
+              : object
+          )));
+          setMessage("텍스트 위치를 옮겼습니다.");
+        }
+        textDragRef.current = null;
+        textHasMovedRef.current = false;
+        setDraggingTextId(null);
+        setTextDragPointer(null);
+        if (textDragFrameRef.current !== null) {
+          cancelAnimationFrame(textDragFrameRef.current);
+          textDragFrameRef.current = null;
+        }
+        if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
+        return;
+      }
       if (drawTool === "legend" && draggingLegend) {
         const nextLegend = legendFromPointer(event.clientX, event.clientY);
         if (nextLegend) {
@@ -2352,10 +3168,21 @@ export function InteractivePlotWindow() {
     })));
   }, [rulerDisplayMode, rulerGeometryMode]);
 
+  /** paper-local. 스냅 점은 px/py(transData) 우선 — 선형 drawPointClient는 마커와 어긋남. */
   const drawPointLocal = (point: DrawPoint) => {
-    const screen = drawPointClient(point);
     const paper = plotPaperRef.current?.getBoundingClientRect();
-    return screen && paper ? { x: screen.x - paper.left, y: screen.y - paper.top } : null;
+    if (!paper) return null;
+    if (Number.isFinite(point.px) && Number.isFinite(point.py) && rulerContext) {
+      const geometry = rulerImageGeometry();
+      if (!geometry) return null;
+      const imgH = rulerContext.image_height || geometry.srcH;
+      return {
+        x: geometry.left - paper.left + (point.px as number) * geometry.scale,
+        y: geometry.top - paper.top + (imgH - (point.py as number)) * geometry.scale,
+      };
+    }
+    const screen = drawPointClient(point);
+    return screen ? { x: screen.x - paper.left, y: screen.y - paper.top } : null;
   };
 
   const fileCounter = useMemo(() => `${sources.length ? currentIndex + 1 : 0} / ${sources.length}`, [currentIndex, sources.length]);
@@ -2452,12 +3279,170 @@ export function InteractivePlotWindow() {
 
       <section className={`interactive-plot-stage tool-${tool}${tool === "draw" ? ` draw-tool-${drawTool ?? "none"}` : ""}`}>
         <div className="plot-toolbar"><div className="toolbar-leading">{!leftOpen ? <button className="sidebar-reopen" onClick={() => setLeftOpen(true)}><PanelLeftOpen size={16} /> 도구</button> : null}<div className="toolbar-group"><button className={tool === "select" ? "is-active" : ""} onClick={() => setTool("select")}><MousePointer2 size={16} /> 선택</button><div className="ruler-tool-cluster"><button className={tool === "ruler" ? "is-active" : ""} onClick={() => setTool("ruler")}><Ruler size={16} /> 눈금자</button><button type="button" className={`tool-settings-button ${rulerSettingsOpen ? "is-active" : ""}`} onClick={() => setRulerSettingsOpen((previous) => !previous)} aria-label="눈금자 설정" title="눈금자 설정"><SlidersHorizontal size={14} /></button>{rulerSettingsOpen ? <div className="ruler-settings-popover"><div className="ruler-settings-header"><strong>눈금자 설정</strong><span>측정 방식</span></div><div className="ruler-mode-choices"><button type="button" className={`ruler-mode-choice ${rulerGeometryMode === "direct" ? "is-active" : ""}`} onClick={() => setRulerGeometryMode("direct")}><svg viewBox="0 0 44 22" aria-hidden><line x1="5" y1="17" x2="39" y2="5" /><circle cx="5" cy="17" r="2" /><circle cx="39" cy="5" r="2" /></svg><span>직선</span></button><button type="button" className={`ruler-mode-choice ${rulerGeometryMode === "right-triangle" ? "is-active" : ""}`} onClick={() => setRulerGeometryMode("right-triangle")}><svg viewBox="0 0 44 22" aria-hidden><path d="M5 17H39V5" /><line className="hypotenuse" x1="5" y1="17" x2="39" y2="5" /><path className="right-angle" d="M34 17v-5h5" /></svg><span>Δx · Δy</span></button></div><div className="ruler-unit-row"><span>표시 단위</span><div className="ruler-unit-toggles"><button type="button" className={`ruler-unit-toggle ${rulerDisplayMode === "hz" ? "is-on" : ""}`} aria-pressed={rulerDisplayMode === "hz"} onClick={() => setRulerDisplayMode("hz")}>Hz</button><button type="button" className={`ruler-unit-toggle ${rulerDisplayMode === "bark" ? "is-on" : ""}`} aria-pressed={rulerDisplayMode === "bark"} onClick={() => setRulerDisplayMode("bark")}>Bark</button></div></div></div> : null}</div><button className={tool === "label" ? "is-active" : ""} onClick={() => { setTool("label"); setMessage("라벨 이동 모드 · 라벨을 드래그하세요."); }}><MousePointer2 size={16} /> 라벨 이동</button><button className={tool === "draw" ? "is-active" : ""} onClick={() => enterDrawMode(null)}><PenLine size={16} /> 그리기</button></div></div><div className="toolbar-context"><span>{analysis?.normalization ?? "정규화 없음"}</span><span>{analysis?.origin === "top_right" ? "Praat 좌표" : "수학 좌표"}</span>{!rightOpen ? <button className="sidebar-reopen" onClick={() => setRightOpen(true)}>레이어 <PanelRightOpen size={16} /></button> : null}</div></div>
-        <div className="plot-canvas-shell"><div className="plot-paper" ref={plotPaperRef}>{previewUrl ? <><img ref={plotImageRef} src={previewUrl} alt={`${currentSource?.name ?? "현재 파일"} 포먼트 플롯`} draggable={false} onLoad={() => { if (referencePointerRef.current) setReferencePreview({ ...referencePointerRef.current }); }} /><div className="ruler-overlay" onPointerMove={handleRulerMove} onPointerDown={handleRulerDown} onPointerUp={handleRulerUp} onPointerCancel={handleRulerUp} onDoubleClick={(event) => { if (tool === "draw" && drawTool === "line") { event.preventDefault(); finishDrawLine(drawingPoints); } else if (tool !== "draw") resetPlotLabel(event); }} onContextMenu={tool === "label" ? resetPlotLabel : handleRulerContextMenu}>
+        <div className="plot-canvas-shell"><div className="plot-paper" ref={plotPaperRef}>{previewUrl ? <><img ref={plotImageRef} src={previewUrl} alt={`${currentSource?.name ?? "현재 파일"} 포먼트 플롯`} draggable={false} onLoad={() => { if (referencePointerRef.current) setReferencePreview({ ...referencePointerRef.current }); }} /><div className="ruler-overlay" onPointerMove={handleRulerMove} onPointerDown={handleRulerDown} onPointerUp={handleRulerUp} onPointerCancel={handleRulerUp} onDoubleClick={(event) => {
+                  if (tool === "draw" && drawTool === "line") {
+                    event.preventDefault();
+                    finishDrawLine(drawingPoints);
+                  } else if (tool === "draw" && drawTool === "text") {
+                    event.preventDefault();
+                    openTextInputAt(event.clientX, event.clientY);
+                  } else if (tool !== "draw") {
+                    resetPlotLabel(event);
+                  }
+                }} onContextMenu={tool === "label" ? resetPlotLabel : handleRulerContextMenu}>
           <svg className="draw-line-layer" aria-hidden>
-            {drawingPoints.length > 0 ? <polyline className="draw-line-live" points={drawingPoints.map((point) => drawPointLocal(point)).filter((point): point is { x: number; y: number } => Boolean(point)).map((point) => `${point.x},${point.y}`).join(" ")} fill="none" stroke={drawColor ?? "#2563eb"} strokeWidth={drawWidth} strokeDasharray="5 5" strokeLinecap="round" vectorEffect="non-scaling-stroke" /> : null}
-            {tool === "draw" && drawingPoints.length > 0 && drawHover ? (() => { const from = drawPointLocal(drawingPoints[drawingPoints.length - 1]); const to = drawPointLocal(drawHover.point); return from && to ? <line className="draw-line-guide" x1={from.x} y1={from.y} x2={to.x} y2={to.y} stroke={drawColor ?? "#2563eb"} strokeWidth={drawWidth} strokeDasharray="3 5" vectorEffect="non-scaling-stroke" /> : null; })() : null}
-            {tool === "draw" ? drawingPoints.map((point, index) => { const local = drawPointLocal(point); return local ? <circle key={`draw-point-${index}`} className="draw-line-point" cx={local.x} cy={local.y} r={index === drawingPoints.length - 1 ? 5 : 3.5} fill="white" stroke={drawColor ?? "#2563eb"} strokeWidth="2" /> : null; }) : null}
+            {tool === "draw" && drawTool === "line" ? (() => {
+              const paper = plotPaperRef.current?.getBoundingClientRect();
+              const locals = drawingPoints
+                .map((point) => drawPointLocal(point))
+                .filter((point): point is { x: number; y: number } => Boolean(point));
+              // 스냅: transData(px/py). 비스냅: 커서 paper-local (선형 axes_bbox면 가이드가 비뚤어짐)
+              const hoverLocal = drawHover
+                ? (drawHover.snapped
+                  ? drawPointLocal(drawHover.point)
+                  : (paper
+                    ? { x: drawHover.clientX - paper.left, y: drawHover.clientY - paper.top }
+                    : null))
+                : null;
+              const stroke = drawColor ?? DRAW_LINE_DEFAULT_COLOR;
+              const last = locals[locals.length - 1];
+              return (
+                <>
+                  {/* PySide _line_artist: 확정 점 ≥2 → 실선 alpha 0.4 */}
+                  {locals.length >= 2 ? (
+                    <polyline
+                      className="draw-line-live"
+                      points={locals.map((point) => `${point.x},${point.y}`).join(" ")}
+                      fill="none"
+                      stroke={stroke}
+                      strokeWidth={Math.max(0.75, clampDrawLineWidth(drawWidth))}
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      vectorEffect="non-scaling-stroke"
+                    />
+                  ) : null}
+                  {/* PySide 가이드: 점 ≥1 + hover → 마지막점→호버, gray dotted */}
+                  {last && hoverLocal ? (
+                    <line
+                      className="draw-line-guide"
+                      x1={last.x}
+                      y1={last.y}
+                      x2={hoverLocal.x}
+                      y2={hoverLocal.y}
+                      stroke="#888888"
+                      strokeWidth={1.25}
+                      strokeDasharray="4 4"
+                      strokeLinecap="round"
+                      vectorEffect="non-scaling-stroke"
+                    />
+                  ) : null}
+                  {locals.map((local, index) => (
+                    <circle
+                      key={`draw-point-${index}`}
+                      className="draw-line-point"
+                      cx={local.x}
+                      cy={local.y}
+                      r={index === locals.length - 1 ? 5 : 3.5}
+                      fill="white"
+                      stroke={stroke}
+                      strokeWidth="2"
+                    />
+                  ))}
+                </>
+              );
+            })() : null}
+            {tool === "draw" && drawTool === "area" ? (() => {
+              const paper = plotPaperRef.current?.getBoundingClientRect();
+              const locals = drawingPoints
+                .map((point) => drawPointLocal(point))
+                .filter((point): point is { x: number; y: number } => Boolean(point));
+              const hoverLocal = drawHover
+                ? (drawHover.snapped
+                  ? drawPointLocal(drawHover.point)
+                  : (paper
+                    ? { x: drawHover.clientX - paper.left, y: drawHover.clientY - paper.top }
+                    : null))
+                : null;
+              const last = locals[locals.length - 1];
+              const stroke = drawPolyBorderColor;
+              const fill = drawPolyFillColor
+                ? (() => {
+                  const hex = drawPolyFillColor.replace("#", "");
+                  if (hex.length !== 6) return "rgba(51, 102, 204, 0.15)";
+                  const r = Number.parseInt(hex.slice(0, 2), 16);
+                  const g = Number.parseInt(hex.slice(2, 4), 16);
+                  const b = Number.parseInt(hex.slice(4, 6), 16);
+                  return `rgba(${r}, ${g}, ${b}, ${drawPolyFillOpacity})`;
+                })()
+                : "transparent";
+              return (
+                <>
+                  {locals.length >= 3 ? (
+                    <polygon
+                      className="draw-area-fill"
+                      points={locals.map((point) => `${point.x},${point.y}`).join(" ")}
+                      fill={fill}
+                      stroke="none"
+                    />
+                  ) : null}
+                  {locals.length >= 2 ? (
+                    <polyline
+                      className="draw-line-live"
+                      points={locals.map((point) => `${point.x},${point.y}`).join(" ")}
+                      fill="none"
+                      stroke={stroke}
+                      strokeWidth={1.5}
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      vectorEffect="non-scaling-stroke"
+                    />
+                  ) : null}
+                  {last && hoverLocal ? (
+                    <line
+                      className="draw-line-guide"
+                      x1={last.x}
+                      y1={last.y}
+                      x2={hoverLocal.x}
+                      y2={hoverLocal.y}
+                      stroke="#888888"
+                      strokeWidth={1.25}
+                      strokeDasharray="4 4"
+                      strokeLinecap="round"
+                      vectorEffect="non-scaling-stroke"
+                    />
+                  ) : null}
+                  {locals.map((local, index) => (
+                    <circle
+                      key={`area-point-${index}`}
+                      className="draw-line-point"
+                      cx={local.x}
+                      cy={local.y}
+                      r={index === 0 ? 5.5 : index === locals.length - 1 ? 5 : 3.5}
+                      fill="white"
+                      stroke={stroke}
+                      strokeWidth="2"
+                    />
+                  ))}
+                </>
+              );
+            })() : null}
           </svg>
+          {tool === "draw" && (drawTool === "line" || drawTool === "area") && drawHover?.snapped && drawHover.rulerPoint ? (() => {
+            const screen = rulerPointClient(drawHover.rulerPoint);
+            const paper = plotPaperRef.current?.getBoundingClientRect();
+            if (!screen || !paper) return null;
+            return (
+              <>
+                <span
+                  className={`ruler-snap-marker ${drawHover.rulerPoint.type === "mean" ? "is-mean" : "is-raw"}`}
+                  style={{ left: screen.x - paper.left, top: screen.y - paper.top, borderColor: drawHover.rulerPoint.color }}
+                />
+                <span className="ruler-tooltip" style={{ left: screen.x - paper.left + 12, top: screen.y - paper.top - 30 }}>
+                  {rulerTooltip(drawHover.rulerPoint)}
+                </span>
+              </>
+            );
+          })() : null}
           {tool === "draw" && drawTool === "reference" && referencePreview ? (
             <div
               className={`reference-preview ${referencePreview.mode === "horizontal" ? "is-horizontal" : "is-vertical"}${referencePreview.snapped ? " is-snapped" : ""}`}
@@ -2514,6 +3499,54 @@ export function InteractivePlotWindow() {
               </>
             );
           })() : null}
+          {tool === "draw" ? currentDrawObjects.filter((object): object is DrawTextObject => object.type === "text" && object.visible).map((object) => {
+            const paper = plotPaperRef.current?.getBoundingClientRect();
+            const screen = drawTextAnchorClient(object);
+            const box = drawTextBoxClient(object);
+            if (!paper || !screen) return null;
+            const isDragging = draggingTextId === object.id && textDragPointer !== null;
+            const isHovered = hoveredDrawTextId === object.id;
+            const anchorOffsetX = box ? box.left - screen.x : 0;
+            const anchorOffsetY = box ? box.top - screen.y : 0;
+            const left = isDragging ? textDragPointer.x + anchorOffsetX : box ? box.left - paper.left : screen.x - paper.left;
+            const top = isDragging ? textDragPointer.y + anchorOffsetY : box ? box.top - paper.top : screen.y - paper.top;
+            const weight = object.font_weight || (object.font_bold ? "bold" : "regular");
+            const previewStyle = {
+              color: object.text_color || DRAW_TEXT_DEFAULT_COLOR,
+              fontSize: `${clampDrawTextFontSize(object.font_size)}pt`,
+              fontWeight: weight === "bold" || weight === "semibold" ? 700 : weight === "medium" ? 500 : 400,
+              fontStyle: object.font_italic ? "italic" as const : "normal" as const,
+              fontFamily: axisPreviewFontFamily({ font_style: fontFamilyStyle(object.font_family || DRAW_TEXT_DEFAULT_FAMILY), font_family: object.font_family || DRAW_TEXT_DEFAULT_FAMILY }),
+              lineHeight: clampDrawTextLineSpacing(object.line_spacing ?? DRAW_TEXT_DEFAULT_LINE_SPACING),
+            };
+            const boxStyle = box ? { width: box.width, height: box.height } : {};
+            return (
+              <span
+                className={`draw-text-hit-target ${isDragging ? "is-dragging" : ""} ${isHovered ? "is-hovered" : ""}`}
+                key={object.id}
+                style={{ left, top, ...boxStyle }}
+                title="드래그하여 텍스트 이동"
+              >
+                {/* 히트용 투명 텍스트 — opacity는 CSS만 (인라인 opacity 금지: 프리뷰와 겹침) */}
+                <span className="draw-text-hit-text" style={previewStyle} aria-hidden>
+                  {object.text.split("\n").map((line, index) => (
+                    <span key={`${object.id}-hit-${index}`}>{line || "\u00a0"}</span>
+                  ))}
+                </span>
+                {isDragging ? (
+                  <span
+                    className="draw-text-drag-preview"
+                    style={{ ...previewStyle, opacity: object.semi ? 0.35 : 1 }}
+                    aria-hidden
+                  >
+                    {object.text.split("\n").map((line, index) => (
+                      <span key={`${object.id}-prev-${index}`}>{line || "\u00a0"}</span>
+                    ))}
+                  </span>
+                ) : null}
+              </span>
+            );
+          }) : null}
           {tool === "label" && rulerContext ? rulerContext.labels.map((label) => { const screen = plotLabelClient(label); const box = plotLabelBoxClient(label); const paper = plotPaperRef.current?.getBoundingClientRect(); if (!screen || !paper) return null; const isDragging = draggingPlotLabel === label.vowel && plotLabelPointer !== null; const isPreviewing = plotLabelPreviewVowel === label.vowel && plotLabelPointer !== null; const isHovered = hoveredPlotLabel === label.vowel; const anchorOffsetX = box ? box.left - screen.x : 0; const anchorOffsetY = box ? box.top - screen.y : 0; const left = isPreviewing ? plotLabelPointer.x + anchorOffsetX : box ? box.left - paper.left : screen.x - paper.left; const top = isPreviewing ? plotLabelPointer.y + anchorOffsetY : box ? box.top - paper.top : screen.y - paper.top; const labelDesign = { ...design, ...(layerOverrides[label.vowel] ?? {}) }; const rawWeight = String(labelDesign.font_weight ?? ""); const rawBold = String(labelDesign.lbl_bold); const isBold = rawWeight === "bold" || (!rawWeight && (rawBold === "true" || rawBold === "bold" || rawBold === "medium")); const previewStyle = { color: String(label.lbl_color ?? labelDesign.lbl_color ?? "#ff0000"), fontSize: `${Number(label.fontsize ?? labelDesign.lbl_size ?? 18)}pt`, fontWeight: isBold ? 700 : 400, fontStyle: label.lbl_italic ?? labelDesign.lbl_italic ? "italic" as const : "normal" as const, fontFamily: labelDesign.font_style === "sans" ? "var(--gf-font-sans)" : "var(--gf-font-serif)" }; const boxStyle = box ? { width: box.width, height: box.height } : {}; return <span className={`plot-label-hit-target ${isDragging ? "is-dragging" : ""} ${isHovered ? "is-hovered" : ""}`} key={`label-${label.vowel}`} style={{ left, top, ...boxStyle }} title={`${label.vowel} 라벨 이동`}><span className="plot-label-hit-text" style={previewStyle}>{label.display_vowel ?? label.vowel}</span>{isPreviewing ? <span className="plot-label-drag-preview" style={previewStyle}>{label.display_vowel ?? label.vowel}</span> : null}</span>; }) : null}
          {tool === "ruler" ? rulerMeasurements.map((measurement, index) => { const a = rulerPointClient(measurement.p1); const b = rulerPointClient(measurement.p2); const paper = plotPaperRef.current?.getBoundingClientRect(); if (!a || !b || !paper) return null; const x1 = a.x - paper.left; const y1 = a.y - paper.top; const x2 = b.x - paper.left; const y2 = b.y - paper.top; const triangleLabels = rulerGeometryMode === "right-triangle" ? rulerTriangleLabels(measurement.p1, measurement.p2) : null; const dx = x2 - x1; const dy = y2 - y1; const length = Math.max(1, Math.hypot(dx, dy)); const hypotenuseAngle = Math.atan2(dy, dx) * 180 / Math.PI; const readableAngle = hypotenuseAngle > 90 || hypotenuseAngle < -90 ? hypotenuseAngle + 180 : hypotenuseAngle; const hypotenuseOffset = 18; const hypotenuseLabelX = (x1 + x2) / 2 - (dy / length) * hypotenuseOffset; const hypotenuseLabelY = (y1 + y2) / 2 + (dx / length) * hypotenuseOffset; return <div className="ruler-measurement" key={`${measurement.p1.x}-${measurement.p2.x}-${index}`}><svg className="ruler-line-layer" aria-hidden>{rulerGeometryMode === "right-triangle" ? <><polyline points={`${x1},${y1} ${x2},${y1} ${x2},${y2}`} /><line x1={x1} y1={y1} x2={x2} y2={y2} /></> : <line x1={x1} y1={y1} x2={x2} y2={y2} />}</svg><span className="ruler-point ruler-point-start" style={{ left: x1, top: y1, borderColor: measurement.p1.color }} /><span className="ruler-point ruler-point-end" style={{ left: x2, top: y2, borderColor: measurement.p2.color }} />{triangleLabels ? <><span className="ruler-side-label ruler-side-label-horizontal" style={{ left: (x1 + x2) / 2, top: y1 + 6 }}>{triangleLabels.horizontal}</span><span className="ruler-side-label ruler-side-label-vertical" style={{ left: x2 + 6, top: (y1 + y2) / 2 }}>{triangleLabels.vertical}</span><span className="ruler-side-label ruler-side-label-hypotenuse" style={{ left: hypotenuseLabelX, top: hypotenuseLabelY, transform: `translate(-50%, -50%) rotate(${readableAngle}deg)` }}>{triangleLabels.hypotenuse}</span></> : <button type="button" tabIndex={-1} aria-label={`거리 ${measurement.distance}`} className="ruler-label" style={{ left: measurement.labelX, top: measurement.labelY }} onPointerDown={(event) => { event.stopPropagation(); setDraggingRulerLabel(index); event.currentTarget.setPointerCapture(event.pointerId); }}>{measurement.distance}</button>}</div>; }) : null}
           {tool === "ruler" && rulerStart ? (() => { const screen = rulerPointClient(rulerStart); const paper = plotPaperRef.current?.getBoundingClientRect(); return screen && paper ? <span className={`ruler-snap-marker ${rulerStart.type === "mean" ? "is-mean" : "is-raw"}`} style={{ left: screen.x - paper.left, top: screen.y - paper.top, borderColor: rulerStart.color }} /> : null; })() : null}
@@ -2625,7 +3658,7 @@ export function InteractivePlotWindow() {
         <div className="layer-split-layout drawing-split-layout" style={{ "--layer-list-height": `${layerListHeight}px` } as CSSProperties}>
           <div className="drawing-panel">
             <section>
-              <div className="drawing-panel-heading"><span>그리기 도구</span><small>캔버스에 추가할 주석 유형</small></div>
+              <div className="drawing-panel-heading"><span>그리기 도구</span></div>
               <div className="drawing-tool-grid">
                 <button type="button" className={drawTool === "text" ? "is-active" : ""} onClick={() => activateDrawTool("text")}><span className="draw-tool-icon">T</span><span><strong>텍스트</strong><small>설명과 라벨</small></span></button>
                 <button type="button" className={drawTool === "line" ? "is-active" : ""} onClick={() => activateDrawTool("line")}><PenLine size={16} /><span><strong>선</strong><small>직선과 화살표</small></span></button>
@@ -2633,32 +3666,28 @@ export function InteractivePlotWindow() {
                 <button type="button" className={drawTool === "reference" ? "is-active" : ""} onClick={() => activateDrawTool("reference")}><Ruler size={16} /><span><strong>기준선</strong><small>축 기준 표시</small></span></button>
                 <button type="button" className={drawTool === "legend" ? "is-active" : ""} onClick={() => activateDrawTool("legend")}><List size={16} /><span><strong>범례</strong><small>선과 모음 설명</small></span></button>
               </div>
-            </section>
-            <section className="drawing-style-card">
-              {drawTool === "line" ? <>
-                <div className="drawing-tool-identity line-tool-identity"><PenLine size={19} /><div><strong>선 그리기</strong><small>직선과 화살표를 플롯 위에 추가합니다.</small></div></div>
-                <div className="palette-picker-row"><PalettePicker label="그리기 색상" value={drawColor} onChange={setDrawColor} /></div>
-                <label className="opacity-control"><span>선 두께 <b>{drawWidth}px</b></span><input type="range" min="1" max="8" value={drawWidth} onChange={(event) => setDrawWidth(Number(event.target.value))} /></label>
-                <div className="drawing-style-group"><span className="drawing-style-caption">선 스타일</span><div className="segmented-row"><button type="button" className={drawLineStyle === "-" ? "is-active" : ""} onClick={() => setDrawLineStyle("-")} title="실선"><i className="line-style-swatch" /></button><button type="button" className={drawLineStyle === "--" ? "is-active" : ""} onClick={() => setDrawLineStyle("--")} title="파선"><i className="line-style-swatch is-dashed" /></button><button type="button" className={drawLineStyle === ":" ? "is-active" : ""} onClick={() => setDrawLineStyle(":")} title="점선"><i className="line-style-swatch is-dotted" /></button><button type="button" className={drawLineStyle === "-." ? "is-active" : ""} onClick={() => setDrawLineStyle("-.")} title="일점쇄선"><i className="line-style-swatch is-dash-dot" /></button></div></div>
-                <div className="drawing-style-group"><span className="drawing-style-caption">화살표 위치</span><div className="segmented-row"><button type="button" className={drawArrowMode === "none" ? "is-active" : ""} onClick={() => setDrawArrowMode("none")} title="화살표 없음"><PenLine size={14} /></button><button type="button" className={drawArrowMode === "end" ? "is-active" : ""} onClick={() => setDrawArrowMode("end")} title="끝점"><ArrowRight size={15} /></button><button type="button" className={drawArrowMode === "all" ? "is-active" : ""} onClick={() => setDrawArrowMode("all")} title="모든 구간"><ArrowLeftRight size={15} /></button></div></div>
-                {drawArrowMode !== "none" ? <div className="drawing-style-group"><span className="drawing-style-caption">화살표 모양</span><div className="segmented-row"><button type="button" className={drawArrowHead === "stealth" ? "is-active" : ""} onClick={() => setDrawArrowHead("stealth")}>Stealth</button><button type="button" className={drawArrowHead === "open" ? "is-active" : ""} onClick={() => setDrawArrowHead("open")}>Open</button><button type="button" className={drawArrowHead === "latex" ? "is-active" : ""} onClick={() => setDrawArrowHead("latex")}>LaTeX</button></div></div> : null}
-              </> : drawTool === "legend" ? <>
-                <div className="legend-tool-status"><List size={17} /><div><strong>범례 위치와 스타일</strong><small>플롯 위 범례를 드래그해 이동합니다.</small></div></div>
-                <button type="button" className="wide-action primary" onClick={openLegendEditor}><List size={14} /> 범례 편집</button>
-              </> : drawTool === "text" ? <div className="drawing-legacy-tool-card text-tool-card">
-                <div className="drawing-tool-identity"><span className="drawing-tool-letter">T</span><div><strong>텍스트 배치</strong><small>분석 화면에 설명과 표기를 추가합니다.</small></div></div>
-                <div className="drawing-tool-summary"><span>텍스트 내용</span><b>편집기에서 입력</b></div>
-                <button type="button" className="wide-action" onClick={() => void activateDrawTool("text")}><ArrowUpRight size={14} /> 텍스트 편집 열기</button>
-              </div> : drawTool === "area" ? <div className="drawing-legacy-tool-card area-tool-card">
-                <div className="drawing-tool-identity"><ScanSearch size={19} /><div><strong>영역 강조</strong><small>관심 범위를 둘러 분석 화면에 표시합니다.</small></div></div>
-                <div className="drawing-tool-summary"><span>표시 방식</span><b>영역과 경계선</b></div>
-                <button type="button" className="wide-action" onClick={() => void activateDrawTool("area")}><ArrowUpRight size={14} /> 영역 편집 열기</button>
-              </div> : drawTool === "reference" ? <div className="drawing-legacy-tool-card reference-tool-card">
-                <div className="drawing-tool-identity"><Ruler size={19} /><div><strong>기준선</strong><small>플롯에 마우스를 올리면 미리보기가 보이고, 클릭하면 놓입니다.</small></div></div>
-                <div className="reference-mode-row"><span>기준선 종류</span><div className="segmented-row reference-mode-choices"><button type="button" className={referenceMode === "horizontal" ? "is-active" : ""} onClick={() => { setReferenceMode("horizontal"); setMessage("수평 기준선 · 마우스를 올리면 미리보기가 보입니다."); }}>수평</button><button type="button" className={referenceMode === "vertical" ? "is-active" : ""} onClick={() => { setReferenceMode("vertical"); setMessage("수직 기준선 · 마우스를 올리면 미리보기가 보입니다."); }}>수직</button></div></div>
-              </div> : <div className="drawing-legacy-tool-card drawing-tool-idle-card">
-                <div className="drawing-tool-identity"><PenLine size={19} /><div><strong>도구 선택</strong><small>위에서 선·기준선·범례 등을 고르면 그리기가 시작됩니다.</small></div></div>
-              </div>}
+              {drawTool !== "legend" ? (
+                <div className="drawing-defaults-row">
+                  <button
+                    type="button"
+                    className="wide-action primary drawing-defaults-button"
+                    onClick={() => {
+                      openDrawDefaultsEditor(drawTool === "text" ? "text" : undefined);
+                    }}
+                  >
+                    <SlidersHorizontal size={14} /> 그리기 수정
+                  </button>
+                </div>
+              ) : null}
+              {drawTool === "reference" ? (
+                <div className="reference-mode-row drawing-panel-reference-modes">
+                  <span>기준선 종류</span>
+                  <div className="segmented-row reference-mode-choices">
+                    <button type="button" className={referenceMode === "horizontal" ? "is-active" : ""} onClick={() => { setReferenceMode("horizontal"); setMessage("수평 기준선 · 마우스를 올리면 미리보기가 보입니다."); }}>수평</button>
+                    <button type="button" className={referenceMode === "vertical" ? "is-active" : ""} onClick={() => { setReferenceMode("vertical"); setMessage("수직 기준선 · 마우스를 올리면 미리보기가 보입니다."); }}>수직</button>
+                  </div>
+                </div>
+              ) : null}
             </section>
           </div>
           <div className="layer-splitter" role="separator" aria-orientation="horizontal" aria-label="그리기 디자인과 목록 높이 조절" onPointerDown={beginLayerPanelResize} onPointerMove={resizeLayerPanels} onPointerUp={endLayerPanelResize} onPointerCancel={endLayerPanelResize} onLostPointerCapture={cancelLayerPanelResize}><i /></div>
@@ -2667,16 +3696,26 @@ export function InteractivePlotWindow() {
             <div className="layer-list-toolbar"><span><GripVertical size={12} /> 끌어서 순서 변경</span><button type="button" className="layer-toolbar-danger" disabled={!currentDrawObjects.length} onClick={() => persistDrawObjects([])}>모두 삭제</button></div>
             {currentDrawObjects.length ? (
               <div className="layer-list drawing-object-list">
-                {currentDrawObjects.map((object) => {
+                {drawObjectsTopFirst.map((object) => {
                   const lineIndex = object.type === "line" ? currentDrawLines.findIndex((line) => line.id === object.id) + 1 : 0;
+                  const polyIndex = object.type === "polygon"
+                    ? currentDrawObjects.filter((item) => item.type === "polygon").findIndex((item) => item.id === object.id) + 1
+                    : 0;
+                  const textIndex = object.type === "text"
+                    ? currentDrawObjects.filter((item) => item.type === "text").findIndex((item) => item.id === object.id) + 1
+                    : 0;
                   const label = object.type === "legend"
                     ? (object.name || "범례")
                     : object.type === "reference"
                       ? `${object.mode === "horizontal" ? "수평" : "수직"} ${formatRefLabel(object.value, object.axis_units, true, analysis?.normalization ?? null).trim()}`
-                      : `선 ${lineIndex}`;
+                      : object.type === "polygon"
+                        ? `영역 ${polyIndex}`
+                        : object.type === "text"
+                          ? `텍스트 ${textIndex}`
+                          : `선 ${lineIndex}`;
                   return (
                     <div
-                      className={`layer-row drawing-object-row ${object.visible ? "" : "visibility-off"} ${object.semi ? "visibility-semi" : ""} ${draggingDrawObject === object.id ? "is-dragging" : ""} ${drawDropTarget?.id === object.id ? (drawDropTarget.after ? "drop-after" : "drop-before") : ""}`}
+                      className={`layer-row drawing-object-row ${object.visible ? "" : "visibility-off"} ${object.semi ? "visibility-semi" : ""} ${selectedDrawObjectIds.has(object.id) ? "is-selected" : ""} ${draggingDrawObject === object.id ? "is-dragging" : ""} ${drawDropTarget?.id === object.id ? (drawDropTarget.after ? "drop-after" : "drop-before") : ""}`}
                       data-draw-object-id={object.id}
                       key={object.id}
                     >
@@ -2684,18 +3723,19 @@ export function InteractivePlotWindow() {
                         <button type="button" className="layer-drag-handle" onPointerDown={(event) => beginDrawObjectDrag(event, object.id)} onPointerMove={moveDrawObjectDrag} onPointerUp={commitDrawObjectDrag} onPointerCancel={cancelDrawObjectDrag} aria-label={`${label} 순서 이동`} title="끌어서 이동"><GripVertical size={15} /></button>
                         <button type="button" className="layer-visibility" onClick={() => toggleDrawObjectVisibility(object.id)} title={object.visible ? "레이어 숨기기" : "레이어 표시"}>{object.visible ? <Eye size={15} /> : <EyeOff size={15} />}</button>
                         <button type="button" className={`layer-semi ${object.semi ? "is-active" : ""}`} onClick={() => toggleDrawObjectSemi(object.id)}>반투명</button>
-                        {object.type === "legend" ? (
-                          <button type="button" className="layer-name drawing-layer-name" onClick={openLegendEditor}><strong>{label}</strong></button>
-                        ) : (
-                          <span className="layer-name drawing-layer-name is-static"><strong>{label}</strong></span>
-                        )}
-                        {object.type === "legend" ? <button type="button" className="layer-lock drawing-object-edit" onClick={openLegendEditor} aria-label="범례 편집" title="범례 편집"><Palette size={14} /></button> : null}
+                        <button
+                          type="button"
+                          className="layer-name drawing-layer-name"
+                          onMouseDown={(event) => { if (event.button === 0) event.preventDefault(); }}
+                          onClick={(event) => selectDrawObject(object.id, event)}
+                        >
+                          <strong>{label}</strong>
+                        </button>
+                        <button type="button" className="layer-lock drawing-object-edit" onClick={() => openDrawLayerEditor(object)} aria-label={`${label} 편집`} title="스타일 수정"><Palette size={14} /></button>
                         <button
                           type="button"
                           className="layer-lock drawing-object-delete"
-                          onClick={() => object.type === "line"
-                            ? persistDrawLines(currentDrawLines.filter((item) => item.id !== object.id))
-                            : persistDrawObjects(currentDrawObjects.filter((item) => item.id !== object.id))}
+                          onClick={() => deleteDrawObjects(object.id)}
                           aria-label={`${label} 삭제`}
                           title="삭제"
                         >
@@ -2711,7 +3751,7 @@ export function InteractivePlotWindow() {
         </div>
         )}
       </aside>
-      {batchExportOpen ? <div className="batch-export-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget && !batchExportBusy) setBatchExportOpen(false); }}>
+      {batchExportOpen ? <div className="batch-export-backdrop" role="presentation">
         <section className="batch-export-dialog" role="dialog" aria-modal="true" aria-labelledby="batch-export-title">
           <header><div><span className="section-eyebrow">EXPORT WORKSPACE</span><h2 id="batch-export-title">일괄 저장</h2><p>현재 React/Tauri 플롯 설정을 모든 파일에 적용해 저장합니다.</p></div><button type="button" onClick={() => setBatchExportOpen(false)} disabled={batchExportBusy} aria-label="닫기"><X size={18} /></button></header>
           <div className="batch-export-body">
@@ -2724,15 +3764,133 @@ export function InteractivePlotWindow() {
           <footer><button type="button" className="wide-action" onClick={() => setBatchExportOpen(false)} disabled={batchExportBusy}>취소</button><button type="button" className="wide-action primary" onClick={() => void runBatchExport()} disabled={!batchExportDirectory || batchExportBusy}>{batchExportBusy ? "저장 중…" : "일괄 저장 시작"}</button></footer>
         </section>
       </div> : null}
-      {legendEditorOpen && legendDraft ? <div className="legend-editor-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setLegendEditorOpen(false); }}>
-        <section className="legend-editor-dialog" role="dialog" aria-modal="true" aria-labelledby="legend-editor-title">
-          <header><div><span className="section-eyebrow">PLOT ANNOTATION</span><h2 id="legend-editor-title">범례 편집</h2><p>항목과 표시 스타일을 조정합니다.</p></div><button type="button" onClick={() => setLegendEditorOpen(false)} aria-label="닫기"><X size={18} /></button></header>
+      {textInput ? (
+        <div className="legend-editor-backdrop" role="presentation">
+          <section className="legend-editor-dialog draw-text-input-dialog" role="dialog" aria-modal="true" aria-labelledby="draw-text-input-title">
+            <header>
+              <div>
+                <span className="section-eyebrow">TEXT</span>
+                <h2 id="draw-text-input-title">텍스트 입력</h2>
+                <p>여러 줄 가능 · Enter로 줄바꿈</p>
+              </div>
+              <button type="button" onClick={() => setTextInput(null)} aria-label="닫기"><X size={18} /></button>
+            </header>
+            <div className="legend-editor-body">
+              <label className="draw-text-content-field">
+                <span>표시할 텍스트</span>
+                <textarea
+                  autoFocus
+                  value={textInput.draft}
+                  onChange={(event) => setTextInput({ ...textInput, draft: event.target.value })}
+                  rows={6}
+                />
+              </label>
+            </div>
+            <footer>
+              <button type="button" className="wide-action" onClick={() => setTextInput(null)}>취소</button>
+              <button type="button" className="wide-action primary" onClick={confirmTextInput}>확인</button>
+            </footer>
+          </section>
+        </div>
+      ) : null}
+      {drawEditorOpen ? <div className="legend-editor-backdrop" role="presentation">
+        <section className="legend-editor-dialog draw-style-editor-dialog" role="dialog" aria-modal="true" aria-labelledby="draw-editor-title">
+          <header>
+            <div>
+              <span className="section-eyebrow">DRAW STYLE</span>
+              <h2 id="draw-editor-title">
+                {drawEditorKind === "line" ? "선 수정" : drawEditorKind === "polygon" ? "영역 수정" : drawEditorKind === "reference" ? "기준선 수정" : drawEditorKind === "text" ? "텍스트 수정" : "범례 수정"}
+              </h2>
+              {drawEditorMode === "layer" && drawEditorKind !== "legend" ? <p>선택한 레이어에 적용</p> : null}
+            </div>
+            <button type="button" onClick={closeDrawEditor} aria-label="닫기"><X size={18} /></button>
+          </header>
           <div className="legend-editor-body">
-            <div className="legend-editor-section is-first"><div className="legend-editor-section-heading"><strong>항목 순서와 이름</strong><button type="button" onClick={() => setLegendDraft({ ...legendDraft, entries: [...legendDraft.entries, { series_id: legendDraft.entries.length, text: "새 항목" }] })}>항목 추가</button></div><div className="legend-entry-editor">{legendDraft.entries.map((entry, index) => <div className="legend-entry-row" key={`${entry.series_id}-${index}`}><span>{String(index + 1).padStart(2, "0")}</span><input value={entry.text} onChange={(event) => setLegendDraft({ ...legendDraft, entries: legendDraft.entries.map((item, itemIndex) => itemIndex === index ? { ...item, text: event.target.value } : item) })} /><button type="button" onClick={() => setLegendDraft({ ...legendDraft, entries: legendDraft.entries.map((item, itemIndex) => itemIndex === index && itemIndex > 0 ? legendDraft.entries[itemIndex - 1] : itemIndex === index - 1 ? entry : item) })} disabled={index === 0} aria-label="위로 이동" title="위로 이동"><ArrowUp size={13} /></button><button type="button" onClick={() => setLegendDraft({ ...legendDraft, entries: legendDraft.entries.map((item, itemIndex) => itemIndex === index && itemIndex < legendDraft.entries.length - 1 ? legendDraft.entries[itemIndex + 1] : itemIndex === index + 1 ? entry : item) })} disabled={index === legendDraft.entries.length - 1} aria-label="아래로 이동" title="아래로 이동"><ArrowDown size={13} /></button><button type="button" onClick={() => setLegendDraft({ ...legendDraft, entries: legendDraft.entries.filter((_, itemIndex) => itemIndex !== index) })} disabled={legendDraft.entries.length <= 1} aria-label="항목 삭제" title="항목 삭제"><X size={13} /></button></div>)}</div></div>
-            <div className="legend-editor-section"><div className="legend-editor-section-heading"><strong>문자 스타일</strong></div><div className="legend-editor-grid"><label><span>글꼴</span><select value={legendDraft.font_family} onChange={(event) => setLegendDraft({ ...legendDraft, font_family: event.target.value })}>{FONT_FAMILIES.map((family) => <option key={family}>{family}</option>)}</select></label><label><span>굵기</span><select value={legendDraft.font_weight} onChange={(event) => setLegendDraft({ ...legendDraft, font_weight: event.target.value as LegendDraft["font_weight"] })}><option value="regular">보통</option><option value="medium">중간</option><option value="semibold">세미볼드</option><option value="bold">굵게</option></select></label></div><label className="opacity-control legend-size-control"><span>글자 크기 <b>{legendDraft.font_size}pt</b></span><input type="range" min="6" max="20" step="1" value={legendDraft.font_size} onChange={(event) => setLegendDraft({ ...legendDraft, font_size: Number(event.target.value) })} /></label><ToggleSwitch label="기울임" checked={legendDraft.font_italic} onChange={() => setLegendDraft({ ...legendDraft, font_italic: !legendDraft.font_italic })} /></div>
-            <div className="legend-editor-section"><div className="legend-editor-section-heading"><strong>상자 스타일</strong></div><div className="legend-border-toggle-row"><ToggleSwitch label="테두리 표시" checked={legendDraft.show_border} onChange={() => setLegendDraft({ ...legendDraft, show_border: !legendDraft.show_border })} /></div><div className="drawing-style-group legend-border-style-group"><span className="drawing-style-caption">테두리 스타일</span><div className="segmented-row"><button type="button" className={legendDraft.border_style === "-" ? "is-active" : ""} onClick={() => setLegendDraft({ ...legendDraft, border_style: "-" })} aria-label="실선" title="실선"><i className="line-style-swatch" /></button><button type="button" className={legendDraft.border_style === "--" ? "is-active" : ""} onClick={() => setLegendDraft({ ...legendDraft, border_style: "--" })} aria-label="파선" title="파선"><i className="line-style-swatch is-dashed" /></button><button type="button" className={legendDraft.border_style === ":" ? "is-active" : ""} onClick={() => setLegendDraft({ ...legendDraft, border_style: ":" })} aria-label="점선" title="점선"><i className="line-style-swatch is-dotted" /></button><button type="button" className={legendDraft.border_style === "-." ? "is-active" : ""} onClick={() => setLegendDraft({ ...legendDraft, border_style: "-." })} aria-label="일점쇄선" title="일점쇄선"><i className="line-style-swatch is-dash-dot" /></button></div></div><div className="palette-picker-row"><PalettePicker label="테두리 색상" value={legendDraft.border_color} onChange={(border_color) => border_color && setLegendDraft({ ...legendDraft, border_color })} /><PalettePicker label="채우기 색상" value={legendDraft.fill_color} onChange={(fill_color) => fill_color && setLegendDraft({ ...legendDraft, fill_color })} /></div><ToggleSwitch label="배경 채우기" checked={legendDraft.show_fill} onChange={() => setLegendDraft({ ...legendDraft, show_fill: !legendDraft.show_fill })} /><label className="opacity-control"><span>배경 불투명도 <b>{Math.round(legendDraft.fill_opacity * 100)}%</b></span><input type="range" min="0" max="100" value={Math.round(legendDraft.fill_opacity * 100)} onChange={(event) => setLegendDraft({ ...legendDraft, fill_opacity: Number(event.target.value) / 100 })} /></label></div>
+            {drawEditorKind === "line" && lineDraft ? (
+              <div className="legend-editor-section is-first">
+                <div className="legend-editor-section-heading"><strong>선 스타일</strong></div>
+                <div className="palette-picker-row"><PalettePicker label="선 색상" value={lineDraft.line_color} onChange={(line_color) => line_color && setLineDraft({ ...lineDraft, line_color })} /></div>
+                <label className="opacity-control"><span>선 두께 <b>{clampDrawLineWidth(lineDraft.line_width)}pt</b></span><input type="range" min={DRAW_LINE_WIDTH_MIN} max={DRAW_LINE_WIDTH_MAX} step={DRAW_LINE_WIDTH_STEP} value={clampDrawLineWidth(lineDraft.line_width)} onChange={(event) => setLineDraft({ ...lineDraft, line_width: clampDrawLineWidth(Number(event.target.value)) })} /></label>
+                <div className="drawing-style-group"><span className="drawing-style-caption">선 스타일</span><div className="segmented-row is-cols-4"><button type="button" className={lineDraft.line_style === "-" ? "is-active" : ""} onClick={() => setLineDraft({ ...lineDraft, line_style: "-" })} title="실선"><i className="line-style-swatch" /></button><button type="button" className={lineDraft.line_style === "--" ? "is-active" : ""} onClick={() => setLineDraft({ ...lineDraft, line_style: "--" })} title="파선"><i className="line-style-swatch is-dashed" /></button><button type="button" className={lineDraft.line_style === ":" ? "is-active" : ""} onClick={() => setLineDraft({ ...lineDraft, line_style: ":" })} title="점선"><i className="line-style-swatch is-dotted" /></button><button type="button" className={lineDraft.line_style === "-." ? "is-active" : ""} onClick={() => setLineDraft({ ...lineDraft, line_style: "-." })} title="일점쇄선"><i className="line-style-swatch is-dash-dot" /></button></div></div>
+                <div className="drawing-style-group"><span className="drawing-style-caption">화살표 위치</span><div className="segmented-row is-cols-3"><button type="button" className={lineDraft.arrow_mode === "none" ? "is-active" : ""} onClick={() => setLineDraft({ ...lineDraft, arrow_mode: "none" })} title="화살표 없음"><TrajectoryIcon mode="none" /></button><button type="button" className={lineDraft.arrow_mode === "end" ? "is-active" : ""} onClick={() => setLineDraft({ ...lineDraft, arrow_mode: "end" })} title="끝점"><TrajectoryIcon mode="end" head={lineDraft.arrow_head} /></button><button type="button" className={lineDraft.arrow_mode === "all" ? "is-active" : ""} onClick={() => setLineDraft({ ...lineDraft, arrow_mode: "all" })} title="점마다"><TrajectoryIcon mode="all" head={lineDraft.arrow_head} /></button></div></div>
+                {lineDraft.arrow_mode !== "none" ? <div className="drawing-style-group"><span className="drawing-style-caption">화살표 모양</span><div className="segmented-row is-cols-3"><button type="button" className={lineDraft.arrow_head === "stealth" ? "is-active" : ""} onClick={() => setLineDraft({ ...lineDraft, arrow_head: "stealth" })} title="stealth"><TrajectoryIcon mode="end" head="stealth" /></button><button type="button" className={lineDraft.arrow_head === "open" ? "is-active" : ""} onClick={() => setLineDraft({ ...lineDraft, arrow_head: "open" })} title="open"><TrajectoryIcon mode="end" head="open" /></button><button type="button" className={lineDraft.arrow_head === "latex" ? "is-active" : ""} onClick={() => setLineDraft({ ...lineDraft, arrow_head: "latex" })} title="latex"><TrajectoryIcon mode="end" head="latex" /></button></div></div> : null}
+              </div>
+            ) : null}
+            {drawEditorKind === "polygon" && polygonDraft ? (
+              <div className="legend-editor-section is-first">
+                <div className="legend-editor-section-heading"><strong>영역 스타일</strong></div>
+                <div className="drawing-style-group"><span className="drawing-style-caption">테두리 스타일</span><div className="segmented-row is-cols-4"><button type="button" className={polygonDraft.border_style === "-" ? "is-active" : ""} onClick={() => setPolygonDraft({ ...polygonDraft, border_style: "-" })} title="실선"><i className="line-style-swatch" /></button><button type="button" className={polygonDraft.border_style === "--" ? "is-active" : ""} onClick={() => setPolygonDraft({ ...polygonDraft, border_style: "--" })} title="파선"><i className="line-style-swatch is-dashed" /></button><button type="button" className={polygonDraft.border_style === ":" ? "is-active" : ""} onClick={() => setPolygonDraft({ ...polygonDraft, border_style: ":" })} title="점선"><i className="line-style-swatch is-dotted" /></button><button type="button" className={polygonDraft.border_style === "-." ? "is-active" : ""} onClick={() => setPolygonDraft({ ...polygonDraft, border_style: "-." })} title="일점쇄선"><i className="line-style-swatch is-dash-dot" /></button></div></div>
+                <div className="palette-picker-row"><PalettePicker label="테두리 색상" value={polygonDraft.border_color} onChange={(border_color) => border_color && setPolygonDraft({ ...polygonDraft, border_color })} /><PalettePicker label="채우기 색상" value={polygonDraft.fill_color} onChange={(fill_color) => setPolygonDraft({ ...polygonDraft, fill_color })} allowTransparent /></div>
+                <label className="opacity-control"><span>채우기 불투명도 <b>{Math.round(polygonDraft.fill_opacity * 100)}%</b></span><input type="range" min="0" max="100" step="1" value={Math.round(polygonDraft.fill_opacity * 100)} onChange={(event) => setPolygonDraft({ ...polygonDraft, fill_opacity: Number(event.target.value) / 100 })} /></label>
+              </div>
+            ) : null}
+            {drawEditorKind === "reference" && referenceDraft ? (
+              <div className="legend-editor-section is-first">
+                <div className="legend-editor-section-heading"><strong>기준선</strong></div>
+                {referenceDraft.valueLabel ? <div className="drawing-tool-summary"><span>값</span><b>{referenceDraft.valueLabel}</b></div> : null}
+                <div className="reference-mode-row"><span>종류</span><div className="segmented-row is-cols-2 reference-mode-choices"><button type="button" className={referenceDraft.mode === "horizontal" ? "is-active" : ""} onClick={() => setReferenceDraft({ ...referenceDraft, mode: "horizontal" })}>수평</button><button type="button" className={referenceDraft.mode === "vertical" ? "is-active" : ""} onClick={() => setReferenceDraft({ ...referenceDraft, mode: "vertical" })}>수직</button></div></div>
+                <div className="drawing-style-group"><span className="drawing-style-caption">선 스타일</span><div className="segmented-row is-cols-4"><button type="button" className={referenceDraft.line_style === "-" ? "is-active" : ""} onClick={() => setReferenceDraft({ ...referenceDraft, line_style: "-" })} title="실선"><i className="line-style-swatch" /></button><button type="button" className={referenceDraft.line_style === "--" ? "is-active" : ""} onClick={() => setReferenceDraft({ ...referenceDraft, line_style: "--" })} title="파선"><i className="line-style-swatch is-dashed" /></button><button type="button" className={referenceDraft.line_style === ":" ? "is-active" : ""} onClick={() => setReferenceDraft({ ...referenceDraft, line_style: ":" })} title="점선"><i className="line-style-swatch is-dotted" /></button><button type="button" className={referenceDraft.line_style === "-." ? "is-active" : ""} onClick={() => setReferenceDraft({ ...referenceDraft, line_style: "-." })} title="일점쇄선"><i className="line-style-swatch is-dash-dot" /></button></div></div>
+                <div className="palette-picker-row"><PalettePicker label="선 색상" value={referenceDraft.line_color} onChange={(line_color) => setReferenceDraft({ ...referenceDraft, line_color })} allowTransparent /></div>
+              </div>
+            ) : null}
+            {drawEditorKind === "text" && textDraft ? (
+              <div className="legend-editor-section is-first">
+                <div className="legend-editor-section-heading"><strong>텍스트 스타일</strong></div>
+                {drawEditorMode === "layer" ? (
+                  <label className="draw-text-content-field">
+                    <span>내용 (Enter로 줄바꿈)</span>
+                    <textarea
+                      value={textDraft.text}
+                      onChange={(event) => setTextDraft({ ...textDraft, text: event.target.value })}
+                      rows={5}
+                    />
+                  </label>
+                ) : null}
+                <div className="legend-editor-grid">
+                  <label>
+                    <span>글꼴</span>
+                    <select
+                      value={textDraft.font_family}
+                      onChange={(event) => {
+                        const font_family = event.target.value;
+                        setTextDraft({
+                          ...textDraft,
+                          font_family,
+                          font_weight: normalizedFontWeight(font_family, textDraft.font_weight),
+                        });
+                      }}
+                    >
+                      {FONT_FAMILIES.map((family) => <option key={family}>{family}</option>)}
+                    </select>
+                  </label>
+                  <label>
+                    <span>굵기</span>
+                    <select
+                      value={normalizedFontWeight(textDraft.font_family, textDraft.font_weight)}
+                      onChange={(event) => setTextDraft({ ...textDraft, font_weight: event.target.value as DesignSettings["font_weight"] })}
+                      disabled={(FONT_WEIGHTS[textDraft.font_family] ?? []).length <= 1}
+                    >
+                      {(FONT_WEIGHTS[textDraft.font_family] ?? ["regular"]).map((weight) => (
+                        <option key={weight} value={weight}>{FONT_WEIGHT_LABELS[weight]}</option>
+                      ))}
+                    </select>
+                  </label>
+                </div>
+                <label className="opacity-control"><span>글자 크기 <b>{clampDrawTextFontSize(textDraft.font_size)}pt</b></span><input type="range" min={DRAW_TEXT_SIZE_MIN} max={DRAW_TEXT_SIZE_MAX} step={1} value={clampDrawTextFontSize(textDraft.font_size)} onChange={(event) => setTextDraft({ ...textDraft, font_size: clampDrawTextFontSize(Number(event.target.value)) })} /></label>
+                <label className="opacity-control"><span>줄간격 <b>{clampDrawTextLineSpacing(textDraft.line_spacing).toFixed(2)}</b></span><input type="range" min={DRAW_TEXT_LINE_SPACING_MIN} max={DRAW_TEXT_LINE_SPACING_MAX} step={0.05} value={clampDrawTextLineSpacing(textDraft.line_spacing)} onChange={(event) => setTextDraft({ ...textDraft, line_spacing: clampDrawTextLineSpacing(Number(event.target.value)) })} /></label>
+                <ToggleSwitch label="기울임" checked={textDraft.font_italic} onChange={() => setTextDraft({ ...textDraft, font_italic: !textDraft.font_italic })} />
+                <div className="palette-picker-row"><PalettePicker label="글자 색상" value={textDraft.text_color} onChange={(text_color) => text_color && setTextDraft({ ...textDraft, text_color })} /></div>
+              </div>
+            ) : null}
+            {drawEditorKind === "legend" && legendDraft ? (
+              <>
+                <div className="legend-editor-section is-first"><div className="legend-editor-section-heading"><strong>항목 순서와 이름</strong><button type="button" onClick={() => setLegendDraft({ ...legendDraft, entries: [...legendDraft.entries, { series_id: legendDraft.entries.length, text: "새 항목" }] })}>항목 추가</button></div><div className="legend-entry-editor">{legendDraft.entries.map((entry, index) => <div className="legend-entry-row" key={`${entry.series_id}-${index}`}><span>{String(index + 1).padStart(2, "0")}</span><input value={entry.text} onChange={(event) => setLegendDraft({ ...legendDraft, entries: legendDraft.entries.map((item, itemIndex) => itemIndex === index ? { ...item, text: event.target.value } : item) })} /><button type="button" onClick={() => setLegendDraft({ ...legendDraft, entries: legendDraft.entries.map((item, itemIndex) => itemIndex === index && itemIndex > 0 ? legendDraft.entries[itemIndex - 1] : itemIndex === index - 1 ? entry : item) })} disabled={index === 0} aria-label="위로 이동" title="위로 이동"><ArrowUp size={13} /></button><button type="button" onClick={() => setLegendDraft({ ...legendDraft, entries: legendDraft.entries.map((item, itemIndex) => itemIndex === index && itemIndex < legendDraft.entries.length - 1 ? legendDraft.entries[itemIndex + 1] : itemIndex === index + 1 ? entry : item) })} disabled={index === legendDraft.entries.length - 1} aria-label="아래로 이동" title="아래로 이동"><ArrowDown size={13} /></button><button type="button" onClick={() => setLegendDraft({ ...legendDraft, entries: legendDraft.entries.filter((_, itemIndex) => itemIndex !== index) })} disabled={legendDraft.entries.length <= 1} aria-label="항목 삭제" title="항목 삭제"><X size={13} /></button></div>)}</div></div>
+                <div className="legend-editor-section"><div className="legend-editor-section-heading"><strong>문자 스타일</strong></div><div className="legend-editor-grid"><label><span>글꼴</span><select value={legendDraft.font_family} onChange={(event) => setLegendDraft({ ...legendDraft, font_family: event.target.value })}>{FONT_FAMILIES.map((family) => <option key={family}>{family}</option>)}</select></label><label><span>굵기</span><select value={legendDraft.font_weight} onChange={(event) => setLegendDraft({ ...legendDraft, font_weight: event.target.value as LegendDraft["font_weight"] })}><option value="regular">보통</option><option value="medium">중간</option><option value="semibold">세미볼드</option><option value="bold">굵게</option></select></label></div><label className="opacity-control legend-size-control"><span>글자 크기 <b>{legendDraft.font_size}pt</b></span><input type="range" min="6" max="20" step="1" value={legendDraft.font_size} onChange={(event) => setLegendDraft({ ...legendDraft, font_size: Number(event.target.value) })} /></label><ToggleSwitch label="기울임" checked={legendDraft.font_italic} onChange={() => setLegendDraft({ ...legendDraft, font_italic: !legendDraft.font_italic })} /></div>
+                <div className="legend-editor-section"><div className="legend-editor-section-heading"><strong>상자 스타일</strong></div><div className="legend-border-toggle-row"><ToggleSwitch label="테두리 표시" checked={legendDraft.show_border} onChange={() => setLegendDraft({ ...legendDraft, show_border: !legendDraft.show_border })} /></div><div className="drawing-style-group legend-border-style-group"><span className="drawing-style-caption">테두리 스타일</span><div className="segmented-row"><button type="button" className={legendDraft.border_style === "-" ? "is-active" : ""} onClick={() => setLegendDraft({ ...legendDraft, border_style: "-" })} aria-label="실선" title="실선"><i className="line-style-swatch" /></button><button type="button" className={legendDraft.border_style === "--" ? "is-active" : ""} onClick={() => setLegendDraft({ ...legendDraft, border_style: "--" })} aria-label="파선" title="파선"><i className="line-style-swatch is-dashed" /></button><button type="button" className={legendDraft.border_style === ":" ? "is-active" : ""} onClick={() => setLegendDraft({ ...legendDraft, border_style: ":" })} aria-label="점선" title="점선"><i className="line-style-swatch is-dotted" /></button><button type="button" className={legendDraft.border_style === "-." ? "is-active" : ""} onClick={() => setLegendDraft({ ...legendDraft, border_style: "-." })} aria-label="일점쇄선" title="일점쇄선"><i className="line-style-swatch is-dash-dot" /></button></div></div><div className="palette-picker-row"><PalettePicker label="테두리 색상" value={legendDraft.border_color} onChange={(border_color) => border_color && setLegendDraft({ ...legendDraft, border_color })} /><PalettePicker label="채우기 색상" value={legendDraft.fill_color} onChange={(fill_color) => fill_color && setLegendDraft({ ...legendDraft, fill_color })} /></div><ToggleSwitch label="배경 채우기" checked={legendDraft.show_fill} onChange={() => setLegendDraft({ ...legendDraft, show_fill: !legendDraft.show_fill })} /><label className="opacity-control"><span>배경 불투명도 <b>{Math.round(legendDraft.fill_opacity * 100)}%</b></span><input type="range" min="0" max="100" value={Math.round(legendDraft.fill_opacity * 100)} onChange={(event) => setLegendDraft({ ...legendDraft, fill_opacity: Number(event.target.value) / 100 })} /></label></div>
+              </>
+            ) : null}
           </div>
-          <footer><button type="button" className="wide-action" onClick={() => setLegendEditorOpen(false)}>취소</button><button type="button" className="wide-action primary" onClick={saveLegendEditor}>적용</button></footer>
+          <footer><button type="button" className="wide-action" onClick={closeDrawEditor}>취소</button><button type="button" className="wide-action primary" onClick={saveDrawEditor}>적용</button></footer>
         </section>
       </div> : null}
       {vowelAnalysisOpen ? <VowelAnalysisShell currentSource={currentSource} sources={sources} currentIndex={currentIndex} displayIndex={Math.max(0, sources.findIndex((source) => source.index === currentIndex))} onNavigate={(index) => void navigateTo(index)} onClose={() => setVowelAnalysisOpen(false)} /> : null}

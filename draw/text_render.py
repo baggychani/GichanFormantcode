@@ -26,8 +26,12 @@ def _italic_transform_at(ax, x: float, y: float, angle_deg: float = _ITALIC_SHEA
     )
 
 
+def clamp_line_spacing(line_spacing: float) -> float:
+    return max(0.8, min(float(line_spacing), 2.5))
+
+
 def _line_height_data(ax, fig, font_size: float, linespacing: float = 1.15) -> float:
-    px = float(font_size) * linespacing * fig.dpi / 72.0
+    px = float(font_size) * clamp_line_spacing(linespacing) * fig.dpi / 72.0
     _, y0 = ax.transData.inverted().transform((0.0, 0.0))
     _, y1 = ax.transData.inverted().transform((0.0, px))
     return abs(y1 - y0)
@@ -119,17 +123,24 @@ def render_text_object(
     font_size = clamp_text_font_size(getattr(text_obj, "font_size", 13.0))
     text_obj.font_size = font_size
     color = getattr(text_obj, "text_color", "#303133") or "#303133"
+    font_weight = str(getattr(text_obj, "font_weight", "") or "").lower()
     font_bold = bool(getattr(text_obj, "font_bold", False))
+    if font_weight not in {"regular", "medium", "semibold", "bold"}:
+        font_weight = "bold" if font_bold else "regular"
+    font_bold = font_weight in {"bold", "semibold"} or font_bold
     font_italic = bool(getattr(text_obj, "font_italic", False))
     x = float(getattr(text_obj, "x", 0.0))
     y = float(getattr(text_obj, "y", 0.0))
     font_style = resolve_font_style(ctx)
+    line_spacing = clamp_line_spacing(getattr(text_obj, "line_spacing", 1.15) or 1.15)
+    text_obj.line_spacing = line_spacing
 
     fig = ax.figure
     renderer = fig.canvas.get_renderer() if fig.canvas else None
-    line_h = _line_height_data(ax, fig, font_size)
+    line_h = _line_height_data(ax, fig, font_size, line_spacing)
     lines = content.split("\n")
-    n_lines = len(lines)
+    # 시각적 "아래" 방향으로 다음 줄 배치 (포먼트처럼 Y축 반전이면 부호 반대)
+    down = 1.0 if ax.yaxis_inverted() else -1.0
 
     fragment_artists: list = []
     stroke = pe.withStroke(
@@ -138,8 +149,14 @@ def render_text_object(
         alpha=alpha,
     )
 
+    requested_family = str(getattr(text_obj, "font_family", "") or "").strip()
+    if requested_family in {"Noto Serif KR", "Charis SIL"}:
+        font_style = "serif"
+    elif requested_family in {"Noto Sans KR", "Andika"}:
+        font_style = "sans"
+
     for line_idx, line in enumerate(lines):
-        y_line = y + (n_lines - 1 - line_idx) * line_h
+        y_line = y + down * line_idx * line_h
         x_cursor = x
         for run, is_ko in iter_text_runs(line):
             if run == "\n":
@@ -151,6 +168,8 @@ def render_text_object(
                 font_style=font_style,
                 font_size=font_size,
                 font_bold=font_bold,
+                font_weight=font_weight,
+                preferred_family=requested_family or None,
             )
             trans = (
                 _italic_transform_at(ax, x_cursor, y_line)

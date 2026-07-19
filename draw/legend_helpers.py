@@ -1,23 +1,35 @@
-"""범례 객체 생성·조회 헬퍼."""
+"""범례 객체 생성·조회·픽셀 고정 레이아웃 헬퍼."""
 
 from __future__ import annotations
 
 import os
+from dataclasses import dataclass
 from typing import Any
 
 from draw.draw_common import LegendEntry, LegendObject
 
-# 박스 내부 레이아웃 (박스 너비 대비 비율)
+# 디스플레이 픽셀 기준 레이아웃 (좌우·상하 패딩 동일·고정)
+LEGEND_PAD_X_PX = 20.0
+LEGEND_PAD_Y_PX = 16.0
+LEGEND_ICON_W_PX = 36.0
+LEGEND_GAP_PX = 8.0
+LEGEND_ROW_H_AT_10PT_PX = 22.0
+LEGEND_MIN_BOX_W_PX = 72.0
+# % 여유 금지 — 글자가 길수록 오른쪽이 비어 보였음. 고정 px만.
+LEGEND_TEXT_SLACK_PX = 3.0
+
+FIGURE_EDGE_MARGIN = 0.016
+
+# 하위호환 (예전 비율 상수 — 외부 import 깨짐 방지)
 LEGEND_ICON_LEFT = 0.03
 LEGEND_ICON_RIGHT = 0.26
 LEGEND_TEXT_START = 0.36
 LEGEND_RIGHT_PAD = 0.08
 LEGEND_REF_ROW_H = 0.036
 LEGEND_BOX_PAD_Y = 0.012
-# 왼쪽만 좁히고 오른쪽은 기존 여백 유지 (대칭 축소 금지)
 LEGEND_BOX_PAD_X_LEFT_RATIO = 0.034
 LEGEND_BOX_PAD_X_RIGHT_RATIO = 0.07
-LEGEND_BOX_PAD_X_RATIO = LEGEND_BOX_PAD_X_LEFT_RATIO  # 하위호환 별칭
+LEGEND_BOX_PAD_X_RATIO = LEGEND_BOX_PAD_X_LEFT_RATIO
 
 
 def find_legend_object(draw_objects: list) -> LegendObject | None:
@@ -75,37 +87,16 @@ def _plot_uses_top_right_origin(popup: Any) -> bool:
     return (origin == "top_right") != axis_swap
 
 
-FIGURE_EDGE_MARGIN = 0.016
-
-
-def legend_content_height(entry_count: int) -> float:
-    """항목만 쌓은 높이(figure fraction). 행 간격 — 패딩 제외."""
-    return LEGEND_REF_ROW_H * max(entry_count, 1)
-
-
 def legend_height_frac(entry_count: int) -> float:
-    """박스 전체 높이 = 내용 + 상하 패딩."""
-    return max(
-        0.034, min(0.26, legend_content_height(entry_count) + 2 * LEGEND_BOX_PAD_Y)
-    )
-
-
-def reconcile_legend_box_height(legend: LegendObject) -> None:
-    """내용 높이(행 간격)만 맞추고, 상하 패딩은 항상 유지."""
-    entries = list(getattr(legend, "entries", []) or [])
-    n = max(len(entries), 1)
-    expected = legend_height_frac(n)
-    content_h = float(legend.height_frac) - 2 * LEGEND_BOX_PAD_Y
-    ref_content = legend_content_height(n)
-    if abs(content_h - ref_content) > ref_content * 0.04:
-        legend.height_frac = expected
-        clamp_legend_bounds(legend)
+    """초기 배치용 대략 높이 (렌더 시 픽셀 레이아웃이 덮어씀)."""
+    n = max(entry_count, 1)
+    return max(0.034, min(0.26, 0.012 * 2 + 0.036 * n))
 
 
 def default_legend_placement(
     popup: Any, entry_count: int, ax=None
 ) -> tuple[float, float, float, float]:
-    """원점 반대편 모서리(axes 내부)에 범례 배치. (fx, fy, width_frac, height_frac) — figure fraction."""
+    """원점 반대편 모서리(axes 내부)에 범례 배치. (fx, fy, width_frac, height_frac)."""
     height_frac = legend_height_frac(entry_count)
 
     if ax is not None:
@@ -210,88 +201,210 @@ def _legend_font_family(popup: Any, legend: LegendObject | None = None) -> list[
     return ["DejaVu Sans", "Malgun Gothic"]
 
 
-def _estimate_text_width_frac(text: str, font_size: float) -> float:
-    """렌더러 없을 때 한글/영문 폭 추정 (figure fraction, ~8in @120dpi 기준)."""
-    width = 0.0
-    # 10pt 한글 ≈ figure width의 ~1.4%
-    unit = float(font_size) / 10.0
+def _fig_pixel_size(fig) -> tuple[float, float, float]:
+    """(width_px, height_px, dpi)."""
+    dpi = float(getattr(fig, "dpi", 100.0) or 100.0)
+    try:
+        w = float(fig.bbox.width)
+        h = float(fig.bbox.height)
+        if w > 8 and h > 8:
+            return w, h, dpi
+    except Exception:
+        pass
+    try:
+        w_in, h_in = fig.get_size_inches()
+        return float(w_in) * dpi, float(h_in) * dpi, dpi
+    except Exception:
+        return 800.0, 600.0, dpi
+
+
+def _estimate_text_width_px(text: str, font_size_pt: float, dpi: float) -> float:
+    """폭 추정 (한글·기호). 비율 여유 없이 points→px만 변환."""
+    if not text:
+        return 0.0
+    width_pt = 0.0
     for ch in text:
         code = ord(ch)
         if code > 0x2E80 or ("\uac00" <= ch <= "\ud7a3"):
-            width += 0.014 * unit
+            width_pt += font_size_pt * 1.0
         elif ch.isupper() or ch.isdigit():
-            width += 0.009 * unit
+            width_pt += font_size_pt * 0.66
         elif ch in "_-./ ":
-            width += 0.0055 * unit
+            width_pt += font_size_pt * 0.42
         else:
-            width += 0.0075 * unit
-    return width
+            width_pt += font_size_pt * 0.56
+    return width_pt * (dpi / 72.0)
 
 
-def _measure_text_width_frac(
+def _measure_text_width_px(
     fig,
     text: str,
-    font_size: float,
+    font_size_pt: float,
     font_family: list[str],
+    *,
+    font_weight: str = "normal",
+    font_style: str = "normal",
 ) -> float:
-    """텍스트 너비를 figure fraction으로 반환."""
+    """텍스트 너비(디스플레이 px). TextPath 우선, 실패 시 추정. 끝단에 고정 slack만 가산."""
     if not text:
-        return 0.0
-    estimate = _estimate_text_width_frac(text, font_size)
-    renderer = None
-    if fig is not None and getattr(fig, "canvas", None) is not None:
+        return LEGEND_TEXT_SLACK_PX
+    _fig_w, _fig_h, dpi = _fig_pixel_size(fig)
+    estimate = _estimate_text_width_px(text, font_size_pt, dpi)
+    measured = None
+
+    try:
+        from matplotlib.font_manager import FontProperties
+        from matplotlib.textpath import TextPath
+
+        prop = FontProperties(
+            family=list(font_family),
+            size=font_size_pt,
+            weight=font_weight,
+            style=font_style,
+        )
+        path = TextPath((0, 0), text, size=font_size_pt, prop=prop)
+        width_pt = float(path.get_extents().width)
+        candidate = width_pt * (dpi / 72.0)
+        if candidate >= estimate * 0.45:
+            measured = candidate
+    except Exception:
+        pass
+
+    if measured is None and fig is not None and getattr(fig, "canvas", None) is not None:
         try:
             renderer = fig.canvas.get_renderer()
         except Exception:
             renderer = None
-    if renderer is None:
-        return estimate
-    temp = fig.text(
-        0,
-        0,
-        text,
-        transform=fig.transFigure,
-        fontsize=font_size,
-        fontfamily=font_family,
-        visible=False,
-    )
-    try:
-        bbox = temp.get_window_extent(renderer=renderer)
-        fig_bbox = fig.bbox
-        fig_w = max(float(fig_bbox.width), 1.0)
-        measured = float(bbox.width) / fig_w * 1.04
-        # 폰트 미로드 등으로 측정이 붕괴했을 때만 추정값 사용
-        if measured < estimate * 0.45:
-            return estimate
-        return measured
-    finally:
-        temp.remove()
+        if renderer is not None:
+            temp = fig.text(
+                0,
+                0,
+                text,
+                transform=fig.transFigure,
+                fontsize=font_size_pt,
+                fontfamily=font_family,
+                fontweight=font_weight,
+                fontstyle=font_style,
+                visible=False,
+            )
+            try:
+                bbox = temp.get_window_extent(renderer=renderer)
+                candidate = float(bbox.width)
+                if candidate >= estimate * 0.45:
+                    measured = candidate
+            finally:
+                temp.remove()
+
+    return (measured if measured is not None else estimate) + LEGEND_TEXT_SLACK_PX
 
 
-def legend_box_content_bounds(
+@dataclass(frozen=True)
+class LegendPixelLayout:
+    """픽셀 고정 레이아웃 → figure fraction 배치용."""
+
+    fig_w: float
+    fig_h: float
+    pad_l: float
+    pad_r: float
+    pad_y: float
+    icon_w: float
+    gap: float
+    row_h: float
+    font_size: float
+    max_text_w: float
+    box_w_px: float
+    box_h_px: float
+    width_frac: float
+    height_frac: float
+
+    def icon_left_frac(self, fx: float) -> float:
+        return fx + self.pad_l / self.fig_w
+
+    def icon_right_frac(self, fx: float) -> float:
+        return fx + (self.pad_l + self.icon_w) / self.fig_w
+
+    def text_x_frac(self, fx: float) -> float:
+        return fx + (self.pad_l + self.icon_w + self.gap) / self.fig_w
+
+    def row_y_frac(self, fy: float, index: int) -> float:
+        # fy = top; first row centered in first row band below top pad
+        top = fy - self.pad_y / self.fig_h
+        return top - (index + 0.5) * (self.row_h / self.fig_h)
+
+
+def build_legend_pixel_layout(
     legend: LegendObject,
-) -> tuple[float, float, float, float]:
-    """패딩을 뺀 내용 영역 (x0, y0, x1, y1) — figure fraction."""
-    x0, y0, x1, y1 = legend_box_axes_bounds(legend)
-    box_w = x1 - x0
-    pad_left = box_w * LEGEND_BOX_PAD_X_LEFT_RATIO
-    pad_right = box_w * LEGEND_BOX_PAD_X_RIGHT_RATIO
-    pad_y = LEGEND_BOX_PAD_Y
-    return x0 + pad_left, y0 + pad_y, x1 - pad_right, y1 - pad_y
+    fig,
+    popup: Any,
+    *,
+    entries: list | None = None,
+) -> LegendPixelLayout:
+    """텍스트 실측(px)으로 박스 크기·배치를 계산하고 legend.width/height_frac를 갱신."""
+    rows = list(entries or getattr(legend, "entries", []) or [])
+    n = max(len(rows), 1)
+    fig_w, fig_h, dpi = _fig_pixel_size(fig)
+    fig_w = max(fig_w, 1.0)
+    fig_h = max(fig_h, 1.0)
 
+    font_size = float(getattr(legend, "font_size", 10.0) or 10.0)
+    font_size = max(6.0, min(font_size, 20.0))
+    font_family = _legend_font_family(popup, legend)
+    font_weight = str(getattr(legend, "font_weight", "regular") or "regular")
+    mpl_weight = "bold" if font_weight in {"bold", "semibold"} else "normal"
+    mpl_style = "italic" if bool(getattr(legend, "font_italic", False)) else "normal"
 
-def legend_row_pitch(legend: LegendObject, entry_count: int) -> float:
-    """항목 한 줄 높이(figure fraction). 행 간 행 간격 — 패딩과 무관."""
-    cx0, cy0, cx1, cy1 = legend_box_content_bounds(legend)
-    n = max(entry_count, 1)
-    pitch = (cy1 - cy0) / n
-    return max(LEGEND_REF_ROW_H * 0.5, pitch)
+    max_text_w = 0.0
+    for entry in rows:
+        text = str(getattr(entry, "text", "") or "")
+        max_text_w = max(
+            max_text_w,
+            _measure_text_width_px(
+                fig,
+                text,
+                font_size,
+                font_family,
+                font_weight=mpl_weight,
+                font_style=mpl_style,
+            ),
+        )
 
+    pad_x = LEGEND_PAD_X_PX
+    pad_y = LEGEND_PAD_Y_PX
+    icon_w = LEGEND_ICON_W_PX
+    gap = LEGEND_GAP_PX
+    row_h = max(
+        LEGEND_ROW_H_AT_10PT_PX * (font_size / 10.0),
+        font_size * (dpi / 72.0) * 1.55,
+    )
 
-def legend_content_scale(legend: LegendObject, entry_count: int) -> float:
-    """내용 영역 높이에 비례한 스케일 (패딩 제외)."""
-    pitch = legend_row_pitch(legend, entry_count)
-    return max(0.95, min(2.8, pitch / LEGEND_REF_ROW_H))
+    # 전체 폭 = 좌패딩 + 아이콘(선) + 간격 + 텍스트 + 우패딩 (패딩은 길이와 무관)
+    box_w_px = max(LEGEND_MIN_BOX_W_PX, pad_x + icon_w + gap + max_text_w + pad_x)
+    box_h_px = 2.0 * pad_y + n * row_h
+
+    width_frac = max(0.05, min(0.92, box_w_px / fig_w))
+    height_frac = max(0.028, min(0.92, box_h_px / fig_h))
+
+    legend.width_frac = width_frac
+    legend.height_frac = height_frac
+    legend.font_size = font_size
+    clamp_legend_bounds(legend)
+
+    return LegendPixelLayout(
+        fig_w=fig_w,
+        fig_h=fig_h,
+        pad_l=pad_x,
+        pad_r=pad_x,
+        pad_y=pad_y,
+        icon_w=icon_w,
+        gap=gap,
+        row_h=row_h,
+        font_size=font_size,
+        max_text_w=max_text_w,
+        box_w_px=box_w_px,
+        box_h_px=box_h_px,
+        width_frac=float(legend.width_frac),
+        height_frac=float(legend.height_frac),
+    )
 
 
 def ensure_legend_content_fits(
@@ -300,49 +413,30 @@ def ensure_legend_content_fits(
     popup: Any,
     *,
     entries: list | None = None,
-) -> None:
-    """텍스트가 박스를 넘치면 width_frac를 키워 오른쪽으로 확장 (fx 고정)."""
-    rows = list(entries or getattr(legend, "entries", []) or [])
-    if not rows or fig is None:
-        return
+) -> LegendPixelLayout | None:
+    """텍스트에 맞게 width/height 맞춤. 레이아웃 객체를 반환."""
+    if fig is None:
+        return None
+    return build_legend_pixel_layout(legend, fig, popup, entries=entries)
 
-    font_family = _legend_font_family(popup, legend)
-    inner_ratio = max(
-        0.5, 1.0 - LEGEND_BOX_PAD_X_LEFT_RATIO - LEGEND_BOX_PAD_X_RIGHT_RATIO
-    )
-    margin = 1.18
 
-    for _ in range(8):
-        reconcile_legend_box_height(legend)
-        scale = legend_content_scale(legend, len(rows))
-        effective_font = float(getattr(legend, "font_size", 10.0)) * scale
+# 하위호환 스텁 — 예전 호출부가 깨지지 않게
+def reconcile_legend_box_height(legend: LegendObject) -> None:
+    entries = list(getattr(legend, "entries", []) or [])
+    legend.height_frac = legend_height_frac(max(len(entries), 1))
+    clamp_legend_bounds(legend)
 
-        x0, _y0, x1, _y1 = legend_box_axes_bounds(legend)
-        box_w = x1 - x0
-        if box_w <= 1e-6:
-            break
 
-        cx0, _cy0, cx1, _cy1 = legend_box_content_bounds(legend)
-        content_w = cx1 - cx0
-        if content_w <= 1e-6:
-            break
+def legend_box_content_bounds(legend: LegendObject) -> tuple[float, float, float, float]:
+    x0, y0, x1, y1 = legend_box_axes_bounds(legend)
+    # 대략적 패딩 (픽셀 레이아웃 없을 때)
+    return x0 + 0.01, y0 + 0.008, x1 - 0.012, y1 - 0.008
 
-        text_start_x = cx0 + LEGEND_TEXT_START * content_w
-        required_right = text_start_x
-        for entry in rows:
-            text = str(getattr(entry, "text", "") or "")
-            text_w = _measure_text_width_frac(fig, text, effective_font, font_family)
-            text_w *= margin
-            required_right = max(required_right, text_start_x + text_w)
 
-        # 오른쪽 여백은 content 비율이 아니라 figure fraction 하한으로 확보
-        required_cx1 = required_right + max(LEGEND_RIGHT_PAD * content_w, 0.018)
-        if required_cx1 <= cx1 + 1e-5:
-            break
+def legend_row_pitch(legend: LegendObject, entry_count: int) -> float:
+    n = max(entry_count, 1)
+    return max(0.02, float(legend.height_frac) / n)
 
-        required_box_w = (required_cx1 - x0) / inner_ratio
-        if required_box_w <= box_w + 1e-5:
-            break
 
-        legend.width_frac = min(0.92, float(legend.width_frac) * (required_box_w / box_w))
-        clamp_legend_bounds(legend)
+def legend_content_scale(legend: LegendObject, entry_count: int) -> float:
+    return 1.0
