@@ -14,20 +14,17 @@
 > Tauri/React 파일럿만 보려면 `uv run desktop_main.py` 를 사용하세요.
 > `desktop/` 자체는 실험용이며 기본 실행 경로가 아닙니다.
 
-### 브랜치 안내 (git pull이 최신이 아닐 때)
+### 브랜치 안내
 
 | 브랜치 | 내용 |
 |--------|------|
-| `main` | 안정·병합된 기본선 |
-| `agent/react-tauri-hardening` | React/Tauri 파일럿·대화형 플롯 최신 작업 |
+| `main` | 기본선 (PySide + Tauri/React 파일럿 최신 포함) |
 | `release/pyside-stable` | PySide 전용 안정 스냅샷 |
 
-노트북에서 `git pull`만 했는데 최신이 안 보이면, 대개 **`main`에 있는 채로 pull**한 경우입니다.
-Tauri/플롯 창 최신을 받으려면:
+최신은 `main`입니다.
 
 ```bash
-git fetch origin
-git switch agent/react-tauri-hardening
+git switch main
 git pull
 ```
 
