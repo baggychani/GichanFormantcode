@@ -36,6 +36,8 @@ import type { ApplicationState, HealthStatus } from "../ipc/protocol";
 import { callSidecar } from "./sidecarClient";
 import appIconUrl from "../../assets/icon.ico";
 import { DataGuide } from "./components/DataGuide";
+import { SupportPanel } from "./SupportPanel";
+import { SUPPORT_LABEL, SUPPORT_TITLE } from "./support";
 
 const InteractivePlotWindow = lazy(async () => {
   const module = await import("./components/InteractivePlotWindow");
@@ -287,6 +289,7 @@ function MainWorkspace() {
   });
   const [inspectorOpen, setInspectorOpen] = useState(true);
   const [guideOpen, setGuideOpen] = useState(false);
+  const [supportOpen, setSupportOpen] = useState(false);
   const [theme, setTheme] = useState<Theme>(() => {
     const saved = window.localStorage.getItem("gichanformant-theme");
     const initialTheme =
@@ -1298,6 +1301,17 @@ function MainWorkspace() {
         <span className="status-spacer" />
         <span className="status-copyright">© 2025-2026 Bae Gichan</span>
         <span className="status-divider" />
+        <button
+          type="button"
+          className="status-support"
+          title={SUPPORT_TITLE}
+          aria-label={SUPPORT_TITLE}
+          aria-expanded={supportOpen}
+          onClick={() => setSupportOpen(true)}
+        >
+          {SUPPORT_LABEL}
+        </button>
+        <span className="status-divider" />
         <span className="status-busy">{busy ? <><Loader2 size={12} className="is-spinning" aria-hidden /> 처리 중…</> : settingsSummary}</span>
         <span className="status-divider" />
         <span className="status-mono">v3.0.0 · 파일 {sources.length}개</span>
@@ -1336,6 +1350,11 @@ function MainWorkspace() {
       ) : null}
 
       <DataGuide open={guideOpen} onClose={() => setGuideOpen(false)} />
+      <SupportPanel
+        open={supportOpen}
+        onClose={() => setSupportOpen(false)}
+        onCopied={() => pushStatus("후원 계좌번호를 복사했습니다")}
+      />
     </div>
   );
 }

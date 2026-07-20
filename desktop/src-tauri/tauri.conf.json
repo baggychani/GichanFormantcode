@@ -5,7 +5,7 @@
   "identifier": "com.gichanformant.app",
   "build": {
     "beforeDevCommand": "npm run dev",
-    "devUrl": "http://localhost:1420",
+    "devUrl": "http://localhost:51420",
     "beforeBuildCommand": "npm run build && npm run sidecar:prepare",
     "frontendDist": "../dist"
   },
@@ -23,7 +23,7 @@
     ],
     "security": {
       "csp": "default-src 'self'; connect-src ipc: http://ipc.localhost; img-src 'self' asset: http://asset.localhost data: blob:; style-src 'self' 'unsafe-inline'; font-src 'self' data:",
-      "devCsp": "default-src 'self'; connect-src ipc: http://ipc.localhost http://localhost:1420 ws://localhost:1421; img-src 'self' asset: http://asset.localhost data: blob:; style-src 'self' 'unsafe-inline'; font-src 'self' data:",
+      "devCsp": "default-src 'self'; connect-src ipc: http://ipc.localhost http://localhost:51420 ws://localhost:51421; img-src 'self' asset: http://asset.localhost data: blob:; style-src 'self' 'unsafe-inline'; font-src 'self' data:",
       "assetProtocol": {
         "enable": true,
         "scope": ["$TEMP/GichanFormant/previews/**"]

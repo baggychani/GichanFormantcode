@@ -9,14 +9,15 @@ export default defineConfig(async () => ({
   plugins: [react(), tailwindcss()],
   clearScreen: false,
   server: {
-    port: 1420,
+    // Tauri 기본 1420은 다른 프로젝트와 자주 충돌함 → 이 앱 전용 포트
+    port: 51420,
     strictPort: true,
     host: host || false,
     hmr: host
       ? {
           protocol: "ws",
           host,
-          port: 1421,
+          port: 51421,
         }
       : undefined,
     watch: {

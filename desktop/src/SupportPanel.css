@@ -1,0 +1,122 @@
+.support-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  display: grid;
+  align-items: end;
+  justify-items: end;
+  padding: 0 14px 40px;
+  background: rgba(18, 28, 40, 0.18);
+}
+
+.support-panel {
+  width: min(320px, calc(100vw - 28px));
+  padding: 16px 16px 14px;
+  border: 1px solid var(--gf-border-medium);
+  border-radius: 14px;
+  background: var(--gf-surface-elevated, #fff);
+  box-shadow: 0 18px 48px rgba(22, 35, 49, 0.18);
+  color: var(--gf-text-primary);
+  animation: support-rise 180ms var(--gf-ease, ease) both;
+}
+
+@keyframes support-rise {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.support-panel-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+
+.support-kicker {
+  margin: 0 0 2px;
+  color: var(--gf-text-tertiary);
+  font-size: 10px;
+  letter-spacing: 0.04em;
+}
+
+.support-panel-header h2 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 650;
+  line-height: 1.2;
+}
+
+.support-copy {
+  margin: 0 0 14px;
+  color: var(--gf-text-secondary);
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+.support-account {
+  display: grid;
+  gap: 4px;
+  margin-bottom: 12px;
+  padding: 12px 13px;
+  border: 1px solid rgba(210, 180, 40, 0.35);
+  border-radius: 10px;
+  background: #fff8c9;
+}
+
+.support-bank,
+.support-holder {
+  color: var(--gf-text-tertiary);
+  font-size: 11px;
+}
+
+.support-number {
+  font-family: var(--gf-font-sans);
+  font-size: 15px;
+  font-weight: 650;
+  letter-spacing: 0.01em;
+  color: var(--gf-text-primary);
+}
+
+.support-copy-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  width: 100%;
+  min-height: 36px;
+  margin: 0;
+  border-radius: 9px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.support-copy-btn.is-copied {
+  border-color: transparent;
+  background: var(--gf-success, #2f9e6b);
+  color: #fff;
+  box-shadow: none;
+  filter: none;
+  transform: none;
+}
+
+html[data-theme="dark"] .support-backdrop {
+  background: rgba(0, 0, 0, 0.42);
+}
+
+html[data-theme="dark"] .support-panel {
+  background: var(--gf-surface-elevated);
+  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.45);
+}
+
+html[data-theme="dark"] .support-account {
+  border-color: rgba(255, 220, 80, 0.28);
+  background: rgba(255, 220, 80, 0.14);
+}

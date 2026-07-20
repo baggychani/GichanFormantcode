@@ -1607,6 +1607,37 @@ html[data-theme="light"] .orbit-b {
   white-space: nowrap;
 }
 
+.status-support {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--gf-text-tertiary);
+  font: inherit;
+  font-size: 10px;
+  line-height: 1;
+  white-space: nowrap;
+  cursor: pointer;
+  opacity: 0.72;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  text-decoration-color: transparent;
+  transition: color 120ms ease, opacity 120ms ease, text-decoration-color 120ms ease;
+}
+
+.status-support:hover,
+.status-support:focus-visible {
+  opacity: 1;
+  color: var(--gf-text-secondary);
+  text-decoration-color: currentColor;
+}
+
+.status-support:focus-visible {
+  outline: none;
+  box-shadow: var(--gf-focus-ring);
+  border-radius: 3px;
+}
+
 .status-mono {
   font-family: var(--gf-font-mono);
 }
