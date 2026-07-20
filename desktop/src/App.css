@@ -1162,6 +1162,17 @@ html[data-theme="light"] .orbit-b {
   font-size: 13px;
 }
 
+.is-spinning {
+  flex-shrink: 0;
+  animation: gf-spin 0.75s linear infinite;
+}
+
+@keyframes gf-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 .settings-panel {
   grid-area: settings;
   display: flex;
@@ -1598,6 +1609,12 @@ html[data-theme="light"] .orbit-b {
 
 .status-mono {
   font-family: var(--gf-font-mono);
+}
+
+.status-busy {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
 }
 
 .progress-line {

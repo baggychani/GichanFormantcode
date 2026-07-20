@@ -25,8 +25,12 @@ npm run tauri:dev
 ## 구성
 
 - `src/` — React UI (파일럿)
+- `src/plotUnits.ts` — Hz / Bark / 정규화 표시 단위의 단일 진입점 (PySide 정책과 맞춤)
 - `ipc/` — TypeScript ↔ Python 계약
 - `src-tauri/` — Tauri shell + sidecar 브리지
+
+분석 설정(Bark 표시, Lobanov, F3 게이트 등)은 Python `ApplicationService.set_analysis_settings`가
+PySide 메인 창과 같은 강제 규칙을 적용합니다.
 
 ## 되돌리기
 

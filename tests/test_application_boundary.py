@@ -208,6 +208,75 @@ def test_preview_event_is_json_safe():
     service.close()
 
 
+def test_set_analysis_settings_derived_plot_clears_normalization():
+    controller, _view = _headless_controller()
+    service = ApplicationService(controller)
+    service.set_analysis_settings({"normalization": "Lobanov", "type": "f1_f2"})
+    state = service.set_analysis_settings({"type": "f1_f2_minus_f1"})
+    assert state["analysis"]["type"] == "f1_f2_minus_f1"
+    assert state["analysis"]["normalization"] is None
+    service.close()
+
+
+def test_set_analysis_settings_bark_units_forces_both_scales():
+    controller, _view = _headless_controller()
+    service = ApplicationService(controller)
+    service.set_analysis_settings(
+        {"f1_scale": "linear", "f2_scale": "log", "use_bark_units": False}
+    )
+    state = service.set_analysis_settings({"use_bark_units": True})
+    analysis = state["analysis"]
+    assert analysis["use_bark_units"] is True
+    assert analysis["f1_scale"] == "bark"
+    assert analysis["f2_scale"] == "bark"
+    service.close()
+
+
+def test_interactive_preview_rejects_hz_ranges_under_lobanov():
+    controller, _view = _headless_controller()
+    service = ApplicationService(controller)
+    df = pd.DataFrame({"F1": [500.0], "F2": [1500.0], "Label": ["a"]})
+    controller.filepaths = ["C:/data/a.csv"]
+    controller.plot_data_list = [
+        {
+            "name": "a.csv",
+            "df": df,
+            "df_original": df.copy(),
+            "has_f3": False,
+            "is_pre_lobanov": False,
+        }
+    ]
+    service.set_analysis_settings({"normalization": "Lobanov"})
+    session = service._plot_session()
+    session.ranges = {
+        "y_min": "200",
+        "y_max": "1000",
+        "x_min": "500",
+        "x_max": "3500",
+    }
+
+    prepared = service.prepare_interactive_preview(
+        {
+            "request_id": 9,
+            "ranges": {
+                "y_min": "200",
+                "y_max": "1000",
+                "x_min": "500",
+                "x_max": "3500",
+            },
+        }
+    )
+
+    assert {key: float(value) for key, value in prepared["ranges"].items()} == {
+        "y_min": -2.0,
+        "y_max": 2.0,
+        "x_min": -2.0,
+        "x_max": 2.0,
+    }
+    assert session.ranges == {}
+    service.close()
+
+
 def test_interactive_preview_preparation_sends_only_render_data():
     controller, _view = _headless_controller()
     service = ApplicationService(controller)

@@ -19,6 +19,7 @@ import {
   FolderOpen,
   Gauge,
   Layers3,
+  Loader2,
   Moon,
   PanelRightClose,
   PanelRightOpen,
@@ -311,10 +312,16 @@ function MainWorkspace() {
 
   const analysis = state?.analysis;
   const sources = state?.sources ?? [];
-  const hasFiles = sources.length > 0;
-  const hasF3 = sources.some((source) => source.has_f3);
+  const realSources = sources.filter((source) => !source.is_combined);
+  const hasFiles = realSources.length > 0;
+  /** PySide workspace_service._has_f3_all: every real file must expose F3. */
+  const hasF3 = hasFiles && realSources.every((source) => source.has_f3);
+  /** PySide all_real_items_pre_lobanov → Lobanov combo locked. */
+  const preLobanovLocked = hasFiles && realSources.every((source) => source.is_pre_lobanov);
   const canPlot = state?.capabilities.can_plot ?? false;
   const plotType = (analysis?.type as PlotType) || "f1_f2";
+  const derivedPlotUnsupportedNorm =
+    plotType === "f1_f2_minus_f1" || plotType === "f1_f2_prime_minus_f1";
   const activePlot =
     PLOT_TYPES.find((plot) => plot.id === plotType) ?? PLOT_TYPES[0];
 
@@ -337,9 +344,12 @@ function MainWorkspace() {
     busyCountRef.current += 1;
     setBusy(true);
   }, []);
-  const endBusy = useCallback(() => {
+
+  // Always balance beginBusy — even if the component unmounted mid-request
+  // (StrictMode remount / window close). Only skip React state updates when dead.
+  const endBusySafe = useCallback(() => {
     busyCountRef.current = Math.max(0, busyCountRef.current - 1);
-    setBusy(busyCountRef.current > 0);
+    if (aliveRef.current) setBusy(busyCountRef.current > 0);
   }, []);
 
   const signalSettingsAttention = useCallback(() => {
@@ -379,9 +389,9 @@ function MainWorkspace() {
       setError(String(err));
       pushStatus("분석 엔진 연결 실패");
     } finally {
-      if (aliveRef.current) endBusy();
+      endBusySafe();
     }
-  }, [beginBusy, endBusy, pushStatus, requestMainPreview]);
+  }, [beginBusy, endBusySafe, pushStatus, requestMainPreview]);
 
   const loadPaths = useCallback(
     async (paths: string[]) => {
@@ -414,16 +424,16 @@ function MainWorkspace() {
         if (!aliveRef.current) return;
         if (response.load_result.failed.length > 0 || skippedCount > 0) {
           const failedCount = response.load_result.failed.length + skippedCount;
-          setError(`${failedCount} files were skipped because they are not valid data files.`);
+          setError(`${failedCount}개 파일을 건너뛰었습니다. 지원 형식(TXT, CSV, TSV, XLSX, XLS)인지 확인해 주세요.`);
         }
-        pushStatus(`${paths.length}개 소스를 작업 공간에 추가했습니다`);
+        pushStatus(`${response.load_result.success_count}개 소스를 작업 공간에 추가했습니다`);
       } catch (err) {
         if (aliveRef.current) setError(String(err));
       } finally {
-        if (aliveRef.current) endBusy();
+        endBusySafe();
       }
     },
-    [beginBusy, endBusy, pushStatus, requestMainPreview, signalSettingsAttention],
+    [beginBusy, endBusySafe, pushStatus, requestMainPreview, signalSettingsAttention],
   );
 
   useEffect(() => {
@@ -451,7 +461,7 @@ function MainWorkspace() {
       }
       if (name === "preview_ready" && (payload.target ?? "main") === "main") {
         const requestId = Number(payload.request_id ?? 0);
-        if (requestId && requestId < previewRequestRef.current) return;
+        if (Number.isFinite(requestId) && requestId > 0 && requestId < previewRequestRef.current) return;
         const imagePath = String(payload.png_path ?? "");
         const image = String(payload.png_base64 ?? "");
         setPreviewUrl(imagePath ? convertFileSrc(imagePath) : image ? `data:image/png;base64,${image}` : null);
@@ -519,9 +529,16 @@ function MainWorkspace() {
   useEffect(() => {
     document.documentElement.dataset.theme = theme;
     document.documentElement.style.colorScheme = theme;
-    window.localStorage.setItem("gichanformant-theme", theme);
+    // Do not write localStorage here — only the explicit toggle persists a preference,
+    // so OS theme changes keep applying until the user picks one.
     void emit("gichan-theme", theme);
   }, [theme]);
+
+  const toggleThemePreference = () => {
+    const next: Theme = theme === "dark" ? "light" : "dark";
+    window.localStorage.setItem("gichanformant-theme", next);
+    setTheme(next);
+  };
 
   const openFiles = async () => {
     setError(null);
@@ -554,13 +571,20 @@ function MainWorkspace() {
       });
       if (!selected || Array.isArray(selected)) return;
       beginBusy();
-      await callSidecar("load_project", { path: selected });
-      requestMainPreview();
-      pushStatus("프로젝트를 불러왔습니다");
+      try {
+        const next = await callSidecar<ApplicationState>("load_project", { path: selected });
+        if (aliveRef.current) {
+          setState(next);
+          requestMainPreview();
+          pushStatus("프로젝트를 불러왔습니다");
+        }
+      } catch (err) {
+        if (aliveRef.current) setError(String(err));
+      } finally {
+        endBusySafe();
+      }
     } catch (err) {
       setError(String(err));
-    } finally {
-      endBusy();
     }
   };
 
@@ -576,7 +600,7 @@ function MainWorkspace() {
     } catch (err) {
       setError(String(err));
     } finally {
-      endBusy();
+      endBusySafe();
     }
   };
 
@@ -590,7 +614,7 @@ function MainWorkspace() {
     } catch (err) {
       setError(String(err));
     } finally {
-      endBusy();
+      endBusySafe();
     }
   };
 
@@ -603,6 +627,11 @@ function MainWorkspace() {
 
   const settingsPatchRef = useRef<Record<string, unknown>>({});
   const settingsTimerRef = useRef<number | null>(null);
+  /** PySide `_integer_bark_scale_backup` — restore when Bark display turns off. */
+  const barkScaleBackupRef = useRef<{ f1_scale: string; f2_scale: string } | null>(null);
+  useEffect(() => () => {
+    if (settingsTimerRef.current !== null) window.clearTimeout(settingsTimerRef.current);
+  }, []);
   const patchSettings = (patch: Record<string, unknown>) => {
     setError(null);
     settingsPatchRef.current = { ...settingsPatchRef.current, ...patch };
@@ -611,11 +640,55 @@ function MainWorkspace() {
       const settings = settingsPatchRef.current;
       settingsPatchRef.current = {};
       settingsTimerRef.current = null;
+      if (!aliveRef.current) return;
       void callSidecar<ApplicationState>("set_analysis_settings", { settings })
-        .then(setState)
-        .catch((err) => setError(String(err)));
+        .then((next) => { if (aliveRef.current) setState(next); })
+        .catch((err) => { if (aliveRef.current) setError(String(err)); });
     }, 90);
   };
+
+  const barkDisplayLocked = Boolean(analysis?.use_bark_units) && !analysis?.normalization;
+  const axisControlsLocked = Boolean(analysis?.normalization) || preLobanovLocked;
+  const scaleButtonsLocked = axisControlsLocked || barkDisplayLocked;
+  const toggleBarkDisplayUnits = () => {
+    if (axisControlsLocked) return;
+    const turningOn = !(analysis?.use_bark_units ?? false);
+    if (turningOn) {
+      barkScaleBackupRef.current = {
+        f1_scale: analysis?.f1_scale ?? "linear",
+        f2_scale: analysis?.f2_scale ?? "bark",
+      };
+      // Same as PySide get_f*_scale while checkbox is on.
+      void patchSettings({ use_bark_units: true, f1_scale: "bark", f2_scale: "bark" });
+      return;
+    }
+    const backup = barkScaleBackupRef.current;
+    barkScaleBackupRef.current = null;
+    void patchSettings({
+      use_bark_units: false,
+      f1_scale: backup?.f1_scale ?? "linear",
+      f2_scale: backup?.f2_scale ?? "bark",
+    });
+  };
+
+  // PySide toggle_f3_options: drop F3-only plot types when F3 is unavailable.
+  useEffect(() => {
+    if (!analysis) return;
+    const needsF3 = plotType === "f1_f3" || plotType === "f1_f2_prime" || plotType === "f1_f2_prime_minus_f1";
+    if (needsF3 && !hasF3) void patchSettings({ type: "f1_f2" });
+  }, [analysis, hasF3, plotType]);
+
+  // PySide: derived plots clear normalization; pre-Lobanov forces Lobanov.
+  useEffect(() => {
+    if (!analysis || !hasFiles) return;
+    if (preLobanovLocked && analysis.normalization !== "Lobanov") {
+      void patchSettings({ normalization: "Lobanov" });
+      return;
+    }
+    if (derivedPlotUnsupportedNorm && analysis.normalization) {
+      void patchSettings({ normalization: null });
+    }
+  }, [analysis, derivedPlotUnsupportedNorm, hasFiles, preLobanovLocked]);
 
   const saveProject = async () => {
     const selected = await save({
@@ -631,7 +704,7 @@ function MainWorkspace() {
     } catch (err) {
       setError(String(err));
     } finally {
-      endBusy();
+      endBusySafe();
     }
   };
 
@@ -644,7 +717,7 @@ function MainWorkspace() {
     } catch (err) {
       setError(String(err));
     } finally {
-      endBusy();
+      endBusySafe();
     }
   };
 
@@ -673,7 +746,7 @@ function MainWorkspace() {
           <button
             type="button"
             className="icon-button theme-toggle"
-            onClick={() => setTheme((value) => value === "dark" ? "light" : "dark")}
+            onClick={toggleThemePreference}
             aria-label={theme === "dark" ? "밝은 테마로 전환" : "어두운 테마로 전환"}
             title={theme === "dark" ? "밝은 테마" : "어두운 테마"}
           >
@@ -1026,7 +1099,7 @@ function MainWorkspace() {
                     <button
                       type="button"
                       className={(analysis?.f1_scale ?? "linear") === "linear" ? "active" : ""}
-                      disabled={busy || !hasFiles}
+                      disabled={busy || !hasFiles || scaleButtonsLocked}
                       onClick={() => void patchSettings({ f1_scale: "linear" })}
                       aria-pressed={(analysis?.f1_scale ?? "linear") === "linear"}
                     >
@@ -1035,7 +1108,7 @@ function MainWorkspace() {
                     <button
                       type="button"
                       className={analysis?.f1_scale === "log" ? "active" : ""}
-                      disabled={busy || !hasFiles}
+                      disabled={busy || !hasFiles || scaleButtonsLocked}
                       onClick={() => void patchSettings({ f1_scale: "log" })}
                       aria-pressed={analysis?.f1_scale === "log"}
                     >
@@ -1044,7 +1117,7 @@ function MainWorkspace() {
                     <button
                       type="button"
                       className={analysis?.f1_scale === "bark" ? "active" : ""}
-                      disabled={busy || !hasFiles}
+                      disabled={busy || !hasFiles || scaleButtonsLocked}
                       onClick={() => void patchSettings({ f1_scale: "bark" })}
                       aria-pressed={analysis?.f1_scale === "bark"}
                     >
@@ -1058,7 +1131,7 @@ function MainWorkspace() {
                     <button
                       type="button"
                       className={(analysis?.f2_scale ?? "bark") === "linear" ? "active" : ""}
-                      disabled={busy || !hasFiles}
+                      disabled={busy || !hasFiles || scaleButtonsLocked}
                       onClick={() => void patchSettings({ f2_scale: "linear" })}
                       aria-pressed={(analysis?.f2_scale ?? "bark") === "linear"}
                     >
@@ -1067,7 +1140,7 @@ function MainWorkspace() {
                     <button
                       type="button"
                       className={analysis?.f2_scale === "log" ? "active" : ""}
-                      disabled={busy || !hasFiles}
+                      disabled={busy || !hasFiles || scaleButtonsLocked}
                       onClick={() => void patchSettings({ f2_scale: "log" })}
                       aria-pressed={analysis?.f2_scale === "log"}
                     >
@@ -1076,7 +1149,7 @@ function MainWorkspace() {
                     <button
                       type="button"
                       className={(analysis?.f2_scale ?? "bark") === "bark" ? "active" : ""}
-                      disabled={busy || !hasFiles}
+                      disabled={busy || !hasFiles || scaleButtonsLocked}
                       onClick={() => void patchSettings({ f2_scale: "bark" })}
                       aria-pressed={(analysis?.f2_scale ?? "bark") === "bark"}
                     >
@@ -1089,7 +1162,7 @@ function MainWorkspace() {
                 <span>좌표 원점</span>
                 <select
                   value={analysis?.origin ?? "top_right"}
-                  disabled={busy || !hasFiles}
+                  disabled={busy || !hasFiles || axisControlsLocked}
                   onChange={(event) =>
                     void patchSettings({ origin: event.target.value })
                   }
@@ -1101,12 +1174,18 @@ function MainWorkspace() {
               <label className="switch-row">
                 <span>
                   <strong>Bark 단위로 표시</strong>
-                  <small>주파수 눈금을 지각 척도로 바꿉니다</small>
+                  <small>
+                    {axisControlsLocked
+                      ? "정규화 중에는 축·Bark 설정이 잠깁니다"
+                      : barkDisplayLocked
+                        ? "양쪽 축 Bark 고정 · 눈금 버튼 잠금"
+                        : "주파수 눈금을 지각 척도로 바꿉니다"}
+                  </small>
                 </span>
                 <SettingsSwitch
                   checked={analysis?.use_bark_units ?? false}
-                  disabled={busy || !hasFiles}
-                  onChange={() => void patchSettings({ use_bark_units: !(analysis?.use_bark_units ?? false) })}
+                  disabled={busy || !hasFiles || axisControlsLocked}
+                  onChange={toggleBarkDisplayUnits}
                 />
               </label>
             </section>
@@ -1182,9 +1261,16 @@ function MainWorkspace() {
                 <span>화자 정규화</span>
                 <select
                   value={analysis?.normalization ?? ""}
-                  disabled={busy || !hasFiles}
+                  disabled={busy || !hasFiles || derivedPlotUnsupportedNorm || preLobanovLocked}
                   onChange={(event) =>
                     void patchSettings({ normalization: event.target.value || null })
+                  }
+                  title={
+                    preLobanovLocked
+                      ? "사전 Lobanov 데이터 · Lobanov 고정"
+                      : derivedPlotUnsupportedNorm
+                        ? "이 플롯 유형에서는 정규화를 쓸 수 없습니다"
+                        : undefined
                   }
                 >
                   <option value="">사용 안 함</option>
@@ -1212,7 +1298,7 @@ function MainWorkspace() {
         <span className="status-spacer" />
         <span className="status-copyright">© 2025-2026 Bae Gichan</span>
         <span className="status-divider" />
-        <span>{busy ? "처리 중…" : settingsSummary}</span>
+        <span className="status-busy">{busy ? <><Loader2 size={12} className="is-spinning" aria-hidden /> 처리 중…</> : settingsSummary}</span>
         <span className="status-divider" />
         <span className="status-mono">v3.0.0 · 파일 {sources.length}개</span>
       </footer>

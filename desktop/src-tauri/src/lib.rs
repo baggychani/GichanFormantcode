@@ -25,6 +25,8 @@ fn prepare_main_window(app: &tauri::App) -> tauri::Result<()> {
     } else {
         window.center()?;
     }
+    // Show immediately so a slow/hung sidecar never leaves the app invisible.
+    // The frontend still paints a connecting state until the engine is ready.
     window.show()?;
     Ok(())
 }
@@ -69,6 +71,8 @@ async fn open_interactive_plot(app: AppHandle) -> Result<(), String> {
     .build()
     .map_err(|err| err.to_string())?;
     sync_plot_window_size(&app, &window)?;
+    window.show().map_err(|err| err.to_string())?;
+    window.set_focus().map_err(|err| err.to_string())?;
     Ok(())
 }
 

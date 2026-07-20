@@ -26,9 +26,56 @@ from core.interactive_plot_state import (
 )
 from core.interactive_render_worker import InteractiveRenderer
 from core.export_service import export_combined_txt_file
+from engine.plot_engine import PlotEngine
 from utils.math_utils import compute_x_raw
 from utils.pillai_stats import calculate_pillai_score
 from utils.vowel_stats import analyze_vowels, calculate_pairwise_mahalanobis_distances
+
+
+def _session_ranges_compatible(
+    ranges: Mapping[str, Any] | None,
+    normalization: str | None,
+    *,
+    use_bark_units: bool = False,
+) -> bool:
+    """Reject Hz-scale session ranges under Lobanov (and the reverse).
+
+    Wrong limits with tiny NORM steps create thousands of tick labels and can
+    stall interactive preview for tens of seconds.
+    """
+    if not isinstance(ranges, Mapping):
+        return False
+    try:
+        vals = {key: float(ranges[key]) for key in ("x_min", "x_max", "y_min", "y_max")}
+    except (KeyError, TypeError, ValueError):
+        return False
+    if vals["x_min"] >= vals["x_max"] or vals["y_min"] >= vals["y_max"]:
+        return False
+    max_abs = max(abs(value) for value in vals.values())
+    if normalization:
+        preset = PlotEngine.NORM_RANGES.get(
+            normalization, PlotEngine.NORM_RANGES["Lobanov"]
+        )
+        span_x = abs(float(preset["x_max"]) - float(preset["x_min"]))
+        span_y = abs(float(preset["y_max"]) - float(preset["y_min"]))
+        pad_x = max(span_x * 3.0, 5.0)
+        pad_y = max(span_y * 3.0, 5.0)
+        if vals["x_min"] < float(preset["x_min"]) - pad_x:
+            return False
+        if vals["x_max"] > float(preset["x_max"]) + pad_x:
+            return False
+        if vals["y_min"] < float(preset["y_min"]) - pad_y:
+            return False
+        if vals["y_max"] > float(preset["y_max"]) + pad_y:
+            return False
+        if abs(vals["x_max"] - vals["x_min"]) > max(span_x * 4.0, 20.0):
+            return False
+        if abs(vals["y_max"] - vals["y_min"]) > max(span_y * 4.0, 20.0):
+            return False
+        return True
+    if use_bark_units:
+        return max_abs <= 40.0
+    return max_abs >= 50.0
 
 
 class ApplicationService:
@@ -153,8 +200,32 @@ class ApplicationService:
         previous = self.controller.get_analysis_settings()
         merged = previous.to_dict()
         merged.update(raw)
+        plot_type = str(merged.get("type") or merged.get("plot_type") or "f1_f2")
+        # PySide: derived X types cannot use speaker normalization.
+        if plot_type in ("f1_f2_minus_f1", "f1_f2_prime_minus_f1"):
+            merged["normalization"] = None
+        # PySide sync_pre_lobanov_normalization: all real files pre-Lobanov → force.
+        if self.controller.all_real_items_pre_lobanov():
+            merged["normalization"] = "Lobanov"
+        # PySide MainUI.get_f*_scale: Bark display mode forces BOTH axes to bark.
+        if merged.get("use_bark_units"):
+            merged["f1_scale"] = "bark"
+            merged["f2_scale"] = "bark"
+        # Normalization makes Hz/Bark axis controls meaningless (still store values).
         settings = AnalysisSettings.from_mapping(merged)
         self.controller.apply_analysis_settings(settings)
+
+        unit_family_changed = (
+            previous.use_bark_units != settings.use_bark_units
+            or previous.f1_scale != settings.f1_scale
+            or previous.f2_scale != settings.f2_scale
+            or previous.normalization != settings.normalization
+            or previous.plot_type != settings.plot_type
+        )
+        if unit_family_changed:
+            # Stale Hz/Bark session limits must not override smart/norm defaults.
+            self._plot_session().ranges.clear()
+
         if (
             previous.outlier_mode != settings.outlier_mode
             or previous.outlier_scope != settings.outlier_scope
@@ -369,6 +440,21 @@ class ApplicationService:
         options = validate_interactive_options(raw)
         session = self._plot_session()
         current_index = self.controller.get_current_index()
+        params = self.controller._get_main_ui_plot_params()
+        normalization = params.get("normalization")
+        use_bark = bool(params.get("use_bark_units", False))
+
+        # Drop stale Hz/norm ranges before they poison the session or tick count.
+        if "ranges" in options and not _session_ranges_compatible(
+            options["ranges"], normalization, use_bark_units=use_bark
+        ):
+            options = dict(options)
+            options.pop("ranges", None)
+        if session.ranges and not _session_ranges_compatible(
+            session.ranges, normalization, use_bark_units=use_bark
+        ):
+            session.ranges.clear()
+
         session.apply(options, current_index)
         current_data, _index = self.controller.get_current_file_data()
         if current_data is None:
@@ -378,11 +464,9 @@ class ApplicationService:
                 "revision": session.revision,
             }
 
-        params = self.controller._get_main_ui_plot_params()
         params["sigma"] = float(session.sigma)
         session.fixed_plot_params = dict(params)
 
-        normalization = params.get("normalization")
         if normalization:
             ranges = self.controller._norm_ranges_for_widgets(normalization)
         else:
@@ -392,7 +476,12 @@ class ApplicationService:
                 params.get("f1_scale"),
                 params.get("f2_scale"),
             )
-        ranges.update(session.ranges)
+        if session.ranges and _session_ranges_compatible(
+            session.ranges, normalization, use_bark_units=use_bark
+        ):
+            ranges.update(session.ranges)
+        elif session.ranges:
+            session.ranges.clear()
 
         batch_options = options.get("batch_options", {})
         design = deepcopy(

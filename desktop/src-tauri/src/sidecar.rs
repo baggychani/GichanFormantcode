@@ -314,6 +314,9 @@ fn ensure_running(app: &AppHandle, state: &SidecarState) -> Result<(), String> {
             .sidecar(BUNDLED_SIDECAR_NAME)
             .map_err(|err| format!("failed to resolve bundled sidecar: {err}"))?
             .arg("--desktop")
+            .env("PYTHONUNBUFFERED", "1")
+            .env("PYTHONUTF8", "1")
+            .env("PYTHONIOENCODING", "utf-8")
             .spawn()
             .map_err(|err| format!("failed to start bundled sidecar: {err}"))?;
         let running = Arc::new(AtomicBool::new(true));
@@ -455,7 +458,8 @@ fn timeout_for_method(method: &str) -> Duration {
         // Preparation crosses the Qt executor and the isolated renderer may
         // need a cold font-cache start. Keep this aligned with Python's
         // renderer watchdog so a request cannot become an orphaned preview.
-        "render_interactive_preview" | "navigate_interactive_preview" => Duration::from_secs(125),
+        "render_interactive_preview" | "navigate_interactive_preview"
+        | "export_interactive_preview" | "export_interactive_batch" => Duration::from_secs(125),
         "ping" | "health" | "get_state" | "snapshot" => Duration::from_secs(8),
         _ => Duration::from_secs(15),
     }

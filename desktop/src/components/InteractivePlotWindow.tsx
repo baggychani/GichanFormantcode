@@ -12,6 +12,8 @@ import {
   ChevronDown,
   ChevronLeft,
   ChevronRight,
+  ChevronUp,
+  CircleHelp,
   Download,
   Eye,
   EyeOff,
@@ -19,6 +21,7 @@ import {
   Italic,
   Layers3,
   List,
+  Loader2,
   Lock,
   MousePointer2,
   Palette,
@@ -38,6 +41,20 @@ import {
 } from "lucide-react";
 import type { ApplicationState, SourceInfo } from "../../ipc/protocol";
 import { callSidecar } from "../sidecarClient";
+import { cacheMapSet } from "../cacheMap";
+import { formatPValue } from "../formatStats";
+import { useFocusTrap } from "../useFocusTrap";
+import { sortVowels } from "../vowelSort";
+import {
+  barkToHz,
+  formatRulerDistance,
+  formatRulerPointTooltip,
+  formatRulerTriangleLegs,
+  hzToBark,
+  resolvePlotUnits,
+  smartAxisRanges,
+} from "../plotUnits";
+import { FormantStatsTable } from "./FormantStatsTable";
 import "./InteractivePlotWindow.css";
 
 type SidecarEvent = { event: string; payload: Record<string, unknown> };
@@ -198,6 +215,7 @@ type VowelAnalysisResult = {
   name: string;
   x_label?: string;
   y_label?: string;
+  normalization?: string | null;
   statistics: Record<string, { x_mean: number; x_std: number; x_min: number; x_max: number; y_mean: number; y_std: number; y_min: number; y_max: number; count: number }>;
   centroid_distances: Record<string, { distance_to_centroid: number }>;
   pairwise_euclidean: Record<string, number>;
@@ -245,16 +263,10 @@ type LayerSession = {
 };
 
 const MAX_CACHED_LAYER_SESSIONS = 32;
+const MAX_CACHED_FILE_DESIGNS = 32;
 
 function cacheLayerSession(cache: Map<string, LayerSession>, key: string, session: LayerSession) {
-  if (!key) return;
-  cache.delete(key);
-  cache.set(key, session);
-  while (cache.size > MAX_CACHED_LAYER_SESSIONS) {
-    const oldest = cache.keys().next().value as string | undefined;
-    if (oldest === undefined) break;
-    cache.delete(oldest);
-  }
+  cacheMapSet(cache, key, session, MAX_CACHED_LAYER_SESSIONS);
 }
 
 function clampLayerListHeight(value: number) {
@@ -279,24 +291,48 @@ const BARK_RANGE_DEFAULTS: Record<string, Ranges> = {
   f1_f2_prime_minus_f1: { y_min: "2", y_max: "9", x_min: "0", x_max: "14" },
 };
 
-const X_AXIS_LABEL: Record<string, string> = {
-  f1_f2: "F2",
-  f1_f2_minus_f1: "F2 − F1",
-  f1_f3: "F3",
-  f1_f2_prime: "F2′",
-  f1_f2_prime_minus_f1: "F2′ − F1",
+/** Mirrors PlotEngine.NORM_RANGES — fixed presets, not data-driven. */
+const NORM_RANGE_DEFAULTS: Record<string, Ranges> = {
+  Lobanov: { y_min: "-2", y_max: "2", x_min: "-2", x_max: "2" },
+  Gerstman: { y_min: "0", y_max: "1000", x_min: "0", x_max: "1000" },
+  "2mW/F": { y_min: "0.4", y_max: "1.8", x_min: "0.4", x_max: "1.8" },
+  Bigham: { y_min: "0.4", y_max: "1.8", x_min: "0.4", x_max: "1.8" },
+  Nearey1: { y_min: "-1", y_max: "1", x_min: "-1", x_max: "1" },
 };
+
+function rangesLookCompatible(ranges: Ranges, normalization: string | null | undefined, useBark: boolean): boolean {
+  const vals = [ranges.x_min, ranges.x_max, ranges.y_min, ranges.y_max].map(Number);
+  if (vals.some((value) => !Number.isFinite(value))) return false;
+  const [xMin, xMax, yMin, yMax] = vals;
+  if (xMin >= xMax || yMin >= yMax) return false;
+  const maxAbs = Math.max(...vals.map(Math.abs));
+  if (normalization) {
+    const preset = NORM_RANGE_DEFAULTS[normalization] ?? NORM_RANGE_DEFAULTS.Lobanov;
+    const p = [preset.x_min, preset.x_max, preset.y_min, preset.y_max].map(Number);
+    const spanX = Math.abs(p[1] - p[0]);
+    const spanY = Math.abs(p[3] - p[2]);
+    const padX = Math.max(spanX * 3, 5);
+    const padY = Math.max(spanY * 3, 5);
+    if (xMin < p[0] - padX || xMax > p[1] + padX) return false;
+    if (yMin < p[2] - padY || yMax > p[3] + padY) return false;
+    if (Math.abs(xMax - xMin) > Math.max(spanX * 4, 20)) return false;
+    if (Math.abs(yMax - yMin) > Math.max(spanY * 4, 20)) return false;
+    return true;
+  }
+  if (useBark) return maxAbs <= 40;
+  return maxAbs >= 50;
+}
 
 // Safe first paint before the sidecar snapshot arrives.  Avoids undefined
 // select values and NaN percentages in controls during window startup.
 const EMPTY_DESIGN: DesignSettings = {
-  show_raw: true, show_centroid: true, raw_marker: "o", raw_color: "#202938",
-  centroid_marker: "o", lbl_color: "#202938", lbl_size: 18, lbl_bold: true,
-  lbl_italic: false, ell_thick: 1, ell_style: "-", ell_color: "#606060",
+  show_raw: true, show_centroid: true, raw_marker: "o", raw_color: "#606060",
+  centroid_marker: "o", lbl_color: "#FF0000", lbl_size: 18, lbl_bold: true,
+  lbl_italic: false, ell_thick: 0.5, ell_style: "-", ell_color: "#606060",
   ell_fill_color: null, ell_fill_opacity: 0.15, box_spines: false,
-  show_grid: false, grid_opacity: 0.15, y_label_rotation: false,
-  axis_position_swap: false, show_axis_units: true, show_minor_ticks: false,
-  font_style: "sans", font_family: "Noto Sans KR", font_weight: "bold", label_slash_wrap: false, tick_label_size: 13,
+  show_grid: false, grid_opacity: 0.3, y_label_rotation: false,
+  axis_position_swap: false, show_axis_units: false, show_minor_ticks: true,
+  font_style: "serif", font_family: "Noto Serif KR", font_weight: "bold", label_slash_wrap: false, tick_label_size: 13,
 };
 
 const FONT_FAMILIES = ["Noto Sans KR", "Noto Serif KR", "Charis SIL", "Andika"] as const;
@@ -321,7 +357,6 @@ function normalizedFontWeight(family: string, value: unknown): DesignSettings["f
 
 const MARKERS = [["o", "●"], ["s", "■"], ["^", "▲"], ["D", "◆"], ["wo", "○"], ["ws", "□"]] as const;
 const MARKER_DISPLAY_LABELS: Record<string, string> = { o: "원", s: "사각형", "^": "삼각형", D: "마름모", wo: "빈 원", ws: "빈 사각형", x: "가위표", a: "라벨" };
-const IPA_VOWEL_SEQUENCE = ["a", "ɑ", "æ", "ɐ", "ɑ̃", "e", "ə", "ɚ", "ɵ", "ɘ", "ɛ", "ɜ", "ɝ", "ɛ̃", "ɞ", "i", "ɪ", "ɨ", "ɪ̈", "o", "ɔ", "œ", "ɒ", "ɔ̃", "ɶ", "ø", "u", "ʊ", "ʉ", "ʌ", "w", "ɯ", "ʍ", "ɰ", "y", "ɣ", "ʎ", "ʏ", "ɤ"];
 const DESIGN_EFFECT_ORDER: (keyof DesignSettings)[] = ["lbl_color", "lbl_size", "lbl_bold", "lbl_italic", "centroid_marker", "ell_thick", "ell_style", "ell_color", "ell_fill_color", "ell_fill_opacity", "raw_color", "raw_marker", "label_slash_wrap"];
 const DESIGN_EFFECT_LABELS: Partial<Record<keyof DesignSettings, string>> = {
   lbl_color: "라벨 색", lbl_size: "라벨 크기", lbl_bold: "라벨 굵기", lbl_italic: "라벨 기울임",
@@ -329,19 +364,6 @@ const DESIGN_EFFECT_LABELS: Partial<Record<keyof DesignSettings, string>> = {
   ell_color: "타원 선 색", ell_fill_color: "타원 내부 색", ell_fill_opacity: "타원 불투명도",
   raw_color: "원자료 색", raw_marker: "원자료 모양", label_slash_wrap: "슬래시 감싸기",
 };
-
-function sortVowels(vowels: string[]) {
-  const rank = new Map(IPA_VOWEL_SEQUENCE.map((vowel, index) => [vowel, index]));
-  const bases = [...IPA_VOWEL_SEQUENCE].sort((a, b) => b.length - a.length);
-  return [...vowels].sort((left, right) => {
-    const leftBase = bases.find((base) => left.startsWith(base));
-    const rightBase = bases.find((base) => right.startsWith(base));
-    if (leftBase && rightBase) return (rank.get(leftBase) ?? 0) - (rank.get(rightBase) ?? 0) || left.slice(leftBase.length).localeCompare(right.slice(rightBase.length));
-    if (leftBase) return -1;
-    if (rightBase) return 1;
-    return left.localeCompare(right);
-  });
-}
 
 function effectDisplayValue(key: keyof DesignSettings, value: DesignSettings[keyof DesignSettings]) {
   if (value === null) return "투명";
@@ -354,15 +376,6 @@ function effectDisplayValue(key: keyof DesignSettings, value: DesignSettings[key
   if (key === "ell_thick") return Number(value) <= 0.5 ? "얇게" : Number(value) >= 2 ? "굵게" : "보통";
   if (key === "centroid_marker" || key === "raw_marker") return MARKER_DISPLAY_LABELS[String(value)] ?? String(value);
   return String(value);
-}
-
-function hzToBark(hz: number) {
-  return 26.81 / (1 + 1960 / Math.max(hz, 1e-6)) - 0.53;
-}
-
-function barkToHz(bark: number) {
-  const clamped = Math.max(-0.529, bark);
-  return 1960 / (26.81 / (clamped + 0.53) - 1);
 }
 
 /** PySide draw_reference.round_ref_value 이식 — magnet/눈금 스냅. */
@@ -562,9 +575,14 @@ function AnalysisFigure({ page }: { page: VowelAnalysisPage }) {
           <g className="figure-cloud cloud-b">{[[176, 100], [193, 111], [205, 98], [217, 91], [229, 108], [211, 119]].map(([cx, cy]) => <circle key={`${cx}-${cy}`} cx={cx} cy={cy} r="3" />)}</g>
           <circle className="figure-centroid centroid-a" cx="91" cy="85" r="6" /><circle className="figure-centroid centroid-b" cx="205" cy="104" r="6" /><text x="80" y="55">i</text><text x="218" y="82">a</text>
         </> : page === "distance" ? <>
-          <ellipse className="figure-ellipse distance-ellipse" cx="155" cy="108" rx="83" ry="48" />
-          <circle className="figure-centroid centroid-a" cx="91" cy="83" r="6" /><circle className="figure-centroid centroid-b" cx="224" cy="143" r="6" />
-          <path className="figure-distance-line" d="M91 83L224 143" /><path className="figure-distance-arrow" d="m213 132 11 11-15 2" /><text x="143" y="103">d(a, u)</text><text x="78" y="67">a</text><text x="229" y="160">u</text>
+          <ellipse className="figure-ellipse ellipse-a" cx="88" cy="78" rx="34" ry="42" />
+          <ellipse className="figure-ellipse ellipse-b" cx="228" cy="138" rx="40" ry="34" />
+          <g className="figure-cloud cloud-a">{[[78, 68], [90, 76], [98, 88], [84, 92], [100, 72]].map(([cx, cy]) => <circle key={`da-${cx}-${cy}`} cx={cx} cy={cy} r="2.5" />)}</g>
+          <g className="figure-cloud cloud-b">{[[214, 128], [230, 136], [242, 146], [220, 148], [238, 124]].map(([cx, cy]) => <circle key={`db-${cx}-${cy}`} cx={cx} cy={cy} r="2.5" />)}</g>
+          <path className="figure-distance-line" d="M88 78L228 138" />
+          <circle className="figure-centroid centroid-a" cx="88" cy="78" r="6" />
+          <circle className="figure-centroid centroid-b" cx="228" cy="138" r="6" />
+          <text x="74" y="58">a</text><text x="236" y="158">u</text><text x="138" y="100">d(a, u)</text>
         </> : <>
           <g className="pillai-group pillai-group-a"><circle cx="73" cy="85" r="5" /><circle cx="89" cy="98" r="5" /><circle cx="80" cy="112" r="5" /><circle cx="101" cy="88" r="5" /></g>
           <g className="pillai-group pillai-group-b"><circle cx="214" cy="77" r="5" /><circle cx="232" cy="91" r="5" /><circle cx="222" cy="109" r="5" /><circle cx="245" cy="83" r="5" /></g>
@@ -581,21 +599,31 @@ function VowelAnalysisShell({ currentSource, sources, currentIndex, displayIndex
   const [page, setPage] = useState<VowelAnalysisPage>("home");
   const [lobbyAnimationEnabled, setLobbyAnimationEnabled] = useState(true);
   const lobbyShownRef = useRef(false);
+  // Resets to expanded whenever this shell mounts (entering the analysis lab).
+  const [heroCollapsed, setHeroCollapsed] = useState(false);
   const [analysisData, setAnalysisData] = useState<VowelAnalysisResult | null>(null);
   const [analysisLoading, setAnalysisLoading] = useState(true);
+  const [analysisError, setAnalysisError] = useState<string | null>(null);
   const analysisBodyRef = useRef<HTMLDivElement | null>(null);
+  const shellRef = useRef<HTMLElement | null>(null);
+  useFocusTrap(true, shellRef);
   const analysisScrollByFileRef = useRef(new Map<number, number>());
   const previousAnalysisIndexRef = useRef(currentIndex);
   useEffect(() => {
     setAnalysisLoading(true);
+    setAnalysisError(null);
     let active = true;
     void callSidecar<VowelAnalysisResult>("get_vowel_analysis", { index: currentIndex }).then((result) => {
       if (active) {
         setAnalysisData(result);
         setAnalysisLoading(false);
       }
-    }).catch(() => {
-      if (active) setAnalysisLoading(false);
+    }).catch((err) => {
+      if (active) {
+        setAnalysisData(null);
+        setAnalysisLoading(false);
+        setAnalysisError(String(err));
+      }
     });
     return () => { active = false; };
   }, [currentIndex]);
@@ -630,9 +658,27 @@ function VowelAnalysisShell({ currentSource, sources, currentIndex, displayIndex
     setPage(next);
   };
 
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      event.stopPropagation();
+      if (page !== "home") goToAnalysisPage("home");
+      else onClose();
+    };
+    window.addEventListener("keydown", onKeyDown, true);
+    return () => window.removeEventListener("keydown", onKeyDown, true);
+  }, [onClose, page]);
+
+  const formantUnitSuffix = resolvePlotUnits({
+    normalization: analysisData?.normalization,
+    use_bark_units: false,
+    type: "f1_f2",
+  }).formantStatSuffix;
+
   return (
-    <div className="vowel-analysis-backdrop" role="presentation">
-      <section className={`vowel-analysis-shell ${page === "home" ? "is-lobby" : ""} ${page === "home" && lobbyAnimationEnabled ? "is-lobby-first" : ""}`} role="dialog" aria-modal="true" aria-labelledby="vowel-analysis-title">
+    <div className="vowel-analysis-backdrop" data-modal-root role="presentation">
+      <section ref={shellRef} className={`vowel-analysis-shell ${page === "home" ? "is-lobby" : ""} ${page === "home" && lobbyAnimationEnabled ? "is-lobby-first" : ""}`} role="dialog" aria-modal="true" aria-labelledby="vowel-analysis-title">
         <header className="vowel-analysis-header">
           <div className="vowel-analysis-title"><div className="vowel-analysis-mark"><BarChart3 size={18} /></div><div><span className="section-eyebrow">모음 공간 분석실</span><h2 id="vowel-analysis-title">모음 상세 분석</h2></div></div>
           <button type="button" className="vowel-analysis-close" onClick={onClose} aria-label="분석 창 닫기"><X size={18} /></button>
@@ -650,11 +696,83 @@ function VowelAnalysisShell({ currentSource, sources, currentIndex, displayIndex
               <button type="button" className="analysis-bento analysis-bento-formant is-primary" onClick={() => goToAnalysisPage("formant")}><span>01</span><strong>모음별 통계</strong><p>평균 · 표준편차 · 범위 · 중심 거리 · n</p></button>
               <button type="button" className="analysis-bento analysis-bento-distance" onClick={() => goToAnalysisPage("distance")}><span>02</span><strong>중심점 거리</strong><p>Euclidean · Mahalanobis</p></button>
               <button type="button" className="analysis-bento analysis-bento-pillai" onClick={() => goToAnalysisPage("pillai")}><span>03</span><strong>Pillai Score</strong><p>score · p-value</p></button>
-              <div className="analysis-bento analysis-bento-export export-bento"><Download size={18} /><strong>분석표 내보내기</strong><p>표 형식 데이터로 저장</p></div>
+              <button type="button" className="analysis-bento analysis-bento-export export-bento" disabled title="곧 지원 예정입니다">
+                <Download size={18} /><strong>분석표 내보내기</strong><p>곧 표 형식 저장을 지원할 예정입니다</p>
+              </button>
             </section>
           </div> : null}
-          <div className="vowel-analysis-hero"><div className="analysis-hero-copy"><span className="analysis-kicker">{hero.kicker}</span><h3>{hero.title}</h3><p>{hero.copy}</p></div><AnalysisFigure page={page} /></div>
-          <section className="analysis-detail-panel"><div className="analysis-detail-heading"><div><span className="analysis-kicker">RESULTS</span><h4>{page === "formant" ? "모음별 통계" : page === "distance" ? "선택 모음 간 거리" : "모음 조합별 Pillai Score"}</h4></div><span>{analysisLoading ? "계산 중" : analysisData ? String(analysisData.metadata.total_points ?? 0) + " tokens" : "데이터 없음"}</span></div>{analysisData ? page === "formant" ? <div className="analysis-result-table analysis-formant-table"><div className="analysis-result-row analysis-result-head"><span>모음</span><span>F1 평균 ± SD</span><span>F1 범위</span><span>{analysisData.x_label ?? "F2"} 평균 ± SD</span><span>{analysisData.x_label ?? "F2"} 범위</span><span>중심 거리</span><span>n</span></div>{Object.entries(analysisData.statistics).map(([vowel, stat]) => <div className="analysis-result-row" key={vowel}><strong>{vowel}</strong><span>{stat.y_mean.toFixed(1)} ± {stat.y_std.toFixed(1)}</span><span>{stat.y_min.toFixed(1)}–{stat.y_max.toFixed(1)}</span><span>{stat.x_mean.toFixed(1)} ± {stat.x_std.toFixed(1)}</span><span>{stat.x_min.toFixed(1)}–{stat.x_max.toFixed(1)}</span><span>{(analysisData.centroid_distances[vowel]?.distance_to_centroid ?? 0).toFixed(1)}</span><span>{stat.count}</span></div>)}</div> : analysisPairs.length ? <div className="analysis-result-table"><div className="analysis-result-row analysis-result-head"><span>모음 조합</span><span>{page === "distance" ? "Euclidean" : "Pillai Score"}</span><span>{page === "distance" ? "Mahalanobis" : "p-value"}</span></div>{analysisPairs.map((pair) => { const euclidean = analysisData.pairwise_euclidean[pair.key]; const mahalanobis = analysisData.pairwise_mahalanobis[pair.key]; const pillai = analysisData.pillai_scores[pair.key]; return <div className="analysis-result-row" key={pair.key}><strong>{pair.left} - {pair.right}</strong><span>{page === "distance" ? (euclidean ?? 0).toFixed(3) : pillai?.score == null ? "N/A" : pillai.score.toFixed(4)}</span><span>{page === "distance" ? (mahalanobis ?? 0).toFixed(3) : pillai?.p_value == null ? "N/A" : pillai.p_value.toFixed(4)}</span></div>; })}</div> : <div className="analysis-result-empty">모음 두 개 이상을 선택하면 조합별 결과가 표시됩니다.</div> : <div className="analysis-result-empty">분석 데이터를 불러오는 중입니다.</div>}</section>
+          <div className={`vowel-analysis-hero ${heroCollapsed ? "is-collapsed" : ""}`}>
+            <div className="analysis-hero-copy">
+              <span className="analysis-kicker">{hero.kicker}</span>
+              <h3>{hero.title}</h3>
+              <p>{hero.copy}</p>
+            </div>
+            <AnalysisFigure page={page} />
+            <button
+              type="button"
+              className="analysis-hero-fold"
+              onClick={() => setHeroCollapsed((previous) => !previous)}
+              aria-expanded={!heroCollapsed}
+              aria-label={heroCollapsed ? "소개 패널 펼치기" : "소개 패널 접기"}
+              title={heroCollapsed ? "펼치기" : "접기"}
+            >
+              {heroCollapsed ? <ChevronDown size={16} strokeWidth={2.2} /> : <ChevronUp size={16} strokeWidth={2.2} />}
+            </button>
+          </div>
+          <section className="analysis-detail-panel">
+            <div className="analysis-detail-heading">
+              <div>
+                <span className="analysis-kicker">RESULTS</span>
+                <h4>{page === "formant" ? "모음별 통계" : page === "distance" ? "선택 모음 간 거리" : "모음 조합별 Pillai Score"}</h4>
+              </div>
+              <span>{analysisLoading ? "계산 중" : analysisData ? String(analysisData.metadata.total_points ?? 0) + " tokens" : "데이터 없음"}</span>
+            </div>
+            {analysisData ? (
+              page === "formant" ? (
+                <FormantStatsTable
+                  statistics={analysisData.statistics}
+                  centroidDistances={analysisData.centroid_distances}
+                  xLabel={analysisData.x_label ?? "F2"}
+                  yLabel={analysisData.y_label ?? "F1"}
+                  unitSuffix={formantUnitSuffix}
+                />
+              ) : analysisPairs.length ? (
+                <div className="analysis-result-table">
+                  <div className="analysis-result-row analysis-result-head">
+                    <span>모음 조합</span>
+                    <span>{page === "distance" ? "Euclidean" : "Pillai Score"}</span>
+                    <span>{page === "distance" ? "Mahalanobis" : "p-value"}</span>
+                  </div>
+                  {analysisPairs.map((pair) => {
+                    const euclidean = analysisData.pairwise_euclidean[pair.key];
+                    const mahalanobis = analysisData.pairwise_mahalanobis[pair.key];
+                    const pillai = analysisData.pillai_scores[pair.key];
+                    const pDisplay = page === "pillai" ? formatPValue(pillai?.p_value) : null;
+                    return (
+                      <div className="analysis-result-row" key={pair.key}>
+                        <strong>{pair.left} - {pair.right}</strong>
+                        <span>{page === "distance" ? (euclidean ?? 0).toFixed(3) : pillai?.score == null ? "N/A" : pillai.score.toFixed(4)}</span>
+                        <span
+                          className={pDisplay && !pDisplay.significant ? "analysis-p-ns" : undefined}
+                          title={pDisplay && pDisplay.text !== "N/A" ? `p = ${pDisplay.exact}` : undefined}
+                        >
+                          {page === "distance"
+                            ? (mahalanobis ?? 0).toFixed(3)
+                            : pDisplay?.text ?? "N/A"}
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : (
+                <div className="analysis-result-empty">모음 두 개 이상을 선택하면 조합별 결과가 표시됩니다.</div>
+              )
+            ) : (
+              <div className="analysis-result-empty">
+                {analysisError ? `분석 데이터를 불러오지 못했습니다: ${analysisError}` : "분석 데이터를 불러오는 중입니다."}
+              </div>
+            )}
+          </section>
         </div>
       </section>
     </div>
@@ -771,6 +889,11 @@ export function InteractivePlotWindow() {
   const [busy, setBusy] = useState(false);
   const [engineConnected, setEngineConnected] = useState(false);
   const [vowelAnalysisOpen, setVowelAnalysisOpen] = useState(false);
+  const [shortcutHelpOpen, setShortcutHelpOpen] = useState(false);
+  const batchExportDialogRef = useRef<HTMLElement | null>(null);
+  const shortcutHelpRef = useRef<HTMLElement | null>(null);
+  useFocusTrap(batchExportOpen, batchExportDialogRef);
+  useFocusTrap(shortcutHelpOpen, shortcutHelpRef);
   const [message, setMessage] = useState("분석 엔진과 연결하는 중입니다.");
   const layerRowRefs = useRef(new Map<string, HTMLDivElement>());
   const layerListRef = useRef<HTMLDivElement | null>(null);
@@ -815,8 +938,10 @@ export function InteractivePlotWindow() {
   const closeDrawEditorRef = useRef<() => void>(() => {});
   const globalDesignByFileRef = useRef(new Map<string, DesignSettings>());
   const designInitializedRef = useRef(false);
+  const [previewLoading, setPreviewLoading] = useState(true);
 
   const refresh = useCallback(async () => {
+    setPreviewLoading(true);
     try {
       const next = await callSidecar<ApplicationState>("get_state");
       if (!aliveRef.current) return;
@@ -824,11 +949,32 @@ export function InteractivePlotWindow() {
       setEngineConnected(true);
       if (next.capabilities.can_plot) {
         const requestId = ++renderRequestRef.current;
-        await callSidecar("render_interactive_preview", { options: { request_id: requestId } });
+        const nextNorm = next.analysis?.normalization ?? null;
+        const nextPlotType = next.analysis?.type ?? "f1_f2";
+        const useBark = next.analysis?.use_bark_units ?? false;
+        let bootRanges: Ranges;
+        if (nextNorm) {
+          bootRanges = NORM_RANGE_DEFAULTS[nextNorm] ?? NORM_RANGE_DEFAULTS.Lobanov;
+        } else {
+          bootRanges = smartAxisRanges(nextPlotType, next.analysis, RANGE_DEFAULTS, BARK_RANGE_DEFAULTS);
+        }
+        const sessionRanges = next.plot_session?.ranges as Ranges | undefined;
+        const rangesForBoot = sessionRanges
+          && Object.keys(sessionRanges).length === 4
+          && rangesLookCompatible(sessionRanges, nextNorm, useBark)
+          ? sessionRanges
+          : bootRanges;
+        setRanges(rangesForBoot);
+        await callSidecar("render_interactive_preview", {
+          options: { request_id: requestId, ranges: rangesForBoot },
+        });
+      } else {
+        setPreviewLoading(false);
       }
     } catch (err) {
       setEngineConnected(false);
       setMessage(`플롯을 불러오지 못했습니다: ${String(err)}`);
+      setPreviewLoading(false);
     }
   }, []);
 
@@ -841,10 +987,11 @@ export function InteractivePlotWindow() {
       if (disposed || !aliveRef.current) return;
       if (payload.event === "preview_ready" && payload.payload.target === "interactive") {
         const requestId = Number(payload.payload.request_id ?? 0);
-        if (requestId && requestId < renderRequestRef.current) return;
+        if (Number.isFinite(requestId) && requestId > 0 && requestId < renderRequestRef.current) return;
         const imagePath = String(payload.payload.png_path ?? "");
         const image = String(payload.payload.png_base64 ?? "");
         setPreviewUrl(imagePath ? convertFileSrc(imagePath) : image ? `data:image/png;base64,${image}` : null);
+        setPreviewLoading(false);
         const nextRuler = (payload.payload.ruler_context as RulerContext | undefined) ?? null;
         setRulerContext(nextRuler);
         const legendBounds = nextRuler?.legend_bounds;
@@ -882,11 +1029,13 @@ export function InteractivePlotWindow() {
       } else if (payload.event === "preview_failed" && payload.payload.target === "interactive") {
         const requestId = Number(payload.payload.request_id ?? 0);
         if (requestId && requestId < renderRequestRef.current) return;
+        setPreviewLoading(false);
         setMessage(`렌더링 오류: ${String(payload.payload.message ?? "알 수 없는 오류")}`);
       } else if (payload.event === "preview_cleared" && payload.payload.target === "interactive") {
         const requestId = Number(payload.payload.request_id ?? 0);
         if (requestId && requestId < renderRequestRef.current) return;
         setPreviewUrl(null);
+        setPreviewLoading(false);
         setRulerContext(null);
         setRulerStart(null);
         setRulerMeasurements([]);
@@ -899,6 +1048,14 @@ export function InteractivePlotWindow() {
         if (navigatingRef.current && reason === "current_file_changed") return;
         const next = payload.payload.state as ApplicationState | undefined;
         if (next) setState(next);
+      } else if (payload.event === "plot_session_changed") {
+        const nextSession = payload.payload.plot_session as ApplicationState["plot_session"] | undefined;
+        if (!nextSession || typeof nextSession.revision !== "number") return;
+        setState((previous) => {
+          if (!previous) return previous;
+          if (nextSession.revision <= (previous.plot_session?.revision ?? -1)) return previous;
+          return { ...previous, plot_session: nextSession };
+        });
       } else if (payload.event === "sidecar_shutting_down") {
         setEngineConnected(false);
       }
@@ -916,14 +1073,27 @@ export function InteractivePlotWindow() {
   }, [refresh]);
 
   useEffect(() => {
+    if (!shortcutHelpOpen) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      event.stopPropagation();
+      setShortcutHelpOpen(false);
+    };
+    window.addEventListener("keydown", onKeyDown, true);
+    return () => window.removeEventListener("keydown", onKeyDown, true);
+  }, [shortcutHelpOpen]);
+
+  useEffect(() => {
     if (!batchExportOpen) return;
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key !== "Escape" || batchExportBusy) return;
       event.preventDefault();
+      event.stopPropagation();
       setBatchExportOpen(false);
     };
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
+    window.addEventListener("keydown", onKeyDown, true);
+    return () => window.removeEventListener("keydown", onKeyDown, true);
   }, [batchExportBusy, batchExportOpen]);
 
   useEffect(() => {
@@ -959,17 +1129,6 @@ export function InteractivePlotWindow() {
   }, [textInput]);
 
   useEffect(() => {
-    if (!vowelAnalysisOpen) return;
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key !== "Escape") return;
-      event.preventDefault();
-      setVowelAnalysisOpen(false);
-    };
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, [vowelAnalysisOpen]);
-
-  useEffect(() => {
     const applySharedTheme = () => {
       const saved = window.localStorage.getItem("gichanformant-theme");
       const theme = saved === "dark" || saved === "light"
@@ -981,13 +1140,18 @@ export function InteractivePlotWindow() {
     applySharedTheme();
     window.addEventListener("storage", applySharedTheme);
     window.addEventListener("focus", applySharedTheme);
+    let themeDisposed = false;
     let unlistenTheme: (() => void) | undefined;
     void listen<string>("gichan-theme", ({ payload }) => {
       if (payload !== "light" && payload !== "dark") return;
       document.documentElement.dataset.theme = payload;
       document.documentElement.style.colorScheme = payload;
-    }).then((dispose) => { unlistenTheme = dispose; });
+    }).then((dispose) => {
+      if (themeDisposed) dispose();
+      else unlistenTheme = dispose;
+    });
     return () => {
+      themeDisposed = true;
       window.removeEventListener("storage", applySharedTheme);
       window.removeEventListener("focus", applySharedTheme);
       unlistenTheme?.();
@@ -999,8 +1163,14 @@ export function InteractivePlotWindow() {
     removeLayerDragListeners();
     if (dragScrollFrameRef.current !== null) cancelAnimationFrame(dragScrollFrameRef.current);
     if (flipFrameRef.current !== null) cancelAnimationFrame(flipFrameRef.current);
+    if (textDragFrameRef.current !== null) cancelAnimationFrame(textDragFrameRef.current);
+    if (legendFrameRef.current !== null) cancelAnimationFrame(legendFrameRef.current);
+    if (plotLabelFrameRef.current !== null) cancelAnimationFrame(plotLabelFrameRef.current);
     dragScrollFrameRef.current = null;
     flipFrameRef.current = null;
+    textDragFrameRef.current = null;
+    legendFrameRef.current = null;
+    plotLabelFrameRef.current = null;
     draggingLayerRef.current = null;
   }, []);
 
@@ -1020,18 +1190,18 @@ export function InteractivePlotWindow() {
   const currentLegend = currentDrawObjects.find((object): object is DrawLegendObject => object.type === "legend") ?? null;
   const currentVowels = state?.current_vowels ?? [];
   const plotType = analysis?.type ?? "f1_f2";
-  const xAxis = X_AXIS_LABEL[plotType] ?? "F2";
+  const plotUnits = useMemo(() => resolvePlotUnits(analysis), [analysis]);
+  const normalization = plotUnits.normalization;
+  const xAxis = plotUnits.xAxisName;
+  const yAxis = plotUnits.yAxisName;
+  const rangeUnitLabel = plotUnits.rangeBadge;
+  const rangesReadOnly = normalization === "Gerstman";
   const defaultRanges = useMemo(() => {
-    const hz = RANGE_DEFAULTS[plotType] ?? RANGE_DEFAULTS.f1_f2;
-    const bark = BARK_RANGE_DEFAULTS[plotType] ?? BARK_RANGE_DEFAULTS.f1_f2;
-    const useBark = analysis?.use_bark_units ?? false;
-    return {
-      y_min: useBark && analysis?.f1_scale === "bark" ? bark.y_min : hz.y_min,
-      y_max: useBark && analysis?.f1_scale === "bark" ? bark.y_max : hz.y_max,
-      x_min: useBark && (analysis?.f2_scale ?? "bark") === "bark" ? bark.x_min : hz.x_min,
-      x_max: useBark && (analysis?.f2_scale ?? "bark") === "bark" ? bark.x_max : hz.x_max,
-    };
-  }, [analysis?.f1_scale, analysis?.f2_scale, analysis?.use_bark_units, plotType]);
+    if (normalization) {
+      return NORM_RANGE_DEFAULTS[normalization] ?? NORM_RANGE_DEFAULTS.Lobanov;
+    }
+    return smartAxisRanges(plotType, analysis, RANGE_DEFAULTS, BARK_RANGE_DEFAULTS);
+  }, [analysis, normalization, plotType]);
   const canonicalDesign = useMemo(
     () => ({ ...(state?.design_defaults ?? {}) }) as DesignSettings,
     [state?.design_defaults],
@@ -1080,12 +1250,17 @@ export function InteractivePlotWindow() {
     const sessionDrawObjects = session?.draw_objects_by_file?.[sessionKey] as DrawObject[] | undefined;
     setLayerState(sessionState ?? cached?.state ?? Object.fromEntries(currentVowels.map((vowel) => [vowel, "ON"])));
     setLayerOverrides(sessionOverrides ?? cached?.overrides ?? {});
-    setRanges(Object.keys(session?.ranges ?? {}).length === 4 ? session!.ranges as Ranges : defaultRanges);
+    const sessionRanges = session?.ranges as Ranges | undefined;
+    const useBark = analysis?.use_bark_units ?? false;
+    const canReuseSessionRanges = sessionRanges
+      && Object.keys(sessionRanges).length === 4
+      && rangesLookCompatible(sessionRanges, normalization, useBark);
+    setRanges(canReuseSessionRanges ? sessionRanges : defaultRanges);
     setSigma(session?.sigma ?? "2");
     setShowEllipse(session?.show_ellipse ?? true);
     const sessionDesign = ({ ...canonicalDesign, ...(session?.design_settings ?? {}) }) as DesignSettings;
     if (currentFileKey && !designInitializedRef.current) {
-      globalDesignByFileRef.current.set(currentFileKey, sessionDesign);
+      cacheMapSet(globalDesignByFileRef.current, currentFileKey, sessionDesign, MAX_CACHED_FILE_DESIGNS);
       setDesign(sessionDesign);
       designInitializedRef.current = true;
     }
@@ -1104,7 +1279,58 @@ export function InteractivePlotWindow() {
     const nextOrder = sameSet ? storedOrder : defaultOrder;
     layerOrderRef.current = nextOrder;
     setLayerOrder(nextOrder);
-  }, [canonicalDesign, currentFileKey, currentIndex, currentVowels.join("\u0000"), defaultRanges, state?.plot_session.revision]);
+    // Hydrate from durable session when the *file* changes — not on every
+    // plot_session revision (those arrive while local controls are mid-edit).
+  }, [analysis?.use_bark_units, canonicalDesign, currentFileKey, currentIndex, currentVowels.join("\u0000"), defaultRanges, normalization]);
+
+  const unitModeKey = [
+    normalization ?? "",
+    analysis?.use_bark_units ? "bark" : "hz",
+    analysis?.f1_scale ?? "",
+    analysis?.f2_scale ?? "",
+    analysis?.origin ?? "",
+    analysis?.outlier_mode ?? "",
+    analysis?.outlier_scope ?? "",
+    plotType,
+  ].join("|");
+  const unitModeKeyRef = useRef(unitModeKey);
+  const previousNormRef = useRef<string | null>(normalization);
+  useEffect(() => {
+    if (!state?.capabilities.can_plot) return;
+    if (unitModeKeyRef.current === unitModeKey) return;
+    unitModeKeyRef.current = unitModeKey;
+    const enteredNorm = Boolean(normalization) && !previousNormRef.current;
+    previousNormRef.current = normalization;
+    // PySide design_panel is_normalized defaults when entering speaker norm.
+    const nextDesign = enteredNorm
+      ? {
+          ...design,
+          box_spines: true,
+          show_grid: true,
+          y_label_rotation: true,
+          axis_position_swap: true,
+        }
+      : design;
+    if (enteredNorm) setDesign(nextDesign);
+    setRanges(defaultRanges);
+    setPreviewLoading(true);
+    void callSidecar("render_interactive_preview", {
+      options: {
+        ranges: defaultRanges,
+        sigma,
+        show_ellipse: showEllipse,
+        design: nextDesign,
+        filter_state: layerState,
+        layer_overrides: layerOverrides,
+        layer_order: layerOrder,
+        locked_layers: [...lockedLayers],
+        draw_objects: currentDrawObjects,
+        request_id: ++renderRequestRef.current,
+      },
+    }).catch((err) => {
+      if (aliveRef.current) setMessage(`설정 전환 반영에 실패했습니다: ${String(err)}`);
+    });
+  }, [currentDrawObjects, defaultRanges, design, layerOrder, layerOverrides, layerState, lockedLayers, normalization, showEllipse, sigma, state?.capabilities.can_plot, unitModeKey]);
 
   const renderInteractive = async (overrides: {
     design?: DesignSettings;
@@ -1148,6 +1374,7 @@ export function InteractivePlotWindow() {
     if (renderTimerRef.current !== null) window.clearTimeout(renderTimerRef.current);
     renderTimerRef.current = window.setTimeout(() => {
       renderTimerRef.current = null;
+      if (!aliveRef.current) return;
       void renderInteractive(overrides);
     }, 70);
   };
@@ -1204,9 +1431,15 @@ export function InteractivePlotWindow() {
       renderTimerRef.current = null;
     }
     setNavigating(true);
+    setPreviewLoading(true);
+    setRulerStart(null);
+    setRulerHover(null);
+    setRulerPointer(null);
+    setDrawingPoints([]);
+    setDrawHover(null);
     try {
        if (currentFileKey) {
-         globalDesignByFileRef.current.set(currentFileKey, design);
+         cacheMapSet(globalDesignByFileRef.current, currentFileKey, design, MAX_CACHED_FILE_DESIGNS);
          cacheLayerSession(layerSessionsRef.current, currentFileKey, {
           state: { ...layerState },
           overrides: { ...layerOverrides },
@@ -1220,10 +1453,13 @@ export function InteractivePlotWindow() {
          ? design
          : globalDesignByFileRef.current.get(nextFileKey) ?? canonicalDesign;
        const requestId = ++renderRequestRef.current;
+      const navRanges = rangesLookCompatible(ranges, normalization, analysis?.use_bark_units ?? false)
+        ? ranges
+        : defaultRanges;
       const response = await callSidecar<{ state: ApplicationState }>("navigate_interactive_preview", {
         index: target,
         options: {
-          ranges,
+          ranges: navRanges,
           sigma,
           show_ellipse: showEllipse,
            design: nextDesignForFile,
@@ -1248,7 +1484,12 @@ export function InteractivePlotWindow() {
       const nextOverrides = (nextSession.layer_design_overrides_by_file?.[sessionKey] as LayerOverrides | undefined) ?? cached?.overrides ?? {};
       const nextExpanded = cached?.expanded ? new Set(cached.expanded) : new Set<string>();
       // Ranges and global design are intentionally shared across files in PlotSessionState.
-      const nextRanges = Object.keys(nextSession.ranges ?? {}).length === 4 ? nextSession.ranges as Ranges : defaultRanges;
+      const sessionNextRanges = nextSession.ranges as Ranges | undefined;
+      const nextRanges = sessionNextRanges
+        && Object.keys(sessionNextRanges).length === 4
+        && rangesLookCompatible(sessionNextRanges, next.analysis?.normalization ?? null, next.analysis?.use_bark_units ?? false)
+        ? sessionNextRanges
+        : defaultRanges;
        const nextDesign = globalDesignLocked
          ? design
          : globalDesignByFileRef.current.get(resolvedNextFileKey) ?? ({ ...canonicalDesign, ...(nextSession.design_settings ?? {}) } as DesignSettings);
@@ -1263,18 +1504,19 @@ export function InteractivePlotWindow() {
       setLockedLayers(nextLocked);
       setRanges(nextRanges);
        setDesign(nextDesign);
-       globalDesignByFileRef.current.set(resolvedNextFileKey, nextDesign);
+       cacheMapSet(globalDesignByFileRef.current, resolvedNextFileKey, nextDesign, MAX_CACHED_FILE_DESIGNS);
       setSigma(nextSigma);
       setShowEllipse(nextShowEllipse);
       setState(next);
       setMessage(`${nextStateSource?.name ?? nextSource.name ?? "파일"}을 불러오는 중입니다.`);
     } catch (err) {
       setMessage(`파일을 이동하지 못했습니다: ${String(err)}`);
+      setPreviewLoading(false);
     } finally {
       navigatingRef.current = false;
       if (aliveRef.current) setNavigating(false);
     }
-  }, [canonicalDesign, currentFileKey, defaultRanges, design, expandedLayers, globalDesignLocked, layerOverrides, layerState, lockedLayers, ranges, showEllipse, sigma, sources]);
+  }, [analysis?.use_bark_units, canonicalDesign, currentFileKey, defaultRanges, design, expandedLayers, globalDesignLocked, layerOverrides, layerState, lockedLayers, normalization, ranges, showEllipse, sigma, sources]);
 
   const navigateByPosition = useCallback((position: number) => {
     const target = sources[Math.max(0, Math.min(position, sources.length - 1))];
@@ -1283,6 +1525,13 @@ export function InteractivePlotWindow() {
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
+      if (shortcutHelpOpen) {
+        if (event.key === "?" || (event.shiftKey && event.key === "/")) {
+          event.preventDefault();
+          setShortcutHelpOpen(false);
+        }
+        return;
+      }
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "s") {
         const target = event.target as HTMLElement | null;
         if (!target?.closest("input, textarea, select, [contenteditable='true']")) {
@@ -1299,9 +1548,17 @@ export function InteractivePlotWindow() {
       }
       if (tool === "draw" && (drawTool === "line" || drawTool === "area") && event.key === "Escape") {
         event.preventDefault();
-        setDrawingPoints([]);
-        setDrawHover(null);
-        setMessage(drawTool === "area" ? "영역 그리기를 취소했습니다." : "선 그리기를 취소했습니다.");
+        if (drawingPoints.length > 0) {
+          setDrawingPoints([]);
+          setDrawHover(null);
+          setMessage(drawTool === "area" ? "영역 그리기를 취소했습니다." : "선 그리기를 취소했습니다.");
+        } else {
+          setDrawTool(null);
+          setDrawHover(null);
+          setReferencePreview(null);
+          setTool("select");
+          setMessage("그리기 모드를 종료했습니다.");
+        }
         return;
       }
       if (tool === "draw" && (event.key === "Enter" || event.key === "Return")) {
@@ -1327,12 +1584,19 @@ export function InteractivePlotWindow() {
         return;
       }
       if (event.key.toLowerCase() === "m") {
-        if (sources.length < 2) return;
+        if (sources.filter((source) => !source.is_combined).length < 2) return;
         event.preventDefault();
-        void callSidecar("open_compare", { source_groups: sources.map((source) => [source.index]), normalization: analysis?.normalization ?? null });
+        void callSidecar("open_compare", { source_groups: sources.filter((source) => !source.is_combined).map((source) => [source.index]), normalization: analysis?.normalization ?? null });
         return;
       }
-      if (event.key === "Tab") {
+      if (event.key === "?" || (event.shiftKey && event.key === "/")) {
+        const helpTarget = event.target as HTMLElement | null;
+        if (helpTarget?.closest("input, textarea, select, [contenteditable='true']")) return;
+        event.preventDefault();
+        setShortcutHelpOpen((previous) => !previous);
+        return;
+      }
+      if (event.key === "`" || event.code === "Backquote") {
         event.preventDefault();
         setLeftOpen((previous) => !previous);
         setRightOpen((previous) => !previous);
@@ -1403,12 +1667,12 @@ export function InteractivePlotWindow() {
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [analysis?.normalization, canNavigate, currentSourcePosition, drawArrowHead, drawArrowMode, drawColor, drawEditorOpen, drawLineStyle, drawTool, drawWidth, drawingPoints, navigateByPosition, navigating, rulerSettingsOpen, sources, tool]);
+  }, [analysis?.normalization, canNavigate, currentSourcePosition, drawArrowHead, drawArrowMode, drawColor, drawEditorOpen, drawLineStyle, drawTool, drawWidth, drawingPoints, navigateByPosition, navigating, rulerSettingsOpen, shortcutHelpOpen, sources, tool]);
 
   const updateDesign = (patch: Partial<DesignSettings>) => {
     const next = { ...design, ...patch };
     setDesign(next);
-    if (currentFileKey) globalDesignByFileRef.current.set(currentFileKey, next);
+    if (currentFileKey) cacheMapSet(globalDesignByFileRef.current, currentFileKey, next, MAX_CACHED_FILE_DESIGNS);
     scheduleInteractiveRender({ design: next });
   };
 
@@ -1760,6 +2024,26 @@ export function InteractivePlotWindow() {
     try { await callSidecar("open_single_plot"); } finally { setBusy(false); }
   };
 
+  const openComparePlot = async () => {
+    const real = sources.filter((source) => !source.is_combined);
+    if (real.length < 2) {
+      setMessage("다중 플롯은 파일이 2개 이상일 때 사용할 수 있습니다.");
+      return;
+    }
+    setBusy(true);
+    try {
+      await callSidecar("open_compare", {
+        source_groups: real.map((source) => [source.index]),
+        normalization: analysis?.normalization ?? null,
+      });
+      setMessage("다중 플롯 창을 요청했습니다.");
+    } catch (err) {
+      setMessage(`다중 플롯을 열지 못했습니다: ${String(err)}`);
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const saveProject = async () => {
     const path = await save({ title: "GichanFormant 프로젝트 저장", defaultPath: "analysis.gfproj", filters: [{ name: "GichanFormant 프로젝트", extensions: ["gfproj"] }] });
     if (!path) return;
@@ -2009,11 +2293,10 @@ export function InteractivePlotWindow() {
       setMessage("축 영역 안에서 더블클릭하세요.");
       return;
     }
-    const useBark = analysis?.use_bark_units ?? rulerContext?.params.use_bark_units ?? false;
     setTextInput({
       x: data.x,
       y: data.y,
-      axis_units: useBark ? "Bark" : "Hz",
+      axis_units: plotUnits.drawAxisUnits,
       draft: "",
     });
   };
@@ -2656,14 +2939,15 @@ export function InteractivePlotWindow() {
   const resolveReferencePlacement = (clientX: number, clientY: number): { object: DrawReferenceObject; preview: ReferencePreview } | null => {
     const data = plotDataFromClient(clientX, clientY);
     if (!data || !rulerContext) return null;
-    const useBark = analysis?.use_bark_units ?? rulerContext.params.use_bark_units ?? false;
     const normalization = analysis?.normalization ?? rulerContext.params.normalization ?? null;
     const horizontal = referenceMode === "horizontal";
-    const scale = horizontal
-      ? (analysis?.f1_scale ?? rulerContext.params.f1_scale ?? "linear")
-      : (analysis?.f2_scale ?? rulerContext.params.f2_scale ?? "linear");
-    const unit = useBark ? "Bark" : "Hz";
-    const axisName = horizontal ? "F1" : (analysis?.type === "f1_f2prime" || analysis?.type === "f1_f2prime_f1" ? "F2'" : "F2");
+    const scale = normalization
+      ? "linear"
+      : horizontal
+        ? (analysis?.f1_scale ?? rulerContext.params.f1_scale ?? "linear")
+        : (analysis?.f2_scale ?? rulerContext.params.f2_scale ?? "linear");
+    const unit = plotUnits.drawAxisUnits;
+    const axisName = horizontal ? plotUnits.yAxisName : plotUnits.xAxisName;
     const plotCoord = horizontal ? data.y : data.x;
     const means = (rulerContext.points || []).filter((point) => point.type === "mean");
     const extra = means.map((point) => {
@@ -3099,51 +3383,21 @@ export function InteractivePlotWindow() {
     if (hit >= 0) setRulerMeasurements((previous) => previous.filter((_, index) => index !== hit));
   };
 
-  const rulerTooltip = (point: RulerPoint) => {
-    const values = point.raw_f1 !== undefined && point.raw_f2 !== undefined
-      ? `F1 ${point.raw_f1.toFixed(0)} Hz · F2 ${point.raw_f2.toFixed(0)} Hz`
-      : `x ${point.x.toPrecision(4)} · y ${point.y.toPrecision(4)}`;
-    return `${point.label || (point.type === "mean" ? "mean" : "raw")} · ${values}`;
-  };
+  const rulerTooltip = (point: RulerPoint) => formatRulerPointTooltip(point, plotUnits);
 
-  const rulerDistanceLabelWithSettings = (first: RulerPoint, second: RulerPoint) => {
-    const dx = second.x - first.x;
-    const dy = second.y - first.y;
-    if (first.raw_f1 !== undefined && first.raw_f2 !== undefined && second.raw_f1 !== undefined && second.raw_f2 !== undefined) {
-      const bark = (value: number) => 26.81 / (1 + 1960 / value) - 0.53;
-      const xHz = second.raw_f2 - first.raw_f2;
-      const yHz = second.raw_f1 - first.raw_f1;
-      const xBark = bark(second.raw_f2) - bark(first.raw_f2);
-      const yBark = bark(second.raw_f1) - bark(first.raw_f1);
-      if (rulerGeometryMode === "right-triangle") {
-        return rulerDisplayMode === "hz"
-          ? `${Math.hypot(xHz, yHz).toFixed(0)} Hz`
-          : `${Math.hypot(xBark, yBark).toFixed(2)} Bk`;
-      }
-      const hz = Math.hypot(xHz, yHz);
-      const barkDistance = Math.hypot(xBark, yBark);
-      if (rulerDisplayMode === "hz") return `${hz.toFixed(0)} Hz`;
-      return `${barkDistance.toFixed(2)} Bk`;
-    }
-    if (rulerGeometryMode === "right-triangle") return Math.hypot(dx, dy).toPrecision(4);
-    return Math.hypot(dx, dy).toPrecision(4);
-  };
+  const rulerDistanceLabelWithSettings = (first: RulerPoint, second: RulerPoint) =>
+    formatRulerDistance(first, second, plotUnits, {
+      preference: rulerDisplayMode,
+      geometry: rulerGeometryMode,
+    });
 
-  const rulerTriangleLabels = (first: RulerPoint, second: RulerPoint) => {
-    const dx = second.x - first.x;
-    const dy = second.y - first.y;
-    if (first.raw_f1 !== undefined && first.raw_f2 !== undefined && second.raw_f1 !== undefined && second.raw_f2 !== undefined) {
-      const bark = (value: number) => 26.81 / (1 + 1960 / value) - 0.53;
-      const x = rulerDisplayMode === "hz" ? second.raw_f2 - first.raw_f2 : bark(second.raw_f2) - bark(first.raw_f2);
-      const y = rulerDisplayMode === "hz" ? second.raw_f1 - first.raw_f1 : bark(second.raw_f1) - bark(first.raw_f1);
-      const unit = rulerDisplayMode === "hz" ? "Hz" : "Bk";
-      const digits = rulerDisplayMode === "hz" ? 0 : 2;
-      const format = (value: number) => `${Math.abs(value).toFixed(digits)} ${unit}`;
-      return { horizontal: format(x), vertical: format(y), hypotenuse: format(Math.hypot(x, y)) };
-    }
-    const format = (value: number) => Math.abs(value).toPrecision(4);
-    return { horizontal: format(dx), vertical: format(dy), hypotenuse: format(Math.hypot(dx, dy)) };
-  };
+  const rulerTriangleLabels = (first: RulerPoint, second: RulerPoint) =>
+    formatRulerTriangleLegs(first, second, plotUnits, rulerDisplayMode);
+
+  useEffect(() => {
+    if (!plotUnits.rulerUnitChoiceEnabled) return;
+    setRulerDisplayMode(plotUnits.defaultRulerPreference);
+  }, [plotUnits.defaultRulerPreference, plotUnits.rulerUnitChoiceEnabled]);
 
   useEffect(() => {
     if (tool !== "ruler") {
@@ -3166,7 +3420,7 @@ export function InteractivePlotWindow() {
       ...measurement,
       distance: rulerDistanceLabelWithSettings(measurement.p1, measurement.p2),
     })));
-  }, [rulerDisplayMode, rulerGeometryMode]);
+  }, [plotUnits, rulerDisplayMode, rulerGeometryMode]);
 
   /** paper-local. 스냅 점은 px/py(transData) 우선 — 선형 drawPointClient는 마커와 어긋남. */
   const drawPointLocal = (point: DrawPoint) => {
@@ -3185,14 +3439,17 @@ export function InteractivePlotWindow() {
     return screen ? { x: screen.x - paper.left, y: screen.y - paper.top } : null;
   };
 
-  const fileCounter = useMemo(() => `${sources.length ? currentIndex + 1 : 0} / ${sources.length}`, [currentIndex, sources.length]);
+  const fileCounter = useMemo(
+    () => `${sources.length ? currentSourcePosition + 1 : 0} / ${sources.length}`,
+    [currentSourcePosition, sources.length],
+  );
   const effective = <K extends keyof DesignSettings,>(key: K): DesignSettings[K] => (selectedOverride[key] ?? design[key]) as DesignSettings[K];
 
   return (
     <main className={`interactive-plot-workspace ${leftOpen ? "" : "left-is-collapsed"} ${rightOpen ? "" : "right-is-collapsed"}`}>
       <header className="interactive-plot-header">
         <div className="plot-title-block"><span>단일 분석 · 대화형 플롯</span><h1 title={currentSource?.name}>{currentSource?.name ?? "데이터를 불러와 주세요"}</h1></div>
-        <div className="plot-header-meta"><span className={`engine-state ${engineConnected ? "" : "is-offline"}`}><i /> 분석 엔진 {engineConnected ? "연결됨" : "연결 확인 중"}</span><span className="plot-notation">{xAxis} × F1 · {fileCounter}</span><button className="legacy-launch" onClick={() => void openLegacyPlot()} disabled={busy || !sources.length}>PySide 고급 편집 <ArrowUpRight size={14} /></button></div>
+        <div className="plot-header-meta"><span className={`engine-state ${engineConnected ? "" : "is-offline"}`}><i /> 분석 엔진 {engineConnected ? "연결됨" : "연결 확인 중"}</span><span className="plot-notation">{xAxis} × {yAxis} · {fileCounter}</span><button type="button" className="shortcut-help-launch" onClick={() => setShortcutHelpOpen(true)} aria-label="단축키 도움말" title="단축키 (?)"><CircleHelp size={15} /></button><button className="legacy-launch" onClick={() => void openLegacyPlot()} disabled={busy || !sources.length}>PySide 고급 편집 <ArrowUpRight size={14} /></button></div>
       </header>
 
       <aside className="plot-control-rail">
@@ -3207,17 +3464,17 @@ export function InteractivePlotWindow() {
           {leftPanel === "analysis" ? (
             <>
               <section className="control-section range-section">
-                <div className="section-heading"><div><span>01</span><strong>좌표축 범위</strong></div><small>{analysis?.use_bark_units ? "Bark" : "Hz"}</small></div>
+                <div className="section-heading"><div><span>01</span><strong>좌표축 범위</strong></div><small>{rangeUnitLabel || "정규화"}</small></div>
                 <div className="range-matrix">
                   <div className="range-matrix-head"><span>축</span><span>최솟값</span><span /><span>최댓값</span></div>
-                  <div className="range-matrix-row"><strong>F1 <small>세로</small></strong><input value={ranges.y_min} onChange={(event) => setRanges({ ...ranges, y_min: event.target.value })} /><i>–</i><input value={ranges.y_max} onChange={(event) => setRanges({ ...ranges, y_max: event.target.value })} /></div>
-                  <div className="range-matrix-row"><strong>{xAxis} <small>가로</small></strong><input value={ranges.x_min} onChange={(event) => setRanges({ ...ranges, x_min: event.target.value })} /><i>–</i><input value={ranges.x_max} onChange={(event) => setRanges({ ...ranges, x_max: event.target.value })} /></div>
+                  <div className="range-matrix-row"><strong>{yAxis} <small>세로</small></strong><input value={ranges.y_min} readOnly={rangesReadOnly} onChange={(event) => setRanges({ ...ranges, y_min: event.target.value })} /><i>–</i><input value={ranges.y_max} readOnly={rangesReadOnly} onChange={(event) => setRanges({ ...ranges, y_max: event.target.value })} /></div>
+                  <div className="range-matrix-row"><strong>{xAxis} <small>가로</small></strong><input value={ranges.x_min} readOnly={rangesReadOnly} onChange={(event) => setRanges({ ...ranges, x_min: event.target.value })} /><i>–</i><input value={ranges.x_max} readOnly={rangesReadOnly} onChange={(event) => setRanges({ ...ranges, x_max: event.target.value })} /></div>
                 </div>
-                <div className="ellipse-quick-row"><label><span>신뢰 타원 범위</span><span className="sigma-control"><select value={sigma} onChange={(event) => setSigma(event.target.value)}><option value="1.0">1.0</option><option value="1.5">1.5</option><option value="2.0">2.0</option><option value="2.5">2.5</option><option value="3.0">3.0</option></select><b>σ</b></span></label><ToggleSwitch label="타원 표시" checked={showEllipse} onChange={() => { const next = !showEllipse; setShowEllipse(next); void renderInteractive({ showEllipse: next }); }} /></div>
+                <div className="ellipse-quick-row"><label><span>신뢰 타원 범위</span><span className="sigma-control"><select value={sigma} onChange={(event) => { const next = event.target.value; setSigma(next); void renderInteractive({ sigma: next }); }}><option value="1.0">1.0</option><option value="1.5">1.5</option><option value="2.0">2.0</option><option value="2.5">2.5</option><option value="3.0">3.0</option></select><b>σ</b></span></label><ToggleSwitch label="타원 표시" checked={showEllipse} onChange={() => { const next = !showEllipse; setShowEllipse(next); void renderInteractive({ showEllipse: next }); }} /></div>
                 <div className="paired-actions"><button onClick={resetPlot}><RefreshCcw size={14} /> 초기화</button><button className="primary" onClick={() => void renderInteractive()} disabled={busy}><Sparkles size={14} /> 범위 적용</button></div>
               </section>
 
-              <section className="control-section"><div className="section-heading"><div><span>02</span><strong>분석 도구</strong></div></div><div className="tool-grid"><button onClick={() => setVowelAnalysisOpen(true)} disabled={!sources.length}><ScanSearch size={17} /><span><strong>모음 상세 분석</strong><small>통계와 분포 보기</small></span></button><button onClick={() => void openLegacyPlot()} disabled={!sources.length}><Layers3 size={17} /><span><strong>다중 플롯 모드</strong><small>파일 비교 구성</small></span></button><button className={tool === "ruler" ? "is-active" : ""} onClick={() => setTool(tool === "ruler" ? "select" : "ruler")}><Ruler size={17} /><span><strong>눈금자</strong><small>R · 거리 측정</small></span></button><button className={tool === "draw" ? "is-active" : ""} onClick={() => enterDrawMode(null)}><PenLine size={17} /><span><strong>그리기</strong><small>P · 주석 도구</small></span></button></div></section>
+              <section className="control-section"><div className="section-heading"><div><span>02</span><strong>분석 도구</strong></div></div><div className="tool-grid"><button onClick={() => setVowelAnalysisOpen(true)} disabled={!sources.length}><ScanSearch size={17} /><span><strong>모음 상세 분석</strong><small>통계와 분포 보기</small></span></button><button onClick={() => void openComparePlot()} disabled={sources.filter((source) => !source.is_combined).length < 2}><Layers3 size={17} /><span><strong>다중 플롯 모드</strong><small>파일 비교 구성</small></span></button><button className={tool === "ruler" ? "is-active" : ""} onClick={() => setTool(tool === "ruler" ? "select" : "ruler")}><Ruler size={17} /><span><strong>눈금자</strong><small>R · 거리 측정</small></span></button><button className={tool === "draw" ? "is-active" : ""} onClick={() => enterDrawMode(null)}><PenLine size={17} /><span><strong>그리기</strong><small>P · 주석 도구</small></span></button></div></section>
 
               <section className="control-section export-section"><div className="section-heading"><div><span>03</span><strong>내보내기</strong></div></div><div className={`format-buttons ${hasCombined ? "has-txt" : ""}`}><button onClick={() => void exportInteractive("jpg")} disabled={!previewUrl}>JPG</button><button onClick={() => void exportInteractive("png")} disabled={!previewUrl}>PNG</button><button onClick={() => void exportInteractive("svg")} disabled={!sources.length}>SVG</button>{hasCombined ? <button onClick={() => void exportCombinedTxt()} disabled={busy}>TXT</button> : null}</div><button className="wide-action" onClick={() => void saveProject()} disabled={busy || !sources.length}><Save size={15} /> 프로젝트 저장</button><button className="wide-action primary" onClick={() => setBatchExportOpen(true)} disabled={busy || !sources.length}><Download size={15} /> 일괄 저장</button></section>
             </>
@@ -3278,7 +3535,7 @@ export function InteractivePlotWindow() {
       </aside>
 
       <section className={`interactive-plot-stage tool-${tool}${tool === "draw" ? ` draw-tool-${drawTool ?? "none"}` : ""}`}>
-        <div className="plot-toolbar"><div className="toolbar-leading">{!leftOpen ? <button className="sidebar-reopen" onClick={() => setLeftOpen(true)}><PanelLeftOpen size={16} /> 도구</button> : null}<div className="toolbar-group"><button className={tool === "select" ? "is-active" : ""} onClick={() => setTool("select")}><MousePointer2 size={16} /> 선택</button><div className="ruler-tool-cluster"><button className={tool === "ruler" ? "is-active" : ""} onClick={() => setTool("ruler")}><Ruler size={16} /> 눈금자</button><button type="button" className={`tool-settings-button ${rulerSettingsOpen ? "is-active" : ""}`} onClick={() => setRulerSettingsOpen((previous) => !previous)} aria-label="눈금자 설정" title="눈금자 설정"><SlidersHorizontal size={14} /></button>{rulerSettingsOpen ? <div className="ruler-settings-popover"><div className="ruler-settings-header"><strong>눈금자 설정</strong><span>측정 방식</span></div><div className="ruler-mode-choices"><button type="button" className={`ruler-mode-choice ${rulerGeometryMode === "direct" ? "is-active" : ""}`} onClick={() => setRulerGeometryMode("direct")}><svg viewBox="0 0 44 22" aria-hidden><line x1="5" y1="17" x2="39" y2="5" /><circle cx="5" cy="17" r="2" /><circle cx="39" cy="5" r="2" /></svg><span>직선</span></button><button type="button" className={`ruler-mode-choice ${rulerGeometryMode === "right-triangle" ? "is-active" : ""}`} onClick={() => setRulerGeometryMode("right-triangle")}><svg viewBox="0 0 44 22" aria-hidden><path d="M5 17H39V5" /><line className="hypotenuse" x1="5" y1="17" x2="39" y2="5" /><path className="right-angle" d="M34 17v-5h5" /></svg><span>Δx · Δy</span></button></div><div className="ruler-unit-row"><span>표시 단위</span><div className="ruler-unit-toggles"><button type="button" className={`ruler-unit-toggle ${rulerDisplayMode === "hz" ? "is-on" : ""}`} aria-pressed={rulerDisplayMode === "hz"} onClick={() => setRulerDisplayMode("hz")}>Hz</button><button type="button" className={`ruler-unit-toggle ${rulerDisplayMode === "bark" ? "is-on" : ""}`} aria-pressed={rulerDisplayMode === "bark"} onClick={() => setRulerDisplayMode("bark")}>Bark</button></div></div></div> : null}</div><button className={tool === "label" ? "is-active" : ""} onClick={() => { setTool("label"); setMessage("라벨 이동 모드 · 라벨을 드래그하세요."); }}><MousePointer2 size={16} /> 라벨 이동</button><button className={tool === "draw" ? "is-active" : ""} onClick={() => enterDrawMode(null)}><PenLine size={16} /> 그리기</button></div></div><div className="toolbar-context"><span>{analysis?.normalization ?? "정규화 없음"}</span><span>{analysis?.origin === "top_right" ? "Praat 좌표" : "수학 좌표"}</span>{!rightOpen ? <button className="sidebar-reopen" onClick={() => setRightOpen(true)}>레이어 <PanelRightOpen size={16} /></button> : null}</div></div>
+        <div className="plot-toolbar"><div className="toolbar-leading">{!leftOpen ? <button className="sidebar-reopen" onClick={() => setLeftOpen(true)}><PanelLeftOpen size={16} /> 도구</button> : null}<div className="toolbar-group"><button className={tool === "select" ? "is-active" : ""} onClick={() => setTool("select")}><MousePointer2 size={16} /> 선택</button><div className="ruler-tool-cluster"><button className={tool === "ruler" ? "is-active" : ""} onClick={() => setTool("ruler")}><Ruler size={16} /> 눈금자</button><button type="button" className={`tool-settings-button ${rulerSettingsOpen ? "is-active" : ""}`} onClick={() => setRulerSettingsOpen((previous) => !previous)} aria-label="눈금자 설정" title="눈금자 설정"><SlidersHorizontal size={14} /></button>{rulerSettingsOpen ? <div className="ruler-settings-popover"><div className="ruler-settings-header"><strong>눈금자 설정</strong><span>측정 방식</span></div><div className="ruler-mode-choices"><button type="button" className={`ruler-mode-choice ${rulerGeometryMode === "direct" ? "is-active" : ""}`} onClick={() => setRulerGeometryMode("direct")}><svg viewBox="0 0 44 22" aria-hidden><line x1="5" y1="17" x2="39" y2="5" /><circle cx="5" cy="17" r="2" /><circle cx="39" cy="5" r="2" /></svg><span>직선</span></button><button type="button" className={`ruler-mode-choice ${rulerGeometryMode === "right-triangle" ? "is-active" : ""}`} onClick={() => setRulerGeometryMode("right-triangle")}><svg viewBox="0 0 44 22" aria-hidden><path d="M5 17H39V5" /><line className="hypotenuse" x1="5" y1="17" x2="39" y2="5" /><path className="right-angle" d="M34 17v-5h5" /></svg><span>Δx · Δy</span></button></div><div className="ruler-unit-row"><span>표시 단위</span>{plotUnits.rulerUnitChoiceEnabled ? <div className="ruler-unit-toggles"><button type="button" className={`ruler-unit-toggle ${rulerDisplayMode === "hz" ? "is-on" : ""}`} aria-pressed={rulerDisplayMode === "hz"} onClick={() => setRulerDisplayMode("hz")}>Hz</button><button type="button" className={`ruler-unit-toggle ${rulerDisplayMode === "bark" ? "is-on" : ""}`} aria-pressed={rulerDisplayMode === "bark"} onClick={() => setRulerDisplayMode("bark")}>Bark</button></div> : <strong className="ruler-unit-locked">{plotUnits.normalization ?? "정규화 좌표"}</strong>}</div></div> : null}</div><button className={tool === "label" ? "is-active" : ""} onClick={() => { setTool("label"); setMessage("라벨 이동 모드 · 라벨을 드래그하세요."); }}><MousePointer2 size={16} /> 라벨 이동</button><button className={tool === "draw" ? "is-active" : ""} onClick={() => enterDrawMode(null)}><PenLine size={16} /> 그리기</button></div></div><div className="toolbar-context"><span>{analysis?.normalization ?? "정규화 없음"}</span><span>{analysis?.origin === "top_right" ? "Praat 좌표" : "수학 좌표"}</span>{!rightOpen ? <button className="sidebar-reopen" onClick={() => setRightOpen(true)}>레이어 <PanelRightOpen size={16} /></button> : null}</div></div>
         <div className="plot-canvas-shell"><div className="plot-paper" ref={plotPaperRef}>{previewUrl ? <><img ref={plotImageRef} src={previewUrl} alt={`${currentSource?.name ?? "현재 파일"} 포먼트 플롯`} draggable={false} onLoad={() => { if (referencePointerRef.current) setReferencePreview({ ...referencePointerRef.current }); }} /><div className="ruler-overlay" onPointerMove={handleRulerMove} onPointerDown={handleRulerDown} onPointerUp={handleRulerUp} onPointerCancel={handleRulerUp} onDoubleClick={(event) => {
                   if (tool === "draw" && drawTool === "line") {
                     event.preventDefault();
@@ -3552,7 +3809,7 @@ export function InteractivePlotWindow() {
           {tool === "ruler" && rulerStart ? (() => { const screen = rulerPointClient(rulerStart); const paper = plotPaperRef.current?.getBoundingClientRect(); return screen && paper ? <span className={`ruler-snap-marker ${rulerStart.type === "mean" ? "is-mean" : "is-raw"}`} style={{ left: screen.x - paper.left, top: screen.y - paper.top, borderColor: rulerStart.color }} /> : null; })() : null}
           {tool === "ruler" && rulerStart && rulerPointer ? <svg className="ruler-guide-layer" aria-hidden><line x1={rulerPointClient(rulerStart) ? (rulerPointClient(rulerStart)!.x - (plotPaperRef.current?.getBoundingClientRect().left ?? 0)) : 0} y1={rulerPointClient(rulerStart) ? (rulerPointClient(rulerStart)!.y - (plotPaperRef.current?.getBoundingClientRect().top ?? 0)) : 0} x2={rulerPointer.x} y2={rulerPointer.y} /></svg> : null}
           {tool === "ruler" && rulerHover ? (() => { const screen = rulerPointClient(rulerHover); const paper = plotPaperRef.current?.getBoundingClientRect(); return screen && paper ? <><span className={`ruler-snap-marker ${rulerHover.type === "mean" ? "is-mean" : "is-raw"}`} style={{ left: screen.x - paper.left, top: screen.y - paper.top, borderColor: rulerHover.color }} /><span className="ruler-tooltip" style={{ left: screen.x - paper.left + 12, top: screen.y - paper.top - 30 }}>{rulerTooltip(rulerHover)}</span></> : null; })() : null}
-        </div></> : <div className="plot-placeholder"><Layers3 size={30} /><strong>표시할 플롯이 없습니다</strong><span>메인 창에서 데이터 파일을 불러와 주세요.</span></div>}</div></div>
+        </div></> : <div className="plot-placeholder">{previewLoading ? <><Loader2 size={30} className="is-spinning" aria-hidden /><strong>플롯을 준비하는 중</strong><span>분석 엔진에서 미리보기를 그리는 동안 잠시만 기다려 주세요.</span></> : <><Layers3 size={30} /><strong>표시할 플롯이 없습니다</strong><span>메인 창에서 데이터 파일을 불러와 주세요.</span></>}</div>}</div></div>
         <footer className="plot-stage-footer"><span>{message}</span><span title={previewInfo}>{previewInfo || currentSource?.name || "대기 중"}</span></footer>
       </section>
 
@@ -3751,8 +4008,8 @@ export function InteractivePlotWindow() {
         </div>
         )}
       </aside>
-      {batchExportOpen ? <div className="batch-export-backdrop" role="presentation">
-        <section className="batch-export-dialog" role="dialog" aria-modal="true" aria-labelledby="batch-export-title">
+      {batchExportOpen ? <div className="batch-export-backdrop" data-modal-root role="presentation">
+        <section ref={batchExportDialogRef} className="batch-export-dialog" role="dialog" aria-modal="true" aria-labelledby="batch-export-title">
           <header><div><span className="section-eyebrow">EXPORT WORKSPACE</span><h2 id="batch-export-title">일괄 저장</h2><p>현재 React/Tauri 플롯 설정을 모든 파일에 적용해 저장합니다.</p></div><button type="button" onClick={() => setBatchExportOpen(false)} disabled={batchExportBusy} aria-label="닫기"><X size={18} /></button></header>
           <div className="batch-export-body">
             <div className="batch-export-summary"><strong>{sources.length}개 파일</strong><span>범위 · 디자인 · 레이어 상태 · 라벨 위치 포함</span></div>
@@ -3894,6 +4151,57 @@ export function InteractivePlotWindow() {
         </section>
       </div> : null}
       {vowelAnalysisOpen ? <VowelAnalysisShell currentSource={currentSource} sources={sources} currentIndex={currentIndex} displayIndex={Math.max(0, sources.findIndex((source) => source.index === currentIndex))} onNavigate={(index) => void navigateTo(index)} onClose={() => setVowelAnalysisOpen(false)} /> : null}
+      {shortcutHelpOpen ? (
+        <div className="shortcut-help-backdrop" data-modal-root role="presentation" onClick={() => setShortcutHelpOpen(false)}>
+          <section
+            ref={shortcutHelpRef}
+            className="shortcut-help-dialog"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="shortcut-help-title"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <header>
+              <div>
+                <span className="section-eyebrow">KEYBOARD</span>
+                <h2 id="shortcut-help-title">단축키</h2>
+                <p>입력란에 포커스가 있을 때는 일부 키가 무시됩니다.</p>
+              </div>
+              <button type="button" onClick={() => setShortcutHelpOpen(false)} aria-label="닫기"><X size={18} /></button>
+            </header>
+            <div className="shortcut-help-body">
+              <div className="shortcut-help-group">
+                <strong>패널</strong>
+                <ul>
+                  <li><kbd>`</kbd><span>좌·우 패널 접기/펼치기</span></li>
+                  <li><kbd>A</kbd><span>분석 도구 패널</span></li>
+                  <li><kbd>D</kbd><span>광역 디자인 패널</span></li>
+                  <li><kbd>?</kbd><span>이 도움말</span></li>
+                </ul>
+              </div>
+              <div className="shortcut-help-group">
+                <strong>도구</strong>
+                <ul>
+                  <li><kbd>R</kbd><span>눈금자</span></li>
+                  <li><kbd>T</kbd><span>라벨 이동</span></li>
+                  <li><kbd>P</kbd><span>그리기 모드</span></li>
+                  <li><kbd>1</kbd>–<kbd>5</kbd><span>그리기 도구 (선·영역·텍스트·기준선·범례)</span></li>
+                  <li><kbd>Esc</kbd><span>도구 취소 / 모드 종료</span></li>
+                </ul>
+              </div>
+              <div className="shortcut-help-group">
+                <strong>파일</strong>
+                <ul>
+                  <li><kbd>←</kbd> <kbd>→</kbd><span>이전/다음 파일</span></li>
+                  <li><kbd>Home</kbd> / <kbd>End</kbd><span>첫/마지막 파일</span></li>
+                  <li><kbd>Ctrl</kbd>+<kbd>S</kbd><span>프로젝트 저장</span></li>
+                  <li><kbd>M</kbd><span>다중 플롯 (파일 2개 이상)</span></li>
+                </ul>
+              </div>
+            </div>
+          </section>
+        </div>
+      ) : null}
     </main>
   );
 }

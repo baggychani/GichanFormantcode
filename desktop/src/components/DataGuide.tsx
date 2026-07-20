@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   AlertTriangle,
   Check,
@@ -10,6 +10,7 @@ import {
   Upload,
   X,
 } from "lucide-react";
+import { useFocusTrap } from "../useFocusTrap";
 import "./DataGuide.css";
 
 const appIconUrl = "/icon.ico";
@@ -82,22 +83,29 @@ const FORMATS = ["TXT", "CSV", "TSV", "XLS", "XLSX"];
 
 export function DataGuide({ open, onClose }: DataGuideProps) {
   const [exampleIndex, setExampleIndex] = useState(0);
+  const dialogRef = useRef<HTMLElement | null>(null);
+  useFocusTrap(open, dialogRef);
+
   const example = COLUMN_EXAMPLES[exampleIndex];
 
   useEffect(() => {
     if (!open) return;
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") onClose();
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      event.stopPropagation();
+      onClose();
     };
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
+    window.addEventListener("keydown", handleKeyDown, true);
+    return () => window.removeEventListener("keydown", handleKeyDown, true);
   }, [open, onClose]);
 
   if (!open) return null;
 
   return (
-    <div className="guide-backdrop" role="presentation">
+    <div className="guide-backdrop" data-modal-root role="presentation">
       <section
+        ref={dialogRef}
         className="guide-dialog"
         role="dialog"
         aria-modal="true"

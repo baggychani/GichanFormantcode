@@ -14,8 +14,30 @@
 > Tauri/React 파일럿만 보려면 `uv run desktop_main.py` 를 사용하세요.
 > `desktop/` 자체는 실험용이며 기본 실행 경로가 아닙니다.
 
+### 브랜치 안내 (git pull이 최신이 아닐 때)
 
-## 🚀 시작하기
+| 브랜치 | 내용 |
+|--------|------|
+| `main` | 안정·병합된 기본선 |
+| `agent/react-tauri-hardening` | React/Tauri 파일럿·대화형 플롯 최신 작업 |
+| `release/pyside-stable` | PySide 전용 안정 스냅샷 |
+
+노트북에서 `git pull`만 했는데 최신이 안 보이면, 대개 **`main`에 있는 채로 pull**한 경우입니다.
+Tauri/플롯 창 최신을 받으려면:
+
+```bash
+git fetch origin
+git switch agent/react-tauri-hardening
+git pull
+```
+
+현재 브랜치 확인: `git branch --show-current`
+
+### 데이터 파일 참고
+
+- TXT/CSV **첫 줄이 `Lobanov`** 이면 이미 z-score로 정규화된 **pre-Lobanov** 파일로 인식합니다.
+  이 경우 앱은 화자 정규화를 Lobanov로 고정하고, Hz 검증을 건너뜁니다.
+- 「Bark 단위로 표시」를 켜면 PySide와 같이 **F1·F2 양쪽이 Bark**로 맞춰집니다.
 
 이 프로젝트는 패키지 매니저 [uv](https://github.com/astral-sh/uv)를 사용하여 관리합니다.
 

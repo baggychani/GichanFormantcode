@@ -26,6 +26,8 @@ def get_significance_stars(p_value):
         return "**"
     if p_value < 0.05:
         return "*"
+    if p_value < 0.1:
+        return "†"
     return ""
 
 
@@ -33,9 +35,10 @@ def format_p_value(p_val):
     if p_val is None:
         return "N/A"
     stars = get_significance_stars(p_val)
+    star_part = f" {stars}" if stars else ""
     if p_val < 0.001:
-        return f"< 0.001 {stars}".strip()
-    return f"{p_val:.3f} {stars}".strip()
+        return f"< 0.001{star_part}".strip()
+    return f"{p_val:.3f}{star_part}".strip()
 
 
 # Scrollbar style (copied from vowel_analysis_dialog.py or move to a separate theme file later)
