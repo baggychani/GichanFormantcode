@@ -59,6 +59,7 @@ class SinglePlotService:
     def refresh(
         self, figure: Any, canvas: Any, range_widgets: Any, _label: Any, popup: Any
     ) -> None:
+        self.host._ensure_plot_engine()
         manual_ranges = self.host._read_manual_ranges(range_widgets)
         self.host._sync_single_popup_normalization(popup)
         popup.fixed_plot_params = self.host._get_current_plot_params(popup)

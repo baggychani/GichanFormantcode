@@ -6,10 +6,20 @@ from core.preview_renderer import PreviewRenderer
 from core.runtime_port import HeadlessRuntime
 
 
+class _Canvas:
+    def draw(self):
+        return None
+
+    def get_renderer(self):
+        return None
+
+
 class _Figure:
     def __init__(self):
         self.cleared = False
         self.savefig_kwargs = None
+        self.axes = []
+        self.canvas = _Canvas()
 
     def clear(self):
         self.cleared = True

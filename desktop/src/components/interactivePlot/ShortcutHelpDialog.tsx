@@ -80,7 +80,20 @@ export function ShortcutHelpDialog({ onClose }: { onClose: () => void }) {
               </li>
               <li>
                 <kbd>Esc</kbd>
-                <span>도구 취소 / 모드 종료</span>
+                <span>도구 취소 · 레이어 선택 해제</span>
+              </li>
+            </ul>
+          </div>
+          <div className="shortcut-help-group">
+            <strong>레이어</strong>
+            <ul>
+              <li>
+                <kbd>Ctrl</kbd>+<kbd>C</kbd>
+                <span>선택 레이어 설정 복사</span>
+              </li>
+              <li>
+                <kbd>Ctrl</kbd>+<kbd>V</kbd>
+                <span>레이어 설정 붙여넣기 (기존 설정 덮어씀)</span>
               </li>
             </ul>
           </div>

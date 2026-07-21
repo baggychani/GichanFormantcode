@@ -1,5 +1,6 @@
 import { execFileSync } from "node:child_process";
 import {
+  cpSync,
   existsSync,
   mkdirSync,
   renameSync,
@@ -34,7 +35,11 @@ function hostTriple() {
 const targetTriple = process.env.TAURI_ENV_TARGET_TRIPLE || hostTriple();
 const outputName = `${baseName}-${targetTriple}${extension}`;
 const outputPath = join(binariesDir, outputName);
-const stagedExecutable = join(stagingDir, "dist", `${baseName}${extension}`);
+const internalOut = join(binariesDir, "_internal");
+// onedir layout: dist/<name>/<name>.exe + dist/<name>/_internal/
+const stagedDir = join(stagingDir, "dist", baseName);
+const stagedExecutable = join(stagedDir, `${baseName}${extension}`);
+const stagedInternal = join(stagedDir, "_internal");
 
 // Never silently reuse an old sidecar. The binary is intentionally ignored by
 // git, so reuse can package code from a different checkout/commit and make the
@@ -54,7 +59,8 @@ const pyinstallerArgs = [
   "pyinstaller",
   "--noconfirm",
   "--clean",
-  "--onefile",
+  // onedir avoids extract-to-temp on every launch (onefile tax on laptops/AV).
+  "--onedir",
   "--console",
   "--name",
   baseName,
@@ -82,8 +88,14 @@ execFileSync("uv", pyinstallerArgs, {
 if (!existsSync(stagedExecutable)) {
   throw new Error(`PyInstaller output was not created: ${stagedExecutable}`);
 }
+if (!existsSync(stagedInternal)) {
+  throw new Error(`PyInstaller _internal folder missing: ${stagedInternal}`);
+}
 
 rmSync(outputPath, { force: true });
+rmSync(internalOut, { recursive: true, force: true });
 renameSync(stagedExecutable, outputPath);
+cpSync(stagedInternal, internalOut, { recursive: true });
 rmSync(stagingDir, { recursive: true, force: true });
 console.log(`Bundled sidecar ready: ${outputPath}`);
+console.log(`Bundled sidecar deps: ${internalOut}`);

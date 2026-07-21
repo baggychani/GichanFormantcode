@@ -38,6 +38,7 @@ export function LayersPanel({
   effective,
   updateLayerDesign,
   resetSelectedLayer,
+  clearLayerSelection,
   beginLayerPanelResize,
   resizeLayerPanels,
   endLayerPanelResize,
@@ -74,6 +75,7 @@ export function LayersPanel({
   effective: (key: keyof DesignSettings) => DesignSettings[keyof DesignSettings];
   updateLayerDesign: (patch: Partial<DesignSettings>) => void;
   resetSelectedLayer: () => void;
+  clearLayerSelection: () => void;
   beginLayerPanelResize: (event: ReactPointerEvent<HTMLDivElement>) => void;
   resizeLayerPanels: (event: ReactPointerEvent<HTMLDivElement>) => void;
   endLayerPanelResize: (event: ReactPointerEvent<HTMLDivElement>) => void;
@@ -382,7 +384,13 @@ export function LayersPanel({
             <RefreshCcw size={11} /> 순서 초기화
           </button>
         </div>
-        <div className="layer-list" ref={layerListRef}>
+        <div
+          className="layer-list"
+          ref={layerListRef}
+          onPointerDown={(event) => {
+            if (event.target === event.currentTarget) clearLayerSelection();
+          }}
+        >
           {layerOrder.length ? (
             layerOrder.map((vowel) => {
               const visibility = layerState[vowel] ?? "ON";

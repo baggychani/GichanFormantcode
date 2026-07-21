@@ -547,6 +547,7 @@ export function MainWorkspace() {
 
       <SourceSidebar
         sources={sources}
+        inputFileCount={realSources.length}
         hasF3={hasF3}
         hasFiles={hasFiles}
         busy={busy}
@@ -609,10 +610,16 @@ export function MainWorkspace() {
         >
           {SUPPORT_LABEL}
         </button>
+        {busy ? (
+          <>
+            <span className="status-divider" />
+            <span className="status-busy">
+              <Loader2 size={12} className="is-spinning" aria-hidden /> 처리 중…
+            </span>
+          </>
+        ) : null}
         <span className="status-divider" />
-        <span className="status-busy">{busy ? <><Loader2 size={12} className="is-spinning" aria-hidden /> 처리 중…</> : settingsSummary}</span>
-        <span className="status-divider" />
-        <span className="status-mono">v3.0.0 · 파일 {sources.length}개</span>
+        <span className="status-mono">v3.0.0</span>
       </footer>
 
       {busy ? <div className="progress-line" aria-label="작업 진행 중" /> : null}

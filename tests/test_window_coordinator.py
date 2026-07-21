@@ -17,6 +17,21 @@ class _Window:
         return self.hidden
 
 
+def test_pyside_window_coordinator_module_stays_light():
+    """React --desktop health path must not import PlotPopup at module load."""
+    import importlib
+    import sys
+
+    mod_name = "ui.desktop_window_coordinator"
+    before = set(sys.modules)
+    sys.modules.pop(mod_name, None)
+    importlib.import_module(mod_name)
+    added = set(sys.modules) - before
+    assert "ui.windows.popup_plot" not in added
+    assert "ui.windows.compare_plot" not in added
+    assert "ui.dialogs.vowel_analysis_dialog" not in added
+
+
 def test_pyside_window_coordinator_owns_registry_lifecycle():
     coordinator = PySideDesktopWindowCoordinator()
     visible = _Window()

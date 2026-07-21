@@ -8,5 +8,5 @@ export const SUPPORT = {
   holder: "배기찬",
 } as const;
 
-export const SUPPORT_LABEL = "후원";
+export const SUPPORT_LABEL = "제작자에게 커피 사주기";
 export const SUPPORT_TITLE = "도움이 되셨다면 커피 한 잔으로 응원 (선택)";

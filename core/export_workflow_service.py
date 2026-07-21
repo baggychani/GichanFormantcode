@@ -96,6 +96,7 @@ class ExportWorkflowService:
 
     def create_batch_worker(self, save_dir, ranges, sigma, image_format, design_settings=None, parent_popup=None, batch_options=None):
         host = self.host
+        host._ensure_plot_engine()
         host.set_last_save_dir(save_dir)
         options = batch_options or {}
         apply_global = options.get("apply_global_design", True)

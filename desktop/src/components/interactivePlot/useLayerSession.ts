@@ -58,9 +58,20 @@ export function useLayerSession({
   } | null>(null);
   const resizeRef = useRef<{ startY: number; startHeight: number } | null>(null);
   const layerSessionsRef = useRef(new Map<string, LayerSession>());
+  const layerDesignClipboardRef = useRef<{
+    source: string;
+    overrides: Partial<DesignSettings>;
+  } | null>(null);
 
   const selectedOverride = selectedLayer ? layerOverrides[selectedLayer] ?? {} : {};
-  const selectedLocked = selectedLayer ? lockedLayers.has(selectedLayer) : false;
+  const designTargets =
+    selectedLayers.size > 0
+      ? [...selectedLayers]
+      : selectedLayer
+        ? [selectedLayer]
+        : [];
+  const selectedLocked =
+    designTargets.length > 0 && designTargets.every((vowel) => lockedLayers.has(vowel));
   const effective = <K extends keyof DesignSettings>(key: K): DesignSettings[K] =>
     (selectedOverride[key] ?? design[key]) as DesignSettings[K];
 
@@ -208,11 +219,31 @@ export function useLayerSession({
     selectionAnchorRef.current = vowel;
   };
 
+  const clearLayerSelection = useCallback(() => {
+    setSelectedLayer("");
+    setSelectedLayers(new Set());
+    selectionAnchorRef.current = "";
+  }, []);
+
   const updateLayerDesign = (patch: Partial<DesignSettings>) => {
-    if (!selectedLayer || selectedLocked) return;
-    const next = { ...layerOverrides, [selectedLayer]: { ...selectedOverride, ...patch } };
+    const targets = (
+      selectedLayers.size > 0
+        ? [...selectedLayers]
+        : selectedLayer
+          ? [selectedLayer]
+          : []
+    ).filter((vowel) => !lockedLayers.has(vowel));
+    if (targets.length === 0) return;
+    const next = { ...layerOverrides };
+    for (const vowel of targets) {
+      next[vowel] = { ...(next[vowel] ?? {}), ...patch };
+    }
     setLayerOverrides(next);
-    setExpandedLayers((previous) => new Set(previous).add(selectedLayer));
+    setExpandedLayers((previous) => {
+      const expanded = new Set(previous);
+      targets.forEach((vowel) => expanded.add(vowel));
+      return expanded;
+    });
     scheduleInteractiveRender({ layerOverrides: next });
   };
 
@@ -262,13 +293,20 @@ export function useLayerSession({
   };
 
   const resetSelectedLayer = () => {
-    if (!selectedLayer || selectedLocked) return;
+    const targets = (
+      selectedLayers.size > 0
+        ? [...selectedLayers]
+        : selectedLayer
+          ? [selectedLayer]
+          : []
+    ).filter((vowel) => !lockedLayers.has(vowel));
+    if (targets.length === 0) return;
     const next = { ...layerOverrides };
-    delete next[selectedLayer];
+    for (const vowel of targets) delete next[vowel];
     setLayerOverrides(next);
     setExpandedLayers((previous) => {
       const expanded = new Set(previous);
-      expanded.delete(selectedLayer);
+      targets.forEach((vowel) => expanded.delete(vowel));
       return expanded;
     });
     void renderInteractive({ layerOverrides: next });
@@ -293,6 +331,72 @@ export function useLayerSession({
     }
     void renderInteractive({ layerOverrides: next });
   };
+
+  const copySelectedLayerDesign = useCallback(() => {
+    if (!selectedLayer) {
+      setMessage("복사할 레이어를 선택하세요.");
+      return false;
+    }
+    const sourceOverrides = layerOverrides[selectedLayer] ?? {};
+    layerDesignClipboardRef.current = {
+      source: selectedLayer,
+      overrides: { ...sourceOverrides },
+    };
+    const count = Object.keys(sourceOverrides).length;
+    setMessage(
+      count > 0
+        ? `${selectedLayer} 레이어 설정 ${count}개를 복사했습니다.`
+        : `${selectedLayer} 레이어 설정(비어 있음)을 복사했습니다.`,
+    );
+    return true;
+  }, [layerOverrides, selectedLayer, setMessage]);
+
+  const pasteLayerDesign = useCallback(() => {
+    const clip = layerDesignClipboardRef.current;
+    if (!clip) {
+      setMessage("먼저 레이어 설정을 복사하세요 (Ctrl+C).");
+      return false;
+    }
+    const targets = (
+      selectedLayers.size > 0
+        ? [...selectedLayers]
+        : selectedLayer
+          ? [selectedLayer]
+          : []
+    ).filter((vowel) => !lockedLayers.has(vowel));
+    if (targets.length === 0) {
+      setMessage(
+        selectedLayer && lockedLayers.has(selectedLayer)
+          ? "잠긴 레이어에는 붙여넣을 수 없습니다."
+          : "붙여넣을 레이어를 선택하세요.",
+      );
+      return false;
+    }
+    const payload = { ...clip.overrides };
+    const hasSettings = Object.keys(payload).length > 0;
+    const next = { ...layerOverrides };
+    for (const vowel of targets) {
+      if (hasSettings) next[vowel] = { ...payload };
+      else delete next[vowel];
+    }
+    setLayerOverrides(next);
+    setExpandedLayers((previous) => {
+      const expanded = new Set(previous);
+      for (const vowel of targets) {
+        if (hasSettings) expanded.add(vowel);
+        else expanded.delete(vowel);
+      }
+      return expanded;
+    });
+    scheduleInteractiveRender({ layerOverrides: next });
+    const label = targets.length === 1 ? targets[0]! : `${targets.length}개 레이어`;
+    setMessage(
+      hasSettings
+        ? `${clip.source} 설정을 ${label}에 붙여넣었습니다. 기존 설정은 덮어썼습니다.`
+        : `${label} 설정을 비웠습니다.`,
+    );
+    return true;
+  }, [layerOverrides, lockedLayers, scheduleInteractiveRender, selectedLayer, selectedLayers, setMessage]);
 
   const cancelFlipFrame = () => {
     if (flipFrameRef.current !== null) cancelAnimationFrame(flipFrameRef.current);
@@ -516,6 +620,7 @@ export function useLayerSession({
     layerListRef,
     draggingLayerRef,
     selectLayer,
+    clearLayerSelection,
     updateLayerDesign,
     toggleLayerEye,
     toggleLayerSemi,
@@ -524,6 +629,8 @@ export function useLayerSession({
     toggleLock,
     resetSelectedLayer,
     removeLayerEffect,
+    copySelectedLayerDesign,
+    pasteLayerDesign,
     beginLayerDrag,
     moveLayerDrag,
     commitLayerDrag,

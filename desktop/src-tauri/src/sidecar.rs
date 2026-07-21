@@ -131,6 +131,12 @@ fn spawn_development_sidecar() -> Result<SpawnedSidecar, String> {
         let mut cmd = Command::new(program);
         cmd.args(parts);
         cmd
+    } else if let Some(python) = development_python(&root) {
+        // Prefer the project venv directly. `uv run` re-resolves the env on
+        // every spawn and dominates cold sidecar start on slow disks/AV.
+        let mut cmd = Command::new(python);
+        cmd.args(["-m", "sidecar", "--desktop"]);
+        cmd
     } else {
         let mut cmd = Command::new("uv");
         cmd.args(["run", "python", "-m", "sidecar", "--desktop"]);
@@ -155,9 +161,9 @@ fn spawn_development_sidecar() -> Result<SpawnedSidecar, String> {
         command.creation_flags(CREATE_NO_WINDOW);
     }
 
-    let mut child = command
-        .spawn()
-        .map_err(|err| format!("failed to start sidecar (is uv installed?): {err}"))?;
+    let mut child = command.spawn().map_err(|err| {
+        format!("failed to start sidecar (venv python or uv required): {err}")
+    })?;
     let stdin = child
         .stdin
         .take()
@@ -171,6 +177,15 @@ fn spawn_development_sidecar() -> Result<SpawnedSidecar, String> {
         .take()
         .ok_or_else(|| "sidecar stderr missing".to_string())?;
     Ok((child, stdin, stdout, stderr))
+}
+
+fn development_python(root: &PathBuf) -> Option<PathBuf> {
+    let candidates = [
+        root.join(".venv/Scripts/python.exe"),
+        root.join(".venv/bin/python"),
+        root.join(".venv/bin/python3"),
+    ];
+    candidates.into_iter().find(|path| path.is_file())
 }
 
 fn use_development_sidecar() -> bool {

@@ -288,7 +288,7 @@ input:disabled {
 .section-kicker {
   display: block;
   color: var(--gf-text-tertiary);
-  font-size: 11px;
+  font-size: 11.5px;
   font-weight: 700;
   line-height: 1.35;
 }
@@ -363,7 +363,7 @@ input:disabled {
 .source-drop-card small {
   margin-top: 3px;
   color: var(--gf-text-tertiary);
-  font-size: 11px;
+  font-size: 11.5px;
 }
 
 .source-count-row {
@@ -383,7 +383,7 @@ input:disabled {
   border-radius: 999px;
   background: rgba(255, 255, 255, 0.025);
   color: var(--gf-text-tertiary);
-  font-size: 10px;
+  font-size: 10.5px;
   font-weight: 650;
 }
 
@@ -441,7 +441,7 @@ input:disabled {
 .source-index {
   color: var(--gf-text-tertiary);
   font-family: var(--gf-font-mono);
-  font-size: 9px;
+  font-size: 9.5px;
 }
 
 .source-copy {
@@ -465,7 +465,7 @@ input:disabled {
 .source-copy span {
   margin-top: 3px;
   color: var(--gf-text-tertiary);
-  font-size: 10px;
+  font-size: 10.5px;
 }
 
 .sidebar-project-actions {
@@ -585,7 +585,7 @@ input:disabled {
   margin: 6px 0 8px;
   color: #f6f8fc;
   font-size: clamp(20px, 2vw, 28px);
-  font-weight: 620;
+  font-weight: 750;
   letter-spacing: -0.02em;
   line-height: 1.15;
 }
@@ -737,7 +737,7 @@ input:disabled {
 .metric div > span {
   margin-top: 0;
   color: var(--gf-text-tertiary);
-  font-size: 10px;
+  font-size: 10.5px;
   white-space: nowrap;
 }
 
@@ -966,13 +966,14 @@ input:disabled {
 .empty-callout strong {
   color: #ffffff;
   font-size: 12px;
-  font-weight: 650;
+  font-weight: 750;
 }
 
 .empty-callout div > span {
   margin-top: 3px;
   color: rgba(255, 255, 255, 0.72);
   font-size: 11px;
+  font-weight: 650;
   line-height: 1.45;
 }
 
@@ -1034,7 +1035,7 @@ html[data-theme="light"] .orbit-b {
   padding: 0 14px;
   border-top: 1px solid var(--gf-border-subtle);
   color: var(--gf-text-tertiary);
-  font-size: 10px;
+  font-size: 10.5px;
 }
 
 .preview-footer > span:first-child {
@@ -1264,7 +1265,7 @@ html[data-theme="light"] .orbit-b {
   padding-top: 1px;
   color: var(--gf-text-tertiary);
   font-family: var(--gf-font-mono);
-  font-size: 10px;
+  font-size: 10.5px;
 }
 
 .settings-section-title strong,
@@ -1280,7 +1281,7 @@ html[data-theme="light"] .orbit-b {
 .settings-section-title small {
   margin-top: 3px;
   color: var(--gf-text-tertiary);
-  font-size: 11px;
+  font-size: 11.5px;
   line-height: 1.45;
 }
 
@@ -1364,30 +1365,30 @@ html[data-theme="light"] .orbit-b {
 
 .requirement {
   padding: 3px 6px;
-  font-size: 9px;
+  font-size: 9.5px;
 }
 
 .field-grid {
   display: grid;
-  gap: 10px;
+  gap: 16px;
 }
 
 .scale-field {
   display: grid;
-  gap: 6px;
+  gap: 7px;
   min-width: 0;
 }
 
 .select-field {
   display: grid;
-  gap: 6px;
+  gap: 7px;
   min-width: 0;
 }
 
 .select-field > span,
 .field-caption {
   color: var(--gf-text-tertiary);
-  font-size: 11px;
+  font-size: 11.5px;
   font-weight: 620;
   line-height: 1.35;
   white-space: nowrap;
@@ -1441,7 +1442,7 @@ html[data-theme="light"] .orbit-b {
 .switch-row small {
   margin-top: 3px;
   color: var(--gf-text-tertiary);
-  font-size: 10px;
+  font-size: 10.5px;
   line-height: 1.45;
 }
 
@@ -1515,7 +1516,7 @@ html[data-theme="light"] .orbit-b {
   background: transparent;
   color: var(--gf-text-tertiary);
   cursor: pointer;
-  font-size: 11px;
+  font-size: 11.5px;
 }
 
 .segmented-control button:last-child {
@@ -1574,7 +1575,7 @@ html[data-theme="light"] .orbit-b {
   border-top: 1px solid var(--gf-border-subtle);
   background: #07090d;
   color: var(--gf-text-tertiary);
-  font-size: 10px;
+  font-size: 10.5px;
 }
 
 .connection-dot {
@@ -1603,7 +1604,7 @@ html[data-theme="light"] .orbit-b {
 
 .status-copyright {
   color: var(--gf-text-tertiary);
-  font-size: 10px;
+  font-size: 10.5px;
   white-space: nowrap;
 }
 
@@ -1612,23 +1613,23 @@ html[data-theme="light"] .orbit-b {
   padding: 0;
   border: 0;
   background: transparent;
-  color: var(--gf-text-tertiary);
+  color: var(--gf-text-secondary);
   font: inherit;
-  font-size: 10px;
+  font-size: 10.5px;
+  font-weight: 620;
   line-height: 1;
   white-space: nowrap;
   cursor: pointer;
-  opacity: 0.72;
+  opacity: 1;
   text-decoration: underline;
   text-underline-offset: 2px;
-  text-decoration-color: transparent;
-  transition: color 120ms ease, opacity 120ms ease, text-decoration-color 120ms ease;
+  text-decoration-color: color-mix(in srgb, currentColor 45%, transparent);
+  transition: color 120ms ease, text-decoration-color 120ms ease;
 }
 
 .status-support:hover,
 .status-support:focus-visible {
-  opacity: 1;
-  color: var(--gf-text-secondary);
+  color: var(--gf-accent);
   text-decoration-color: currentColor;
 }
 

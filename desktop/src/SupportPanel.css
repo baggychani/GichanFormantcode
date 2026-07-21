@@ -58,9 +58,9 @@
   gap: 4px;
   margin-bottom: 12px;
   padding: 12px 13px;
-  border: 1px solid rgba(210, 180, 40, 0.35);
+  border: 1px solid rgba(210, 180, 40, 0.45);
   border-radius: 10px;
-  background: #fff8c9;
+  background: #ffe300;
 }
 
 .support-bank,
@@ -110,6 +110,16 @@ html[data-theme="dark"] .support-panel {
 }
 
 html[data-theme="dark"] .support-account {
-  border-color: rgba(255, 220, 80, 0.28);
-  background: rgba(255, 220, 80, 0.14);
+  border-color: rgba(255, 227, 0, 0.55);
+  background: #ffe300;
+  color: #1a1a1a;
+}
+
+html[data-theme="dark"] .support-account .support-bank,
+html[data-theme="dark"] .support-account .support-holder {
+  color: rgba(26, 26, 26, 0.72);
+}
+
+html[data-theme="dark"] .support-account .support-number {
+  color: #1a1a1a;
 }

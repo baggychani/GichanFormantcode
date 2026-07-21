@@ -13,6 +13,8 @@ import type { SourceInfo } from "../../../ipc/protocol";
 
 type SourceSidebarProps = {
   sources: SourceInfo[];
+  /** Input file count only (excludes Combined). */
+  inputFileCount: number;
   hasF3: boolean;
   hasFiles: boolean;
   busy: boolean;
@@ -27,6 +29,7 @@ type SourceSidebarProps = {
 
 export function SourceSidebar({
   sources,
+  inputFileCount,
   hasF3,
   hasFiles,
   busy,
@@ -67,12 +70,12 @@ export function SourceSidebar({
         </span>
         <span>
           <strong>데이터 불러오기</strong>
-          <small>TXT, CSV, Excel · 끌어놓기 가능</small>
+          <small>TXT, CSV, Excel</small>
         </span>
       </button>
 
       <div className="source-count-row">
-        <span>파일 {sources.length}개</span>
+        <span>파일 {inputFileCount}개</span>
         {hasF3 ? <span className="mini-badge">F3 사용 가능</span> : null}
       </div>
 

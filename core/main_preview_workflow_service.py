@@ -27,4 +27,5 @@ class MainPreviewWorkflowService:
         try:
             host._render_live_preview_content(current_data, params, ranges, host._get_preview_design(params))
         except Exception as error:
+            host._ensure_live_preview()
             host.live_preview_service.show_error(error)

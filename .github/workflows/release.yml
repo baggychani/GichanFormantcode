@@ -1,4 +1,8 @@
-# 태그 push 또는 수동 실행 → 테스트 → Win/mac 빌드 → GitHub Release 게시
+# 태그 push 또는 수동 실행 → 테스트 → 두 가지 제품 빌드 → GitHub Release 게시
+#
+# 산출물 (포터블 zip 없음):
+#   1) PySide   : Windows Setup.exe + macOS .app zip
+#   2) Desktop  : React/Tauri Windows NSIS 설치기
 name: Release
 
 on:
@@ -8,7 +12,7 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: "릴리스 버전 (비우면 config.APP_VERSION 사용, 예: 2.3.4.2)"
+        description: "릴리스 버전 (비우면 config.APP_VERSION 사용, 예: 3.0.0)"
         required: false
         type: string
       create_github_release:
@@ -21,6 +25,16 @@ on:
         required: false
         type: boolean
         default: false
+      build_pyside:
+        description: "PySide 설치기 빌드"
+        required: false
+        type: boolean
+        default: true
+      build_desktop:
+        description: "React/Tauri Desktop 설치기 빌드"
+        required: false
+        type: boolean
+        default: true
 
 permissions:
   contents: write
@@ -36,6 +50,8 @@ jobs:
     outputs:
       version: ${{ steps.out.outputs.version }}
       tag: ${{ steps.out.outputs.tag }}
+      build_pyside: ${{ steps.flags.outputs.build_pyside }}
+      build_desktop: ${{ steps.flags.outputs.build_desktop }}
     steps:
       - uses: actions/checkout@v6
 
@@ -59,6 +75,18 @@ jobs:
           echo "version=${VER}" >> "$GITHUB_OUTPUT"
           echo "tag=v${VER}" >> "$GITHUB_OUTPUT"
           echo "Resolved version: ${VER}"
+
+      - name: Build flags
+        id: flags
+        shell: bash
+        run: |
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            echo "build_pyside=${{ inputs.build_pyside }}" >> "$GITHUB_OUTPUT"
+            echo "build_desktop=${{ inputs.build_desktop }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "build_pyside=true" >> "$GITHUB_OUTPUT"
+            echo "build_desktop=true" >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Sync version files from config / tag
         run: uv run python scripts/sync_version.py --set "${{ steps.out.outputs.version }}"
@@ -117,9 +145,10 @@ jobs:
           QT_QPA_PLATFORM: offscreen
         run: uv run pytest tests/ -q
 
-  build-windows:
-    name: Windows (Setup + portable)
+  build-pyside-windows:
+    name: PySide · Windows Setup
     needs: [prepare, test]
+    if: needs.prepare.outputs.build_pyside == 'true'
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v6
@@ -164,24 +193,21 @@ jobs:
           & $iscc "/DMyOutputDir=$PWD\release" "GichanFormant.iss"
           $setup = Get-ChildItem -Path release -Filter "GichanFormant_v${env:VERSION}_Setup.exe" | Select-Object -First 1
           if (-not $setup) { throw "Setup exe not found under release\" }
-          Write-Host "Built installer: $($setup.FullName)"
-
-      - name: Zip portable onedir
-        shell: pwsh
-        run: |
-          Compress-Archive -Path "dist\GichanFormant\*" -DestinationPath "GichanFormant-windows-x64-portable-v${{ needs.prepare.outputs.version }}.zip" -Force
+          # Distinguish from the React/Tauri installer in the same Release.
+          $renamed = Join-Path $setup.DirectoryName "GichanFormant-PySide_v${env:VERSION}_Setup.exe"
+          Move-Item -LiteralPath $setup.FullName -Destination $renamed -Force
+          Write-Host "Built installer: $renamed"
 
       - uses: actions/upload-artifact@v6
         with:
-          name: windows-release
+          name: pyside-windows-release
           retention-days: 1
-          path: |
-            release/GichanFormant_v*_Setup.exe
-            GichanFormant-windows-x64-portable-v*.zip
+          path: release/GichanFormant-PySide_v*_Setup.exe
 
-  build-macos:
-    name: macOS (${{ matrix.label }})
+  build-pyside-macos:
+    name: PySide · macOS (${{ matrix.label }})
     needs: [prepare, test]
+    if: needs.prepare.outputs.build_pyside == 'true'
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -189,10 +215,10 @@ jobs:
         include:
           - os: macos-latest
             label: arm64
-            artifact: GichanFormant-macos-arm64
+            artifact: GichanFormant-PySide-macos-arm64
           - os: macos-15-intel
             label: intel
-            artifact: GichanFormant-macos-intel
+            artifact: GichanFormant-PySide-macos-intel
     steps:
       - uses: actions/checkout@v6
 
@@ -227,14 +253,97 @@ jobs:
           retention-days: 1
           path: ${{ matrix.artifact }}-v*.zip
 
+  build-desktop-windows:
+    name: Desktop · React/Tauri Windows NSIS
+    needs: [prepare, test]
+    if: needs.prepare.outputs.build_desktop == 'true'
+    runs-on: windows-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Download synced version files
+        uses: actions/download-artifact@v6
+        with:
+          name: version-metadata
+
+      - uses: astral-sh/setup-uv@v7
+      - uses: actions/setup-python@v6
+        with:
+          python-version-file: .python-version
+      - run: uv sync --locked --all-extras --dev
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: desktop/package-lock.json
+
+      - name: Install desktop frontend deps
+        working-directory: desktop
+        run: npm ci
+
+      - name: Sync Tauri app version
+        shell: pwsh
+        env:
+          VERSION: ${{ needs.prepare.outputs.version }}
+        run: |
+          $conf = "desktop/src-tauri/tauri.conf.json"
+          $json = Get-Content $conf -Raw | ConvertFrom-Json
+          $json.version = $env:VERSION
+          $json | ConvertTo-Json -Depth 20 | Set-Content $conf -Encoding utf8
+          $pkg = "desktop/package.json"
+          $pkgJson = Get-Content $pkg -Raw | ConvertFrom-Json
+          $pkgJson.version = $env:VERSION
+          $pkgJson | ConvertTo-Json -Depth 20 | Set-Content $pkg -Encoding utf8
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Build Tauri (NSIS only, no portable)
+        working-directory: desktop
+        run: npm run tauri:build
+
+      - name: Collect NSIS installer
+        shell: pwsh
+        env:
+          VERSION: ${{ needs.prepare.outputs.version }}
+        run: |
+          New-Item -ItemType Directory -Force -Path release-desktop | Out-Null
+          $nsis = Get-ChildItem -Path "desktop/src-tauri/target/release/bundle/nsis" -Filter "*.exe" -ErrorAction SilentlyContinue |
+            Select-Object -First 1
+          if (-not $nsis) {
+            Get-ChildItem -Path "desktop/src-tauri/target/release/bundle" -Recurse -ErrorAction SilentlyContinue | ForEach-Object { $_.FullName }
+            throw "Tauri NSIS installer not found"
+          }
+          $dest = "release-desktop/GichanFormant-Desktop_v${env:VERSION}_x64-Setup.exe"
+          Copy-Item -LiteralPath $nsis.FullName -Destination $dest -Force
+          Write-Host "Built Desktop installer: $dest"
+
+      - uses: actions/upload-artifact@v6
+        with:
+          name: desktop-windows-release
+          retention-days: 1
+          path: release-desktop/GichanFormant-Desktop_v*_x64-Setup.exe
+
   publish-deploy:
     name: Publish → baggychani/GichanFormant
-    needs: [prepare, build-windows, build-macos]
+    needs:
+      - prepare
+      - build-pyside-windows
+      - build-pyside-macos
+      - build-desktop-windows
     runs-on: ubuntu-latest
     if: >-
+      always() &&
       needs.prepare.result == 'success' &&
-      needs.build-windows.result == 'success' &&
-      needs.build-macos.result == 'success' &&
+      (needs.build-pyside-windows.result == 'success' || needs.build-pyside-windows.result == 'skipped') &&
+      (needs.build-pyside-macos.result == 'success' || needs.build-pyside-macos.result == 'skipped') &&
+      (needs.build-desktop-windows.result == 'success' || needs.build-desktop-windows.result == 'skipped') &&
+      (
+        needs.build-pyside-windows.result == 'success' ||
+        needs.build-pyside-macos.result == 'success' ||
+        needs.build-desktop-windows.result == 'success'
+      ) &&
       (
         (github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v'))
         || (github.event_name == 'workflow_dispatch' && inputs.create_github_release)
@@ -252,11 +361,7 @@ jobs:
           pattern: "*-release"
           merge-multiple: true
           path: dist-upload
-
-      - uses: actions/download-artifact@v6
-        with:
-          name: windows-release
-          path: dist-upload
+        continue-on-error: true
 
       - name: List release files
         run: find dist-upload -type f | sort
@@ -269,7 +374,7 @@ jobs:
           TAG="${{ needs.prepare.outputs.tag }}"
           VER="${{ needs.prepare.outputs.version }}"
           REPO="baggychani/GichanFormant"
-          mapfile -t FILES < <(find dist-upload -type f \( -name '*.exe' -o -name '*.zip' \))
+          mapfile -t FILES < <(find dist-upload -type f \( -name '*.exe' -o -name '*.zip' \) 2>/dev/null || true)
           if [ "${#FILES[@]}" -eq 0 ]; then
             echo "::error::dist-upload 에 exe/zip 이 없습니다."
             exit 1
@@ -283,18 +388,32 @@ jobs:
             --title "GichanFormant ${VER}" \
             --notes "## GichanFormant ${VER}
 
-          - Windows: Setup.exe, portable zip
-          - macOS: arm64 / Intel zip" \
+          ### PySide
+          - \`GichanFormant-PySide_v${VER}_Setup.exe\` — Windows 설치 프로그램
+          - \`GichanFormant-PySide-macos-*-v${VER}.zip\` — macOS 앱
+
+          ### Desktop (React / Tauri)
+          - \`GichanFormant-Desktop_v${VER}_x64-Setup.exe\` — Windows NSIS 설치 프로그램
+
+          포터블 zip은 배포하지 않습니다." \
             --latest
 
   publish-code-repo:
     name: Publish → GichanFormantcode (optional)
-    needs: [prepare, build-windows, build-macos]
+    needs:
+      - prepare
+      - build-pyside-windows
+      - build-pyside-macos
+      - build-desktop-windows
     runs-on: ubuntu-latest
     if: >-
+      always() &&
       needs.prepare.result == 'success' &&
-      needs.build-windows.result == 'success' &&
-      needs.build-macos.result == 'success' &&
+      (
+        needs.build-pyside-windows.result == 'success' ||
+        needs.build-pyside-macos.result == 'success' ||
+        needs.build-desktop-windows.result == 'success'
+      ) &&
       github.event_name == 'workflow_dispatch' &&
       inputs.publish_to_code_repo
     steps:
@@ -303,11 +422,7 @@ jobs:
           pattern: "*-release"
           merge-multiple: true
           path: dist-upload
-
-      - uses: actions/download-artifact@v6
-        with:
-          name: windows-release
-          path: dist-upload
+        continue-on-error: true
 
       - uses: softprops/action-gh-release@v2
         with:
@@ -319,11 +434,19 @@ jobs:
 
   cleanup-artifacts:
     name: Delete workflow artifacts
-    needs: [build-windows, build-macos, publish-deploy, publish-code-repo]
+    needs:
+      - build-pyside-windows
+      - build-pyside-macos
+      - build-desktop-windows
+      - publish-deploy
+      - publish-code-repo
     if: >-
       always() &&
-      needs.build-windows.result == 'success' &&
-      needs.build-macos.result == 'success' &&
+      (
+        needs.build-pyside-windows.result == 'success' ||
+        needs.build-pyside-macos.result == 'success' ||
+        needs.build-desktop-windows.result == 'success'
+      ) &&
       needs.publish-deploy.result != 'failure' &&
       needs.publish-code-repo.result != 'failure'
     runs-on: ubuntu-latest

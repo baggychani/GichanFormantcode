@@ -23,6 +23,7 @@ class TestMainController(unittest.TestCase):
             runtime=HeadlessRuntime(),
             render_initial_preview=False,
         )
+        self.controller._ensure_plot_engine()
         # 테스트를 위해 빈 데이터셋으로 초기화 확인
         self.assertEqual(len(self.controller.filepaths), 0)
         self.assertEqual(len(self.controller.plot_data_list), 0)

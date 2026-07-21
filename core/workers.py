@@ -14,7 +14,9 @@ def build_unique_batch_save_names(plot_data_list, img_format, suffix=""):
     used = set()
     names = []
     for data in plot_data_list:
-        base_name = os.path.splitext(os.path.basename(str(data["name"])))[0]
+        # CI runs on Linux; Windows-style paths in fixtures must still basename.
+        raw_name = str(data["name"]).replace("\\", "/")
+        base_name = os.path.splitext(os.path.basename(raw_name))[0]
         base_name = base_name or "plot"
         stem = f"{base_name}{suffix}"
         candidate = f"{stem}.{extension}"

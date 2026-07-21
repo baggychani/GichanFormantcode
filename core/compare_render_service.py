@@ -31,6 +31,7 @@ class CompareRenderService:
         popup: Any,
         session: CompareSession,
     ) -> None:
+        self.host._ensure_plot_engine()
         manual_ranges = self.host._read_manual_ranges(range_widgets)
         popup.fixed_plot_params = self.host._get_current_plot_params(popup)
         sigma_picker = getattr(popup, "cb_sigma", None)

@@ -96,7 +96,20 @@ export function InteractivePlotWindow() {
   const [vowelAnalysisOpen, setVowelAnalysisOpen] = useState(false);
   const [shortcutHelpOpen, setShortcutHelpOpen] = useState(false);
   const [message, setMessage] = useState("분석 엔진과 연결하는 중입니다.");
+  const [toast, setToast] = useState<string | null>(null);
+  const toastTimerRef = useRef<number | null>(null);
   const aliveRef = useRef(true);
+  const showToast = useCallback((text: string) => {
+    setToast(text);
+    if (toastTimerRef.current !== null) window.clearTimeout(toastTimerRef.current);
+    toastTimerRef.current = window.setTimeout(() => {
+      toastTimerRef.current = null;
+      if (aliveRef.current) setToast(null);
+    }, 2800);
+  }, []);
+  useEffect(() => () => {
+    if (toastTimerRef.current !== null) window.clearTimeout(toastTimerRef.current);
+  }, []);
   const navigatingRef = useRef(false);
   const currentIndexRef = useRef(0);
   const renderInteractiveRef = useRef<(overrides?: InteractiveRenderOverrides) => void | Promise<void>>(async () => {});
@@ -170,6 +183,7 @@ export function InteractivePlotWindow() {
     layerListRef,
     draggingLayerRef,
     selectLayer,
+    clearLayerSelection,
     updateLayerDesign,
     toggleLayerEye,
     toggleLayerSemi,
@@ -178,6 +192,8 @@ export function InteractivePlotWindow() {
     toggleLock,
     resetSelectedLayer,
     removeLayerEffect,
+    copySelectedLayerDesign,
+    pasteLayerDesign,
     beginLayerDrag,
     moveLayerDrag,
     commitLayerDrag,
@@ -316,6 +332,7 @@ export function InteractivePlotWindow() {
     normalization: analysis?.normalization ?? null,
     tool,
     setMessage,
+    showToast,
     setTool,
     setRightPanel,
     setRightOpen,
@@ -333,7 +350,10 @@ export function InteractivePlotWindow() {
       setTool("select");
       return;
     }
-    if (tool === "label" || tool === "draw") return;
+    if (tool === "label" || tool === "draw") {
+      showToast(`먼저 ${tool === "label" ? "라벨 이동" : "그리기"} 모드를 해제해 주세요.`);
+      return;
+    }
     setTool("ruler");
   };
 
@@ -342,7 +362,10 @@ export function InteractivePlotWindow() {
       setTool("select");
       return;
     }
-    if (tool === "ruler" || tool === "draw") return;
+    if (tool === "ruler" || tool === "draw") {
+      showToast(`먼저 ${tool === "ruler" ? "눈금자" : "그리기"} 모드를 해제해 주세요.`);
+      return;
+    }
     setTool("label");
     setMessage("라벨 이동 모드 · 라벨을 드래그하세요.");
   };
@@ -559,7 +582,8 @@ export function InteractivePlotWindow() {
         }
         clearLegendDragPreviewRef.current();
         clearRulerOnPreviewReadyRef.current();
-        setMessage(consumePreviewSuccessMessage(requestId) ?? "플롯을 업데이트했습니다.");
+        const success = consumePreviewSuccessMessage(requestId);
+        if (success) setMessage(success);
       } else if (payload.event === "preview_failed" && payload.payload.target === "interactive") {
         const requestId = Number(payload.payload.request_id ?? 0);
         if (isStalePreviewRequest(requestId)) return;
@@ -668,7 +692,7 @@ export function InteractivePlotWindow() {
       setSigma(nextSigma);
       setShowEllipse(nextShowEllipse);
       setState(next);
-      setMessage(`${nextStateSource?.name ?? nextSource.name ?? "파일"}을 불러오는 중입니다.`);
+      setMessage(`${nextStateSource?.name ?? nextSource.name ?? "파일"}을 불러왔습니다.`);
     } catch (err) {
       setMessage(`파일을 이동하지 못했습니다: ${String(err)}`);
       setPreviewLoading(false);
@@ -700,6 +724,22 @@ export function InteractivePlotWindow() {
         }
         return;
         }
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "c") {
+        const target = event.target as HTMLElement | null;
+        if (target?.closest("input, textarea, select, [contenteditable='true']")) return;
+        if (!selectedLayer) return;
+        event.preventDefault();
+        copySelectedLayerDesign();
+        return;
+      }
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "v") {
+        const target = event.target as HTMLElement | null;
+        if (target?.closest("input, textarea, select, [contenteditable='true']")) return;
+        if (!selectedLayer && selectedLayers.size === 0) return;
+        event.preventDefault();
+        pasteLayerDesign();
+        return;
+      }
       if (tool === "draw" && (drawTool === "line" || drawTool === "area") && (event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "z") {
         event.preventDefault();
         setDrawingPoints((previous) => previous.slice(0, -1));
@@ -790,6 +830,18 @@ export function InteractivePlotWindow() {
         exitDrawMode();
         return;
       }
+      if (event.key === "Escape" && tool === "label") {
+        event.preventDefault();
+        setTool("select");
+        return;
+      }
+      if (event.key === "Escape" && (selectedLayer || selectedLayers.size > 0)) {
+        const escTarget = event.target as HTMLElement | null;
+        if (escTarget?.closest("input, textarea, select, [contenteditable='true']")) return;
+        event.preventDefault();
+        clearLayerSelection();
+        return;
+      }
       if (tool === "draw" && ["1", "2", "3", "4", "5"].includes(event.key)) {
         event.preventDefault();
         const next = (event.key === "1" ? "line" : event.key === "2" ? "area" : event.key === "3" ? "text" : event.key === "4" ? "reference" : "legend") as DrawTool;
@@ -808,7 +860,7 @@ export function InteractivePlotWindow() {
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [analysis?.normalization, canNavigate, currentSourcePosition, drawArrowHead, drawArrowMode, drawColor, drawEditorOpen, drawLineStyle, drawTool, drawWidth, drawingPoints, exitDrawMode, finishDrawLine, finishDrawPolygon, navigateByPosition, navigating, resetTransientRuler, rulerSettingsOpen, setRulerSettingsOpen, shortcutHelpOpen, sources, toggleDrawMode, toggleLabelMode, toggleRulerMode, tool]);
+  }, [analysis?.normalization, canNavigate, clearLayerSelection, copySelectedLayerDesign, currentSourcePosition, drawArrowHead, drawArrowMode, drawColor, drawEditorOpen, drawLineStyle, drawTool, drawWidth, drawingPoints, exitDrawMode, finishDrawLine, finishDrawPolygon, navigateByPosition, navigating, pasteLayerDesign, resetTransientRuler, rulerSettingsOpen, selectedLayer, selectedLayers, setRulerSettingsOpen, shortcutHelpOpen, sources, toggleDrawMode, toggleLabelMode, toggleRulerMode, tool]);
 
   const updateDesign = (patch: Partial<DesignSettings>) => {
     const next = { ...design, ...patch };
@@ -1110,7 +1162,7 @@ export function InteractivePlotWindow() {
 
       <aside className="layer-inspector">
         <header className="layer-inspector-header"><div><span className="section-eyebrow">{rightPanel === "layers" ? "레이어 디자인" : "그리기 디자인"}</span><strong>{rightPanel === "layers" ? `${currentVowels.length}개 모음` : "주석 도구"}</strong></div><button className="rail-collapse" aria-label="오른쪽 패널 접기" onClick={() => setRightOpen(false)}><PanelRightClose size={16} /></button></header>
-        <div className="layer-panel-tabs"><button type="button" className={rightPanel === "layers" ? "is-active" : ""} onClick={() => setRightPanel("layers")}><Layers3 size={15} /> 레이어</button><button type="button" className={rightPanel === "drawing" ? "is-active" : ""} onClick={() => { if (tool === "ruler" || tool === "label") return; enterDrawMode(drawTool); }}><PenLine size={15} /> 그리기</button></div>
+        <div className="layer-panel-tabs"><button type="button" className={rightPanel === "layers" ? "is-active" : ""} onClick={() => setRightPanel("layers")}><Layers3 size={15} /> 레이어</button><button type="button" className={rightPanel === "drawing" ? "is-active" : ""} onClick={() => { if (tool === "ruler" || tool === "label") { showToast(`먼저 ${tool === "ruler" ? "눈금자" : "라벨 이동"} 모드를 해제해 주세요.`); return; } enterDrawMode(drawTool); }}><PenLine size={15} /> 그리기</button></div>
         {rightPanel === "layers" ? (
           <LayersPanel
             layerListHeight={layerListHeight}
@@ -1119,6 +1171,7 @@ export function InteractivePlotWindow() {
             effective={effective}
             updateLayerDesign={updateLayerDesign}
             resetSelectedLayer={resetSelectedLayer}
+            clearLayerSelection={clearLayerSelection}
             beginLayerPanelResize={beginLayerPanelResize}
             resizeLayerPanels={resizeLayerPanels}
             endLayerPanelResize={endLayerPanelResize}
@@ -1269,6 +1322,12 @@ export function InteractivePlotWindow() {
       ) : null}
       {shortcutHelpOpen ? (
         <ShortcutHelpDialog onClose={() => setShortcutHelpOpen(false)} />
+      ) : null}
+      {toast ? (
+        <div className="plot-toast" role="status" aria-live="polite">
+          <strong>안내</strong>
+          <p>{toast}</p>
+        </div>
       ) : null}
     </main>
   );

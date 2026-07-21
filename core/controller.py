@@ -2,7 +2,6 @@
 
 import os
 import traceback
-from matplotlib.figure import Figure
 
 import config
 from core.compare_series import (
@@ -18,7 +17,6 @@ from core.application_service import ApplicationService
 from core.interactive_plot_state import PlotSessionState
 from core.plot_session_service import PlotSessionService
 from core.plot_data_types import PlotDataItem, PlotParams
-from core.preview_renderer import PreviewRenderer
 from core.live_preview_service import LivePreviewService
 from core.view_port import MainViewPort
 from core.desktop_adapter_factory import (
@@ -36,7 +34,6 @@ from core.controller_service_bundle import ControllerServiceBundle
 from utils import app_logger
 from core.design_defaults import get_single_design_defaults
 from model.data_processor import DataProcessor
-from engine.plot_engine import PlotEngine
 from utils.math_utils import (
     remove_outliers_tukey_iqr,
     remove_outliers_mahalanobis_scoped,
@@ -193,15 +190,13 @@ class MainController:
         self.label_move_tool = context.get("label_move_tool")
         self.custom_label_offsets = {}  # (file_idx, plot_type) -> { vowel: (dx_data, dy_data) }
 
-        # 사전 초기화된 엔진 재사용
+        # 사전 초기화된 엔진 재사용. React --desktop sidecar starts with
+        # render_initial_preview=False so matplotlib Figure / PlotEngine stay
+        # cold until the first preview (health answers sooner on laptops).
         self.data_processor = context.get("data_processor") or DataProcessor()
-        self.plot_engine = context.get("plot_engine") or PlotEngine()
-        self.live_preview_fig = context.get("live_preview_fig") or Figure(
-            figsize=(6.5, 6.5), dpi=150
-        )
-        self.preview_renderer = context.get("preview_renderer") or PreviewRenderer(
-            self.plot_engine, self.live_preview_fig
-        )
+        self.plot_engine = context.get("plot_engine")
+        self.live_preview_fig = context.get("live_preview_fig")
+        self.preview_renderer = context.get("preview_renderer")
 
         # LIVE 미리보기 디바운스: 연속 호출 시 마지막 한 번만 렌더 (메인 스레드 블로킹 완화)
         self._live_preview_debouncer = self.runtime.create_debouncer(
@@ -241,9 +236,37 @@ class MainController:
 
         # 사전 초기화된 Fig가 있다면 첫 렌더링을 즉시 동기적으로 수행하여 스플래시 종료 전 화면을 채웁니다.
         # (실제 창 표시는 main.py에서 splash.finish()와 함께 수행하여 겹침 현상을 방지합니다)
-        if render_initial_preview and self.view.supports_preview():
-            self._render_live_preview()
+        if render_initial_preview:
+            self._ensure_live_preview()
+            if self.view.supports_preview():
+                self._render_live_preview()
         app_logger.info(config.LOG_MSG["APP_START"].format(app_title=config.APP_TITLE))
+
+    def _ensure_plot_engine(self):
+        """Import and construct PlotEngine on first analysis/render use."""
+        if self.plot_engine is not None:
+            return
+        from engine.plot_engine import PlotEngine
+
+        self.plot_engine = PlotEngine()
+
+    def _ensure_live_preview(self) -> None:
+        """Create PlotEngine / Figure / PreviewRenderer on first live preview use."""
+        if self.live_preview_fig is not None and self.preview_renderer is not None:
+            self._ensure_plot_engine()
+            return
+        from matplotlib.figure import Figure
+        from core.preview_renderer import PreviewRenderer
+
+        self._ensure_plot_engine()
+        if self.live_preview_fig is None:
+            self.live_preview_fig = Figure(figsize=(6.5, 6.5), dpi=150)
+        if self.preview_renderer is None:
+            self.preview_renderer = PreviewRenderer(
+                self.plot_engine, self.live_preview_fig
+            )
+        self.live_preview_service.renderer = self.preview_renderer
+        self.live_preview_service.figure = self.live_preview_fig
 
     def on_outlier_mode_changed(self):
         """
@@ -490,6 +513,8 @@ class MainController:
 
     def _norm_ranges_for_widgets(self, norm):
         """정규화 축 범위 dict (range_widgets용 문자열 값)."""
+        from engine.plot_engine import PlotEngine
+
         r = PlotEngine.NORM_RANGES.get(norm, PlotEngine.NORM_RANGES["Lobanov"])
         return {k: str(r[k]) for k in ["y_min", "y_max", "x_min", "x_max"]}
 
@@ -501,6 +526,7 @@ class MainController:
         self, current_data, params, smart_ranges, default_design
     ):
         """LIVE 모니터에 플롯을 그려 버퍼로 저장한 뒤 레이블에 표시하고 하단 정보를 갱신합니다."""
+        self._ensure_live_preview()
         self.live_preview_service.render(
             current_data,
             params,

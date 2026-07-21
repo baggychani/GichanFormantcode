@@ -35,7 +35,8 @@ uv run python scripts/sync_version.py --check
 
 - **테스트 + 버전 검사만** (약 1~2분, Ubuntu 1잡)
 - PySide6용 Linux 시스템 라이브러리 설치 후 `pytest`
-- **바이너리 빌드는 하지 않음** (push마다 Win+Mac 3대 빌드하던 것 제거 → Actions 실행 수 대폭 감소)
+- **바이너리 빌드는 하지 않음**
+- Actions에 빨간 X가 보이면: “배포 실패”가 아니라 **테스트가 깨진 것**입니다
 
 같은 브랜치에 연속 push하면 **진행 중인 이전 CI는 자동 취소**됩니다.
 
@@ -43,25 +44,24 @@ uv run python scripts/sync_version.py --check
 
 **트리거**
 
-1. **태그 push** (권장): `git tag v2.3.4.2` → `git push origin v2.3.4.2`
+1. **태그 push** (권장): `git tag v3.0.0` → `git push origin v3.0.0`
 2. **수동**: Actions → **Release** → Run workflow  
    - `version` 비우면 `config.APP_VERSION` 사용  
-   - `create_github_release`: GitHub Releases에 바이너리 업로드
+   - `build_pyside` / `build_desktop` 로 한쪽만 고를 수 있음
 
 **하는 일**
 
 1. 버전 동기화 (`scripts/sync_version.py`)
 2. 테스트
-3. **Windows**: onedir 빌드 → **Inno Setup 설치 프로그램** + portable zip
-4. **macOS**: arm64 / Intel 각각 `.app` zip
-5. **배포 레포** [baggychani/GichanFormant](https://github.com/baggychani/GichanFormant) 에 GitHub Release·바이너리 자동 업로드 (설정 시)
+3. **PySide**: Windows **Setup.exe만** (포터블 zip 없음) + macOS `.app` zip
+4. **Desktop (React/Tauri)**: Windows **NSIS 설치기만**
+5. **배포 레포** [baggychani/GichanFormant](https://github.com/baggychani/GichanFormant) 에 Release·바이너리 업로드 (설정 시)
 
-| Artifacts / Release 파일 | 설명 |
-|------------------------|------|
-| `GichanFormant_vX.Y.Z.W_Setup.exe` | Windows 설치 프로그램 |
-| `GichanFormant-windows-x64-portable-vX.Y.Z.W.zip` | Windows 압축 풀어 실행 |
-| `GichanFormant-macos-arm64-vX.Y.Z.W.zip` | Apple Silicon |
-| `GichanFormant-macos-intel-vX.Y.Z.W.zip` | Intel Mac |
+| Release 파일 | 설명 |
+|-------------|------|
+| `GichanFormant-PySide_vX_Setup.exe` | PySide Windows 설치 프로그램 |
+| `GichanFormant-PySide-macos-*-vX.zip` | PySide macOS |
+| `GichanFormant-Desktop_vX_x64-Setup.exe` | React/Tauri Windows 설치 프로그램 |
 
 태그 이름은 `v` + `APP_VERSION` (예: `v2.3.4.2`)과 맞추세요.  
 앱 내 자동 업데이트(`config.GITHUB_*`)도 **GichanFormant** Releases를 봅니다.

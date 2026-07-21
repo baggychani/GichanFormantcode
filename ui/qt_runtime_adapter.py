@@ -9,6 +9,7 @@ from PySide6.QtCore import QStandardPaths, QTimer
 
 class QtDebouncer:
     def __init__(self, callback: Callable[[], None], timer_factory=None):
+        self._callback = callback
         self._timer = (timer_factory or QTimer)()
         self._timer.setSingleShot(True)
         self._timer.timeout.connect(callback)
@@ -20,13 +21,21 @@ class QtDebouncer:
     def cancel(self) -> None:
         self._timer.stop()
 
+    def fire(self) -> None:
+        """Run the pending callback immediately (used by desktop request_preview)."""
+        self._timer.stop()
+        self._callback()
+
 
 class QtRuntimeAdapter:
     def __init__(self, timer_factory=None):
         self._timer_factory = timer_factory
+        self.debouncers: list[QtDebouncer] = []
 
     def create_debouncer(self, callback: Callable[[], None]) -> QtDebouncer:
-        return QtDebouncer(callback, timer_factory=self._timer_factory)
+        debouncer = QtDebouncer(callback, timer_factory=self._timer_factory)
+        self.debouncers.append(debouncer)
+        return debouncer
 
     def call_soon(self, callback: Callable[[], None]) -> None:
         QTimer.singleShot(0, callback)

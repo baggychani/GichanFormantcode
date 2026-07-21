@@ -75,7 +75,7 @@ export function BatchExportDialog({
           <div>
             <span className="section-eyebrow">EXPORT WORKSPACE</span>
             <h2 id="batch-export-title">일괄 저장</h2>
-            <p>현재 React/Tauri 플롯 설정을 모든 파일에 적용해 저장합니다.</p>
+            <p>현재 플롯 설정을 모든 파일에 적용해 저장합니다.</p>
           </div>
           <button type="button" onClick={onClose} disabled={busy} aria-label="닫기">
             <X size={18} />

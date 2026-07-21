@@ -1,6 +1,10 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "bundle": {
-    "externalBin": ["binaries/gichan-formant-sidecar"]
+    "externalBin": ["binaries/gichan-formant-sidecar"],
+    "resources": {
+      "binaries/_internal": "_internal"
+    },
+    "targets": ["nsis"]
   }
 }

@@ -10,11 +10,8 @@ from typing import Any
 from PySide6.QtCore import QObject, QMetaObject, QThread, Qt, Signal, Slot
 from PySide6.QtWidgets import QApplication
 
-from core.controller import MainController
 from core.view_port import NullMainView
 from sidecar.host import SidecarHost
-from ui.desktop_window_coordinator import create_pyside_window_coordinator
-from ui.qt_runtime_adapter import create_qt_runtime
 
 
 class _QtCommandBridge(QObject):
@@ -64,6 +61,7 @@ def warm_desktop_imports() -> None:
     """Import heavy scientific stacks off the critical health path.
 
     Failures are ignored: analysis/render paths still import on demand.
+    Also touch PlotEngine so the first main-window preview is not cold.
     """
     try:
         import matplotlib
@@ -73,7 +71,9 @@ def warm_desktop_imports() -> None:
         import numpy  # noqa: F401
         import pandas  # noqa: F401
         from scipy import stats  # noqa: F401
+        from engine.plot_engine import PlotEngine  # noqa: F401
 
+        PlotEngine()
         figure = plt.figure(figsize=(1.0, 1.0), dpi=72)
         figure.add_subplot(111)
         plt.close(figure)
@@ -85,6 +85,10 @@ def create_desktop_host(
     *, writer: Callable[[str], None] | None = None
 ) -> tuple[QApplication, SidecarHost]:
     """Create a hidden-main-window host that can open legacy PySide dialogs."""
+    from core.controller import MainController
+    from ui.desktop_window_coordinator import create_pyside_window_coordinator
+    from ui.qt_runtime_adapter import create_qt_runtime
+
     app = QApplication.instance() or QApplication(sys.argv[:1])
     app.setQuitOnLastWindowClosed(False)
     view = NullMainView()

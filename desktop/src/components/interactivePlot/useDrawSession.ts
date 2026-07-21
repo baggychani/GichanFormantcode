@@ -47,6 +47,7 @@ type UseDrawSessionParams = {
   normalization: string | null;
   tool: Tool;
   setMessage: (message: string) => void;
+  showToast: (message: string) => void;
   setTool: (tool: Tool | ((previous: Tool) => Tool)) => void;
   setRightPanel: (panel: RightPanel) => void;
   setRightOpen: (open: boolean) => void;
@@ -61,6 +62,7 @@ export function useDrawSession({
   normalization,
   tool,
   setMessage,
+  showToast,
   setTool,
   setRightPanel,
   setRightOpen,
@@ -719,7 +721,10 @@ export function useDrawSession({
   };
 
   const enterDrawMode = (nextTool: DrawTool | null = null) => {
-    if (tool === "ruler" || tool === "label") return;
+    if (tool === "ruler" || tool === "label") {
+      showToast(`먼저 ${tool === "ruler" ? "눈금자" : "라벨 이동"} 모드를 해제해 주세요.`);
+      return;
+    }
     setTool("draw");
     setRightPanel("drawing");
     setRightOpen(true);
@@ -742,12 +747,18 @@ export function useDrawSession({
       setMessage("그리기 모드를 종료했습니다.");
       return;
     }
-    if (tool === "ruler" || tool === "label") return;
+    if (tool === "ruler" || tool === "label") {
+      showToast(`먼저 ${tool === "ruler" ? "눈금자" : "라벨 이동"} 모드를 해제해 주세요.`);
+      return;
+    }
     enterDrawMode(null);
   };
 
   const activateDrawTool = (next: DrawTool) => {
-    if (tool === "ruler" || tool === "label") return;
+    if (tool === "ruler" || tool === "label") {
+      showToast(`먼저 ${tool === "ruler" ? "눈금자" : "라벨 이동"} 모드를 해제해 주세요.`);
+      return;
+    }
     enterDrawMode(next);
     if (next === "legend" && !currentLegend) {
       const legend = createDefaultLegend();
