@@ -149,11 +149,11 @@ class SidecarHost:
             )
 
     def dispatch(self, method: str, params: dict[str, Any]) -> Any:
-        # File parsing and workspace mutation are framework-free. Running this
-        # command through Qt's synchronous executor blocks the IPC worker until
-        # the GUI thread finishes the whole load, which can turn a small input
-        # into a 120-second sidecar timeout.
-        if method == "load_files":
+        # File parsing, workspace mutation, and vowel-table stats are
+        # framework-free. Running them through Qt's synchronous executor blocks
+        # the IPC worker until the GUI thread finishes, which can turn a small
+        # input into a long sidecar timeout or contend with interactive renders.
+        if method in {"load_files", "get_vowel_analysis"}:
             return self._dispatch_command(method, params)
         return self._execute_command(lambda: self._dispatch_command(method, params))
 
@@ -167,7 +167,11 @@ class SidecarHost:
         if method in {"get_state", "snapshot"}:
             return self.service.snapshot()
         if method == "get_vowel_analysis":
-            return self.service.get_vowel_analysis(int(params["index"]))
+            sections = params.get("sections")
+            return self.service.get_vowel_analysis(
+                int(params["index"]),
+                sections=list(sections) if sections is not None else None,
+            )
         if method == "set_analysis_settings":
             return self.service.set_analysis_settings(params["settings"])
         if method == "load_files":

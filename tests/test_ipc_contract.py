@@ -141,3 +141,114 @@ def test_health_and_unknown_method():
     )
     assert err["error"]["code"] == "unknown_method"
     host.close()
+
+
+def test_get_vowel_analysis_core_omits_heavy_pairwise_work(monkeypatch):
+    df = pd.DataFrame(
+        {
+            "F1": [500.0, 510.0, 700.0, 710.0],
+            "F2": [1500.0, 1510.0, 1200.0, 1210.0],
+            "Label": ["a", "a", "u", "u"],
+        }
+    )
+    service = _headless_service()
+    service.controller.plot_data_list = [
+        {
+            "name": "vowels.csv",
+            "df": df,
+            "df_original": df.copy(),
+            "has_f3": False,
+            "is_pre_lobanov": False,
+        }
+    ]
+    service.controller.filepaths = ["vowels.csv"]
+
+    calls = {"mahalanobis": 0, "pillai": 0}
+    import core.application_service as application_service_module
+
+    original_maha = application_service_module.calculate_pairwise_mahalanobis_distances
+    original_pillai = application_service_module.calculate_pillai_score
+
+    def counting_maha(*args, **kwargs):
+        calls["mahalanobis"] += 1
+        return original_maha(*args, **kwargs)
+
+    def counting_pillai(*args, **kwargs):
+        calls["pillai"] += 1
+        return original_pillai(*args, **kwargs)
+
+    monkeypatch.setattr(
+        application_service_module,
+        "calculate_pairwise_mahalanobis_distances",
+        counting_maha,
+    )
+    monkeypatch.setattr(
+        application_service_module,
+        "calculate_pillai_score",
+        counting_pillai,
+    )
+
+    host = SidecarHost(service=service)
+    core_only = json.loads(
+        host.handle_message(
+            '{"v":1,"id":"core","method":"get_vowel_analysis",'
+            '"params":{"index":0,"sections":["core"]}}'
+        )
+    )
+    assert "error" not in core_only
+    assert core_only["result"]["statistics"]
+    assert core_only["result"]["pairwise_euclidean"]
+    assert core_only["result"]["pairwise_mahalanobis"] == {}
+    assert core_only["result"]["pillai_scores"] == {}
+    assert calls == {"mahalanobis": 0, "pillai": 0}
+
+    full = json.loads(
+        host.handle_message(
+            '{"v":1,"id":"full","method":"get_vowel_analysis",'
+            '"params":{"index":0,"sections":["core","mahalanobis","pillai"]}}'
+        )
+    )
+    assert "error" not in full
+    assert full["result"]["pairwise_mahalanobis"]
+    assert full["result"]["pillai_scores"]
+    assert calls["mahalanobis"] == 1
+    assert calls["pillai"] >= 1
+    host.close()
+
+
+def test_get_vowel_analysis_caches_identical_section_requests(monkeypatch):
+    df = pd.DataFrame(
+        {
+            "F1": [500.0, 510.0, 700.0, 710.0],
+            "F2": [1500.0, 1510.0, 1200.0, 1210.0],
+            "Label": ["a", "a", "u", "u"],
+        }
+    )
+    service = _headless_service()
+    service.controller.plot_data_list = [
+        {
+            "name": "vowels.csv",
+            "df": df,
+            "df_original": df.copy(),
+            "has_f3": False,
+            "is_pre_lobanov": False,
+        }
+    ]
+    analyze_calls = {"count": 0}
+    import core.application_service as application_service_module
+
+    original_analyze = application_service_module.analyze_vowels
+
+    def counting_analyze(*args, **kwargs):
+        analyze_calls["count"] += 1
+        return original_analyze(*args, **kwargs)
+
+    monkeypatch.setattr(application_service_module, "analyze_vowels", counting_analyze)
+    first = service.get_vowel_analysis(0, sections=["core"])
+    second = service.get_vowel_analysis(0, sections=["core"])
+    assert first["statistics"] == second["statistics"]
+    assert analyze_calls["count"] == 1
+    service.set_analysis_settings({"normalization": "Lobanov"})
+    service.get_vowel_analysis(0, sections=["core"])
+    assert analyze_calls["count"] == 2
+    service.close()

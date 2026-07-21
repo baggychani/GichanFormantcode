@@ -139,6 +139,44 @@ def test_load_files_bypasses_qt_executor_to_avoid_transport_timeout(monkeypatch)
     host.close()
 
 
+def test_get_vowel_analysis_bypasses_qt_executor(monkeypatch):
+    host = SidecarHost.create_headless()
+    calls = []
+
+    def fail_if_executed(_command):
+        calls.append(True)
+        raise AssertionError("get_vowel_analysis must not wait on a GUI executor")
+
+    host._execute_command = fail_if_executed
+    monkeypatch.setattr(
+        host.service,
+        "get_vowel_analysis",
+        lambda index, sections=None: {
+            "index": index,
+            "name": "a.csv",
+            "statistics": {},
+            "centroid_distances": {},
+            "pairwise_euclidean": {},
+            "pairwise_mahalanobis": {},
+            "pillai_scores": {},
+            "metadata": {"total_points": 0, "vowel_count": 0},
+            "sections": list(sections or ["core"]),
+        },
+    )
+
+    response = json.loads(
+        host.handle_message(
+            '{"v":1,"id":"va","method":"get_vowel_analysis",'
+            '"params":{"index":0,"sections":["core"]}}'
+        )
+    )
+
+    assert "error" not in response
+    assert response["result"]["index"] == 0
+    assert calls == []
+    host.close()
+
+
 def test_host_returns_protocol_error_for_non_object_params():
     host = SidecarHost.create_headless()
     response = json.loads(

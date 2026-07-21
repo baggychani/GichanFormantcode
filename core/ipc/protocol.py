@@ -20,7 +20,10 @@ COMMANDS: dict[str, dict[str, Any]] = {
     "get_state": {"params": {}},
     "snapshot": {"params": {}},
     "get_vowel_analysis": {
-        "params": {"index": "int"},
+        "params": {
+            "index": "int",
+            "sections": "string[]",
+        },
         "required": ["index"],
     },
     "set_analysis_settings": {

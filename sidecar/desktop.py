@@ -60,6 +60,27 @@ class QtMainThreadExecutor:
         return result.get("value")
 
 
+def warm_desktop_imports() -> None:
+    """Import heavy scientific stacks off the critical health path.
+
+    Failures are ignored: analysis/render paths still import on demand.
+    """
+    try:
+        import matplotlib
+
+        matplotlib.use("Agg", force=False)
+        import matplotlib.pyplot as plt
+        import numpy  # noqa: F401
+        import pandas  # noqa: F401
+        from scipy import stats  # noqa: F401
+
+        figure = plt.figure(figsize=(1.0, 1.0), dpi=72)
+        figure.add_subplot(111)
+        plt.close(figure)
+    except Exception:  # noqa: BLE001 - warm must never break sidecar startup
+        pass
+
+
 def create_desktop_host(
     *, writer: Callable[[str], None] | None = None
 ) -> tuple[QApplication, SidecarHost]:
@@ -97,6 +118,15 @@ def run_desktop_sidecar() -> int:
                 "quit",
                 Qt.ConnectionType.QueuedConnection,
             )
+
+    # Warm scipy/matplotlib after the host exists so health can answer immediately
+    # while first plot/analysis pays less cold-import cost.
+    warm_thread = threading.Thread(
+        target=warm_desktop_imports,
+        name="sidecar-warm",
+        daemon=True,
+    )
+    warm_thread.start()
 
     worker = threading.Thread(target=serve, name="sidecar-stdio", daemon=True)
     worker.start()

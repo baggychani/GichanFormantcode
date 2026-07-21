@@ -95,6 +95,12 @@ class ApplicationService:
         self._preview_dir.mkdir(parents=True, exist_ok=True)
         self._preview_files: deque[Path] = deque()
         self._preview_file_lock = threading.Lock()
+        self._vowel_analysis_cache: dict[tuple[Any, ...], dict[str, Any]] = {}
+        self._vowel_analysis_cache_lock = threading.Lock()
+
+    def _clear_vowel_analysis_cache(self) -> None:
+        with self._vowel_analysis_cache_lock:
+            self._vowel_analysis_cache.clear()
 
     def _emit_state(self, reason: str) -> dict[str, Any]:
         state = self.snapshot()
@@ -146,41 +152,108 @@ class ApplicationService:
             },
         }
 
-    def get_vowel_analysis(self, index: int) -> dict[str, Any]:
-        """Return structured vowel statistics for the React analysis surface."""
+    _VOWEL_ANALYSIS_SECTIONS = frozenset({"core", "mahalanobis", "pillai"})
+
+    def get_vowel_analysis(
+        self,
+        index: int,
+        sections: list[str] | None = None,
+    ) -> dict[str, Any]:
+        """Return structured vowel statistics for the React analysis surface.
+
+        ``sections`` defaults to ``["core"]``. Heavy pairwise work
+        (Mahalanobis / Pillai) runs only when those sections are requested.
+        """
+        requested = self._normalize_vowel_analysis_sections(sections)
         item = self.controller.get_data_item_at(index)
         if item is None:
             raise ApplicationError("file_not_found", "분석할 파일을 찾을 수 없습니다.")
         dataframe = item.get("df")
         if dataframe is None or dataframe.empty:
-            return {"index": index, "name": item.get("name", ""), "statistics": {}, "metadata": {"total_points": 0, "vowel_count": 0}}
+            return self._empty_vowel_analysis(index, item.get("name", ""))
         label_col = "Label" if "Label" in dataframe.columns else "label"
-        if label_col not in dataframe.columns or "F1" not in dataframe.columns or "F2" not in dataframe.columns:
-            raise ApplicationError("analysis_columns_missing", "F1, F2, Label 열이 필요합니다.")
+        if (
+            label_col not in dataframe.columns
+            or "F1" not in dataframe.columns
+            or "F2" not in dataframe.columns
+        ):
+            raise ApplicationError(
+                "analysis_columns_missing", "F1, F2, Label 열이 필요합니다."
+            )
         settings = self.controller.get_analysis_settings()
+        cache_key = (
+            index,
+            settings.normalization,
+            settings.plot_type,
+            id(dataframe),
+            frozenset(requested),
+        )
+        with self._vowel_analysis_cache_lock:
+            cached = self._vowel_analysis_cache.get(cache_key)
+            if cached is not None:
+                return deepcopy(cached)
+
+        working_df = dataframe
         if settings.normalization and hasattr(self.controller, "_normalize_dataframe"):
-            dataframe = self.controller._normalize_dataframe(dataframe, settings.normalization, item)
-        x_values = compute_x_raw(dataframe, settings.plot_type)
-        working = dataframe[[label_col, "F1"]].copy()
+            working_df = self.controller._normalize_dataframe(
+                dataframe, settings.normalization, item
+            )
+        x_values = compute_x_raw(working_df, settings.plot_type)
+        working = working_df[[label_col, "F1"]].copy()
         working["analysis_x"] = x_values
-        result = analyze_vowels(working, x_col="analysis_x", y_col="F1", label_col=label_col)
+        result = analyze_vowels(
+            working, x_col="analysis_x", y_col="F1", label_col=label_col
+        )
         statistics = result.get("statistics", {})
         labels = [str(label) for label in statistics]
-        pairwise_euclidean = {}
+        pairwise_euclidean: dict[str, float] = {}
         for left_index, left in enumerate(labels):
             for right in labels[left_index + 1 :]:
                 left_stat = statistics[left]
                 right_stat = statistics[right]
-                pairwise_euclidean[f"{left}::{right}"] = float(((left_stat["x_mean"] - right_stat["x_mean"]) ** 2 + (left_stat["y_mean"] - right_stat["y_mean"]) ** 2) ** 0.5)
-        pairwise_mahalanobis = calculate_pairwise_mahalanobis_distances(working, x_col="analysis_x", y_col="F1", label_col=label_col)
-        pillai_scores = {}
-        for left_index, left in enumerate(labels):
-            left_coords = working[working[label_col].astype(str) == left][["analysis_x", "F1"]].dropna().to_numpy(dtype=float)
-            for right in labels[left_index + 1 :]:
-                right_coords = working[working[label_col].astype(str) == right][["analysis_x", "F1"]].dropna().to_numpy(dtype=float)
-                score, p_value = calculate_pillai_score(left_coords, right_coords)
-                pillai_scores[f"{left}::{right}"] = {"score": score, "p_value": p_value}
-        return {
+                pairwise_euclidean[f"{left}::{right}"] = float(
+                    (
+                        (left_stat["x_mean"] - right_stat["x_mean"]) ** 2
+                        + (left_stat["y_mean"] - right_stat["y_mean"]) ** 2
+                    )
+                    ** 0.5
+                )
+
+        pairwise_mahalanobis: dict[str, float] = {}
+        if "mahalanobis" in requested:
+            mahalanobis = calculate_pairwise_mahalanobis_distances(
+                working, x_col="analysis_x", y_col="F1", label_col=label_col
+            )
+            pairwise_mahalanobis = {
+                f"{left}::{right}": value.get("distance")
+                for (left, right), value in mahalanobis.items()
+            }
+
+        pillai_scores: dict[str, dict[str, Any]] = {}
+        if "pillai" in requested:
+            for left_index, left in enumerate(labels):
+                left_coords = (
+                    working[working[label_col].astype(str) == left][
+                        ["analysis_x", "F1"]
+                    ]
+                    .dropna()
+                    .to_numpy(dtype=float)
+                )
+                for right in labels[left_index + 1 :]:
+                    right_coords = (
+                        working[working[label_col].astype(str) == right][
+                            ["analysis_x", "F1"]
+                        ]
+                        .dropna()
+                        .to_numpy(dtype=float)
+                    )
+                    score, p_value = calculate_pillai_score(left_coords, right_coords)
+                    pillai_scores[f"{left}::{right}"] = {
+                        "score": score,
+                        "p_value": p_value,
+                    }
+
+        payload = {
             "index": index,
             "name": item.get("name", ""),
             "x_label": "F2" if settings.plot_type == "f1_f2" else settings.plot_type,
@@ -190,10 +263,51 @@ class ApplicationService:
             "centroid": list(result.get("centroid") or (None, None)),
             "centroid_distances": result.get("centroid_distances", {}),
             "pairwise_euclidean": pairwise_euclidean,
-            "pairwise_mahalanobis": {f"{left}::{right}": value.get("distance") for (left, right), value in pairwise_mahalanobis.items()},
+            "pairwise_mahalanobis": pairwise_mahalanobis,
             "pillai_scores": pillai_scores,
             "point_distances": result.get("point_distances", {}),
             "metadata": result.get("metadata", {}),
+            "sections": sorted(requested),
+        }
+        with self._vowel_analysis_cache_lock:
+            self._vowel_analysis_cache[cache_key] = deepcopy(payload)
+        return payload
+
+    def _normalize_vowel_analysis_sections(
+        self, sections: list[str] | None
+    ) -> frozenset[str]:
+        if sections is None:
+            return frozenset({"core"})
+        if not sections:
+            raise ApplicationError(
+                "invalid_analysis_sections",
+                "sections must include at least one of: core, mahalanobis, pillai",
+            )
+        requested = frozenset(sections)
+        unknown = sorted(requested - self._VOWEL_ANALYSIS_SECTIONS)
+        if unknown:
+            raise ApplicationError(
+                "invalid_analysis_sections",
+                f"unknown analysis sections: {', '.join(unknown)}",
+                {"unknown": unknown},
+            )
+        # Core stats are always needed to label pairs and fill the formant page.
+        return requested | {"core"}
+
+    @staticmethod
+    def _empty_vowel_analysis(index: int, name: str) -> dict[str, Any]:
+        return {
+            "index": index,
+            "name": name,
+            "statistics": {},
+            "centroid": [None, None],
+            "centroid_distances": {},
+            "pairwise_euclidean": {},
+            "pairwise_mahalanobis": {},
+            "pillai_scores": {},
+            "point_distances": {},
+            "metadata": {"total_points": 0, "vowel_count": 0},
+            "sections": ["core"],
         }
 
     def set_analysis_settings(self, raw: Mapping[str, Any]) -> dict[str, Any]:
@@ -214,6 +328,11 @@ class ApplicationService:
         # Normalization makes Hz/Bark axis controls meaningless (still store values).
         settings = AnalysisSettings.from_mapping(merged)
         self.controller.apply_analysis_settings(settings)
+        if (
+            previous.normalization != settings.normalization
+            or previous.plot_type != settings.plot_type
+        ):
+            self._clear_vowel_analysis_cache()
 
         unit_family_changed = (
             previous.use_bark_units != settings.use_bark_units
@@ -277,6 +396,7 @@ class ApplicationService:
                 "total_files": len(self.controller.filepaths),
                 "row_dropped": [],
             }
+        self._clear_vowel_analysis_cache()
         state = self._emit_state("files_loaded")
         self.events.emit(
             "files_changed",
@@ -332,6 +452,7 @@ class ApplicationService:
             self.events.emit("operation_failed", error.to_dict())
             raise error
         self._plot_session().remove_file(index)
+        self._clear_vowel_analysis_cache()
         state = self._emit_state("file_removed")
         self.events.emit("files_changed", {"action": "remove", "state": state})
         return state
@@ -357,6 +478,7 @@ class ApplicationService:
     def reset(self) -> dict[str, Any]:
         self.controller.reset_data()
         self.controller.plot_session_state = PlotSessionState()
+        self._clear_vowel_analysis_cache()
         state = self._emit_state("workspace_reset")
         self.events.emit("files_changed", {"action": "reset", "state": state})
         return state
@@ -389,6 +511,7 @@ class ApplicationService:
             )
             self.events.emit("operation_failed", error.to_dict())
             raise error from exc
+        self._clear_vowel_analysis_cache()
         state = self._emit_state("project_loaded")
         self.events.emit("project_loaded", {"path": path, "state": state})
         return state
@@ -626,6 +749,7 @@ class ApplicationService:
 
     def close(self) -> None:
         self._interactive_renderer.close()
+        self._clear_vowel_analysis_cache()
         with self._preview_file_lock:
             try:
                 shutil.rmtree(self._preview_dir, ignore_errors=True)

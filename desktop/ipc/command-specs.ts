@@ -17,7 +17,8 @@ export const COMMAND_SPECS = {
   },
   "get_vowel_analysis": {
     "params": {
-      "index": "int"
+      "index": "int",
+      "sections": "string[]"
     },
     "required": [
       "index"

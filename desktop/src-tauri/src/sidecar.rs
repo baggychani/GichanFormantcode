@@ -455,6 +455,8 @@ fn timeout_for_method(method: &str) -> Duration {
     match method {
         "load_files" | "load_project" | "save_project" => Duration::from_secs(120),
         "open_single_plot" | "open_compare" | "open_guide" => Duration::from_secs(30),
+        // Pairwise Mahalanobis/Pillai can be heavy on large vowel inventories.
+        "get_vowel_analysis" => Duration::from_secs(30),
         // Preparation crosses the Qt executor and the isolated renderer may
         // need a cold font-cache start. Keep this aligned with Python's
         // renderer watchdog so a request cannot become an orphaned preview.
