@@ -1,24 +1,15 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { CSSProperties, MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent } from "react";
+import type { MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent } from "react";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { open, save } from "@tauri-apps/plugin-dialog";
 import {
   ArrowUpRight,
-  Bold,
-  ChevronDown,
   ChevronLeft,
   ChevronRight,
   CircleHelp,
-  Download,
-  Eye,
-  EyeOff,
-  GripVertical,
-  Italic,
   Layers3,
-  List,
   Loader2,
-  Lock,
   MousePointer2,
   Palette,
   PanelLeftClose,
@@ -26,13 +17,8 @@ import {
   PanelRightClose,
   PanelRightOpen,
   PenLine,
-  RefreshCcw,
   Ruler,
-  Save,
-  ScanSearch,
   SlidersHorizontal,
-  Sparkles,
-  Unlock,
   X,
 } from "lucide-react";
 import type { ApplicationState } from "../../ipc/protocol";
@@ -51,13 +37,7 @@ import {
 import {
   axisPreviewFontFamily,
   BARK_RANGE_DEFAULTS,
-  DESIGN_EFFECT_LABELS,
-  DESIGN_EFFECT_ORDER,
-  effectDisplayValue,
   EMPTY_DESIGN,
-  FONT_FAMILIES,
-  FONT_WEIGHT_LABELS,
-  FONT_WEIGHTS,
   fontFamilyStyle,
   NORM_RANGE_DEFAULTS,
   normalizedFontWeight,
@@ -92,16 +72,15 @@ import {
   hasVowelAnalysisSection,
   vowelAnalysisCacheKey,
 } from "./interactivePlot/vowelAnalysisCache";
+import { AnalysisToolsPanel } from "./interactivePlot/AnalysisToolsPanel";
 import { BatchExportDialog } from "./interactivePlot/BatchExportDialog";
 import { DrawStyleEditor } from "./interactivePlot/DrawStyleEditor";
+import { DrawingPanel } from "./interactivePlot/DrawingPanel";
+import { GlobalDesignPanel } from "./interactivePlot/GlobalDesignPanel";
+import { LayersPanel } from "./interactivePlot/LayersPanel";
 import { ShortcutHelpDialog } from "./interactivePlot/ShortcutHelpDialog";
 import { VowelAnalysisShell } from "./interactivePlot/VowelAnalysisShell";
-import {
-  FileSelectMenu,
-  MarkerPicker,
-  PalettePicker,
-  ToggleSwitch,
-} from "./interactivePlot/widgets";
+import { FileSelectMenu } from "./interactivePlot/widgets";
 import type {
   DesignSettings,
   DrawArrowHead,
@@ -2659,74 +2638,48 @@ export function InteractivePlotWindow() {
 
         <div className="control-scroll">
           {leftPanel === "analysis" ? (
-            <>
-              <section className="control-section range-section">
-                <div className="section-heading"><div><span>01</span><strong>좌표축 범위</strong></div><small>{rangeUnitLabel || "정규화"}</small></div>
-                <div className="range-matrix">
-                  <div className="range-matrix-head"><span>축</span><span>최솟값</span><span /><span>최댓값</span></div>
-                  <div className="range-matrix-row"><strong>{yAxis} <small>세로</small></strong><input value={ranges.y_min} readOnly={rangesReadOnly} onChange={(event) => setRanges({ ...ranges, y_min: event.target.value })} /><i>–</i><input value={ranges.y_max} readOnly={rangesReadOnly} onChange={(event) => setRanges({ ...ranges, y_max: event.target.value })} /></div>
-                  <div className="range-matrix-row"><strong>{xAxis} <small>가로</small></strong><input value={ranges.x_min} readOnly={rangesReadOnly} onChange={(event) => setRanges({ ...ranges, x_min: event.target.value })} /><i>–</i><input value={ranges.x_max} readOnly={rangesReadOnly} onChange={(event) => setRanges({ ...ranges, x_max: event.target.value })} /></div>
-                </div>
-                <div className="ellipse-quick-row"><label><span>신뢰 타원 범위</span><span className="sigma-control"><select value={sigma} onChange={(event) => { const next = event.target.value; setSigma(next); void renderInteractive({ sigma: next }); }}><option value="1.0">1.0</option><option value="1.5">1.5</option><option value="2.0">2.0</option><option value="2.5">2.5</option><option value="3.0">3.0</option></select><b>σ</b></span></label><ToggleSwitch label="타원 표시" checked={showEllipse} onChange={() => { const next = !showEllipse; setShowEllipse(next); void renderInteractive({ showEllipse: next }); }} /></div>
-                <div className="paired-actions"><button onClick={resetPlot}><RefreshCcw size={14} /> 초기화</button><button className="primary" onClick={() => void renderInteractive()} disabled={busy}><Sparkles size={14} /> 범위 적용</button></div>
-              </section>
-
-              <section className="control-section"><div className="section-heading"><div><span>02</span><strong>분석 도구</strong></div></div><div className="tool-grid"><button onClick={() => setVowelAnalysisOpen(true)} disabled={!sources.length}><ScanSearch size={17} /><span><strong>모음 상세 분석</strong><small>통계와 분포 보기</small></span></button><button onClick={() => void openComparePlot()} disabled={sources.filter((source) => !source.is_combined).length < 2}><Layers3 size={17} /><span><strong>다중 플롯 모드</strong><small>파일 비교 구성</small></span></button><button className={tool === "ruler" ? "is-active" : ""} onClick={() => setTool(tool === "ruler" ? "select" : "ruler")}><Ruler size={17} /><span><strong>눈금자</strong><small>R · 거리 측정</small></span></button><button className={tool === "draw" ? "is-active" : ""} onClick={() => enterDrawMode(null)}><PenLine size={17} /><span><strong>그리기</strong><small>P · 주석 도구</small></span></button></div></section>
-
-              <section className="control-section export-section"><div className="section-heading"><div><span>03</span><strong>내보내기</strong></div></div><div className={`format-buttons ${hasCombined ? "has-txt" : ""}`}><button onClick={() => void exportInteractive("jpg")} disabled={!previewUrl}>JPG</button><button onClick={() => void exportInteractive("png")} disabled={!previewUrl}>PNG</button><button onClick={() => void exportInteractive("svg")} disabled={!sources.length}>SVG</button>{hasCombined ? <button onClick={() => void exportCombinedTxt()} disabled={busy}>TXT</button> : null}</div><button className="wide-action" onClick={() => void saveProject()} disabled={busy || !sources.length}><Save size={15} /> 프로젝트 저장</button><button className="wide-action primary" onClick={() => setBatchExportOpen(true)} disabled={busy || !sources.length}><Download size={15} /> 일괄 저장</button></section>
-            </>
+            <AnalysisToolsPanel
+              rangeUnitLabel={rangeUnitLabel}
+              xAxis={xAxis}
+              yAxis={yAxis}
+              ranges={ranges}
+              rangesReadOnly={rangesReadOnly}
+              onRangesChange={setRanges}
+              sigma={sigma}
+              onSigmaChange={(next) => {
+                setSigma(next);
+                void renderInteractive({ sigma: next });
+              }}
+              showEllipse={showEllipse}
+              onShowEllipseChange={(next) => {
+                setShowEllipse(next);
+                void renderInteractive({ showEllipse: next });
+              }}
+              onReset={resetPlot}
+              onApplyRanges={() => void renderInteractive()}
+              busy={busy}
+              sourceCount={sources.length}
+              canCompare={sources.filter((source) => !source.is_combined).length >= 2}
+              tool={tool}
+              onOpenVowelAnalysis={() => setVowelAnalysisOpen(true)}
+              onOpenCompare={() => void openComparePlot()}
+              onToggleRuler={() => setTool(tool === "ruler" ? "select" : "ruler")}
+              onEnterDraw={() => enterDrawMode(null)}
+              hasCombined={hasCombined}
+              hasPreview={Boolean(previewUrl)}
+              onExport={(format) => void exportInteractive(format)}
+              onExportCombinedTxt={() => void exportCombinedTxt()}
+              onSaveProject={() => void saveProject()}
+              onOpenBatchExport={() => setBatchExportOpen(true)}
+            />
           ) : (
-            <>
-              <fieldset className="global-design-form">
-              <section className="control-section">
-                <div className="section-heading"><div><span>01</span><strong>모음 라벨</strong></div><small>전체 레이어</small></div>
-                <div className="palette-picker-row">
-                  <PalettePicker label="라벨 색상" value={design.lbl_color} onChange={(lbl_color) => lbl_color && updateDesign({ lbl_color })} />
-                </div>
-                <div className="text-style-block">
-                  <span className="control-label">텍스트 설정</span>
-                  <div className="text-style-row">
-                    <div className="font-controls font-family-row">
-                      <select value={design.font_family} onChange={(event) => { const font_family = event.target.value; updateDesign({ font_family, font_style: fontFamilyStyle(font_family), font_weight: normalizedFontWeight(font_family, design.font_weight) }); }} aria-label="글꼴">
-                        {FONT_FAMILIES.map((family) => <option key={family}>{family}</option>)}
-                      </select>
-                      <select value={normalizedFontWeight(design.font_family, design.font_weight)} onChange={(event) => updateDesign({ font_weight: event.target.value as DesignSettings["font_weight"], lbl_bold: event.target.value === "bold" })} disabled={(FONT_WEIGHTS[design.font_family] ?? []).length <= 1} aria-label="Weight">
-                        {(FONT_WEIGHTS[design.font_family] ?? ["regular"]).map((weight) => <option key={weight} value={weight}>{FONT_WEIGHT_LABELS[weight]}</option>)}
-                      </select>
-                    </div>
-                    <div className="font-size-row">
-                      <label className="font-size-control"><span className="font-control-caption">크기 <b>{design.lbl_size}pt</b></span><input type="range" min="12" max="28" step="1" value={design.lbl_size} onChange={(event) => updateDesign({ lbl_size: Number(event.target.value) })} /></label>
-                      <div className="font-style-buttons"><button type="button" className={design.font_weight === "bold" ? "is-active" : ""} onClick={() => updateDesign({ font_weight: design.font_weight === "bold" ? "regular" : "bold", lbl_bold: design.font_weight !== "bold" })} aria-label="볼드"><Bold size={15} /></button><button type="button" className={design.lbl_italic ? "is-active" : ""} onClick={() => updateDesign({ lbl_italic: !design.lbl_italic })} aria-label="기울임"><Italic size={15} /></button></div>
-                    </div>
-                  </div>
-                </div>
-              </section>
-
-              <section className="control-section">
-                <div className="section-heading"><div><span>02</span><strong>중심점과 원자료</strong></div></div>
-                <div className="switch-stack">
-                  <ToggleSwitch label="모음 중심점 표시" checked={design.show_centroid} onChange={() => updateDesign({ show_centroid: !design.show_centroid })} />
-                  <ToggleSwitch label="원자료 점 표시" checked={design.show_raw} onChange={() => updateDesign({ show_raw: !design.show_raw })} />
-                </div>
-                <label className="control-label">모음 중심점 모양</label>
-                <MarkerPicker value={design.centroid_marker} onChange={(centroid_marker) => updateDesign({ centroid_marker })} />
-                <label className="control-label">원자료 점 모양</label>
-                <div className="segmented-row">
-                  <button type="button" className={design.raw_marker === "o" ? "is-active" : ""} onClick={() => updateDesign({ raw_marker: "o" })}>빈 원</button>
-                  <button type="button" className={design.raw_marker === "x" ? "is-active" : ""} onClick={() => updateDesign({ raw_marker: "x" })}>가위표</button>
-                  <button type="button" className={design.raw_marker === "a" ? "is-active" : ""} onClick={() => updateDesign({ raw_marker: "a" })}>라벨</button>
-                </div>
-                <div className="palette-picker-row"><PalettePicker label="원자료 색상" value={design.raw_color} onChange={(raw_color) => raw_color && updateDesign({ raw_color })} /></div>
-              </section>
-
-              <section className="control-section"><div className="section-heading"><div><span>03</span><strong>신뢰 타원</strong></div></div><div className="segmented-row"><button type="button" className={design.ell_thick === 0.5 ? "is-active" : ""} onClick={() => updateDesign({ ell_thick: 0.5 })}>얇게</button><button type="button" className={design.ell_thick === 1 ? "is-active" : ""} onClick={() => updateDesign({ ell_thick: 1 })}>보통</button><button type="button" className={design.ell_thick === 2 ? "is-active" : ""} onClick={() => updateDesign({ ell_thick: 2 })}>굵게</button></div><div className="segmented-row"><button type="button" className={design.ell_style === "-" ? "is-active" : ""} onClick={() => updateDesign({ ell_style: "-" })}>실선</button><button type="button" className={design.ell_style === "---" ? "is-active" : ""} onClick={() => updateDesign({ ell_style: "---" })}>긴 점선</button><button type="button" className={design.ell_style === "--" || design.ell_style === ":" ? "is-active" : ""} onClick={() => updateDesign({ ell_style: "--" })}>짧은 점선</button></div><div className="palette-picker-row"><PalettePicker label="선 색상" value={design.ell_color} onChange={(ell_color) => updateDesign({ ell_color })} allowTransparent /><PalettePicker label="채우기" value={design.ell_fill_color} onChange={(ell_fill_color) => updateDesign({ ell_fill_color })} allowTransparent /></div><label className="opacity-control"><span>채우기 투명도 <b>{Math.round(design.ell_fill_opacity * 100)}%</b></span><input type="range" min="0" max="60" value={design.ell_fill_opacity * 100} onChange={(event) => updateDesign({ ell_fill_opacity: Number(event.target.value) / 100 })} /></label></section>
-
-              <section className="control-section"><div className="section-heading"><div><span>04</span><strong>플롯 배경과 축</strong></div></div><div className="switch-stack"><ToggleSwitch label="격자 표시" checked={design.show_grid} onChange={() => updateDesign({ show_grid: !design.show_grid })} /><ToggleSwitch label="테두리 축" checked={design.box_spines} onChange={() => updateDesign({ box_spines: !design.box_spines })} /><ToggleSwitch label="축 단위 표시" checked={design.show_axis_units} onChange={() => updateDesign({ show_axis_units: !design.show_axis_units })} /></div><label className="opacity-control"><span>눈금 숫자 크기 <b>{Number(design.tick_label_size ?? 13)}pt</b></span><input type="range" min="10" max="18" step="1" value={Number(design.tick_label_size ?? 13)} onChange={(event) => updateDesign({ tick_label_size: Number(event.target.value) })} /></label>{design.show_grid ? <label className="opacity-control"><span>격자 투명도 <b>{Math.round(design.grid_opacity * 100)}%</b></span><input type="range" min="5" max="80" value={design.grid_opacity * 100} onChange={(event) => updateDesign({ grid_opacity: Number(event.target.value) / 100 })} /></label> : null}</section>
-
-              <details className="advanced-options"><summary>고급 옵션 <ChevronDown size={14} /></summary><div className="advanced-body"><div className="switch-stack"><ToggleSwitch label="라벨 슬래시 감싸기" checked={design.label_slash_wrap} onChange={() => updateDesign({ label_slash_wrap: !design.label_slash_wrap })} /><ToggleSwitch label="보조 눈금" checked={design.show_minor_ticks} onChange={() => updateDesign({ show_minor_ticks: !design.show_minor_ticks })} /><ToggleSwitch label="축 위치 반전" checked={design.axis_position_swap} onChange={() => updateDesign({ axis_position_swap: !design.axis_position_swap })} /><ToggleSwitch label="세로축 라벨 회전" checked={design.y_label_rotation} onChange={() => updateDesign({ y_label_rotation: !design.y_label_rotation })} /></div></div></details>
-              </fieldset>
-              <div className="global-design-actions"><button className="wide-action" onClick={resetPlot}><RefreshCcw size={14} /> 광역 디자인 초기화</button><button type="button" className={`global-design-lock ${globalDesignLocked ? "is-locked" : ""}`} onClick={() => setGlobalDesignLocked((locked) => !locked)} aria-pressed={globalDesignLocked} title={globalDesignLocked ? "설정 유지 ON" : "설정 유지 OFF"}>{globalDesignLocked ? <Lock size={14} /> : <Unlock size={14} />}<span>설정 유지</span></button></div>
-            </>
+            <GlobalDesignPanel
+              design={design}
+              onUpdateDesign={updateDesign}
+              onReset={resetPlot}
+              globalDesignLocked={globalDesignLocked}
+              onToggleLock={() => setGlobalDesignLocked((locked) => !locked)}
+            />
           )}
         </div>
       </aside>
@@ -3014,195 +2967,76 @@ export function InteractivePlotWindow() {
         <header className="layer-inspector-header"><div><span className="section-eyebrow">{rightPanel === "layers" ? "레이어 디자인" : "그리기 디자인"}</span><strong>{rightPanel === "layers" ? `${currentVowels.length}개 모음` : "주석 도구"}</strong></div><button className="rail-collapse" aria-label="오른쪽 패널 접기" onClick={() => setRightOpen(false)}><PanelRightClose size={16} /></button></header>
         <div className="layer-panel-tabs"><button type="button" className={rightPanel === "layers" ? "is-active" : ""} onClick={() => setRightPanel("layers")}><Layers3 size={15} /> 레이어</button><button type="button" className={rightPanel === "drawing" ? "is-active" : ""} onClick={() => enterDrawMode(drawTool)}><PenLine size={15} /> 그리기</button></div>
         {rightPanel === "layers" ? (
-        <div className="layer-split-layout" style={{ "--layer-list-height": `${layerListHeight}px` } as CSSProperties}>
-        <div className="layer-inspector-scroll">
-          {selectedLayer ? (
-            <div className={`selected-layer-design ${selectedLocked ? "is-locked" : ""}`}>
-              <div className="selected-layer-heading">
-                <div><span>선택 레이어</span><strong>{selectedLayer}</strong></div>
-                {selectedLocked ? <span><Lock size={12} /> 잠김</span> : <button type="button" onClick={resetSelectedLayer}><RefreshCcw size={13} /> 초기화</button>}
-              </div>
-              <fieldset className="layer-design-form" disabled={selectedLocked}>
-                <div className="palette-picker-row">
-                  <PalettePicker label="라벨 색상" value={String(effective("lbl_color"))} onChange={(lbl_color) => lbl_color && updateLayerDesign({ lbl_color })} disabled={selectedLocked} />
-                </div>
-                <div className="text-style-block">
-                  <span className="control-label">텍스트 설정</span>
-                  <div className="font-controls font-family-row">
-                    <select value={String(effective("font_family"))} onChange={(event) => { const font_family = event.target.value; updateLayerDesign({ font_family, font_style: fontFamilyStyle(font_family), font_weight: normalizedFontWeight(font_family, effective("font_weight")) }); }} aria-label="글꼴">
-                      {FONT_FAMILIES.map((family) => <option key={family}>{family}</option>)}
-                    </select>
-                    <select value={normalizedFontWeight(String(effective("font_family")), effective("font_weight"))} onChange={(event) => updateLayerDesign({ font_weight: event.target.value as DesignSettings["font_weight"], lbl_bold: event.target.value === "bold" })} disabled={(FONT_WEIGHTS[String(effective("font_family"))] ?? []).length <= 1} aria-label="Weight">
-                      {(FONT_WEIGHTS[String(effective("font_family"))] ?? ["regular"]).map((weight) => <option key={weight} value={weight}>{FONT_WEIGHT_LABELS[weight]}</option>)}
-                    </select>
-                  </div>
-                  <div className="font-size-row">
-                    <label className="font-size-control"><span className="font-control-caption">크기 <b>{Number(effective("lbl_size"))}pt</b></span><input type="range" min="12" max="28" step="1" value={Number(effective("lbl_size"))} onChange={(event) => updateLayerDesign({ lbl_size: Number(event.target.value) })} /></label>
-                    <div className="font-style-buttons"><button type="button" className={effective("font_weight") === "bold" ? "is-active" : ""} onClick={() => updateLayerDesign({ font_weight: effective("font_weight") === "bold" ? "regular" : "bold", lbl_bold: effective("font_weight") !== "bold" })} aria-label="볼드"><Bold size={15} /></button><button type="button" className={effective("lbl_italic") ? "is-active" : ""} onClick={() => updateLayerDesign({ lbl_italic: !effective("lbl_italic") })} aria-label="기울임"><Italic size={15} /></button></div>
-                  </div>
-                </div>
-                <label className="control-label">중심점 모양</label>
-                <MarkerPicker value={String(effective("centroid_marker"))} onChange={(centroid_marker) => updateLayerDesign({ centroid_marker })} disabled={selectedLocked} />
-                <label className="control-label">신뢰 타원</label>
-                <div className="segmented-row"><button type="button" className={Number(effective("ell_thick")) === 0.5 ? "is-active" : ""} onClick={() => updateLayerDesign({ ell_thick: 0.5 })}>얇게</button><button type="button" className={Number(effective("ell_thick")) === 1 ? "is-active" : ""} onClick={() => updateLayerDesign({ ell_thick: 1 })}>보통</button><button type="button" className={Number(effective("ell_thick")) === 2 ? "is-active" : ""} onClick={() => updateLayerDesign({ ell_thick: 2 })}>굵게</button></div>
-                <div className="segmented-row"><button type="button" className={effective("ell_style") === "-" ? "is-active" : ""} onClick={() => updateLayerDesign({ ell_style: "-" })}>실선</button><button type="button" className={effective("ell_style") === "---" ? "is-active" : ""} onClick={() => updateLayerDesign({ ell_style: "---" })}>긴 점선</button><button type="button" className={effective("ell_style") === "--" || effective("ell_style") === ":" ? "is-active" : ""} onClick={() => updateLayerDesign({ ell_style: "--" })}>짧은 점선</button></div>
-                <div className="palette-picker-row"><PalettePicker label="타원 선" value={effective("ell_color")} onChange={(ell_color) => updateLayerDesign({ ell_color })} allowTransparent disabled={selectedLocked} /><PalettePicker label="타원 채우기" value={effective("ell_fill_color")} onChange={(ell_fill_color) => updateLayerDesign({ ell_fill_color })} allowTransparent disabled={selectedLocked} /></div>
-                <label className="opacity-control"><span>레이어 타원 투명도 <b>{Math.round(Number(effective("ell_fill_opacity")) * 100)}%</b></span><input type="range" min="0" max="60" value={Number(effective("ell_fill_opacity")) * 100} onChange={(event) => updateLayerDesign({ ell_fill_opacity: Number(event.target.value) / 100 })} /></label>
-                <label className="control-label">원자료 점</label>
-                <div className="palette-picker-row"><PalettePicker label="원자료 색상" value={effective("raw_color")} onChange={(raw_color) => raw_color && updateLayerDesign({ raw_color })} disabled={selectedLocked} /></div>
-                <div className="segmented-row"><button type="button" className={effective("raw_marker") === "o" ? "is-active" : ""} onClick={() => updateLayerDesign({ raw_marker: "o" })}>빈 원</button><button type="button" className={effective("raw_marker") === "x" ? "is-active" : ""} onClick={() => updateLayerDesign({ raw_marker: "x" })}>가위표</button><button type="button" className={effective("raw_marker") === "a" ? "is-active" : ""} onClick={() => updateLayerDesign({ raw_marker: "a" })}>라벨</button></div>
-                <details className="layer-advanced layer-text-options" open>
-                  <summary>고급 옵션 <ChevronDown size={14} /></summary>
-                  <div className="switch-stack">
-                    <ToggleSwitch label="라벨 슬래시 감싸기" checked={Boolean(effective("label_slash_wrap"))} onChange={() => updateLayerDesign({ label_slash_wrap: !effective("label_slash_wrap") })} disabled={selectedLocked} />
-                  </div>
-                </details>
-              </fieldset>
-            </div>
-          ) : <p className="empty-layers">레이어를 선택하면 디자인을 편집할 수 있습니다.</p>}
-        </div>
-        <div className="layer-splitter" role="separator" aria-orientation="horizontal" aria-label="레이어 디자인과 목록 높이 조절" onPointerDown={beginLayerPanelResize} onPointerMove={resizeLayerPanels} onPointerUp={endLayerPanelResize} onPointerCancel={endLayerPanelResize} onLostPointerCapture={cancelLayerPanelResize}><i /></div>
-        <div className="layer-list-dock">
-          <div className="layer-batch-row"><span>일괄 적용</span><button type="button" onClick={toggleAllLayerEyes}><Eye size={14} /> 전체 표시</button><button type="button" onClick={toggleAllLayerSemi}>반투명</button></div>
-          <div className="layer-list-toolbar"><span><GripVertical size={12} /> 끌어서 순서 변경</span><button type="button" onClick={resetLayerOrder}><RefreshCcw size={11} /> 순서 초기화</button></div>
-          <div className="layer-list" ref={layerListRef}>
-            {layerOrder.length ? layerOrder.map((vowel) => {
-              const visibility = layerState[vowel] ?? "ON";
-              const locked = lockedLayers.has(vowel);
-              const effects = layerOverrides[vowel] ?? {};
-              const effectKeys = DESIGN_EFFECT_ORDER.filter((key) => key in effects);
-              const expanded = effectKeys.length > 0 && expandedLayers.has(vowel);
-              return (
-                <div
-                  className={`layer-row visibility-${visibility.toLowerCase()} ${selectedLayers.has(vowel) ? "is-selected" : ""} ${draggingLayer === vowel ? "is-dragging" : ""} ${dropTarget?.vowel === vowel ? dropTarget.after ? "drop-after" : "drop-before" : ""}`}
-                  key={vowel}
-                  data-layer-vowel={vowel}
-                  ref={(element) => { if (element) layerRowRefs.current.set(vowel, element); else layerRowRefs.current.delete(vowel); }}
-                >
-                  <div className="layer-row-main" onLostPointerCapture={() => { if (draggingLayerRef.current === vowel) cancelLayerDrag(); }}>
-                    <button type="button" className="layer-drag-handle" onPointerDown={(event) => beginLayerDrag(event, vowel)} onPointerMove={moveLayerDrag} onPointerUp={commitLayerDrag} onPointerCancel={cancelLayerDrag} onKeyDown={(event) => { if (event.key === "ArrowUp" || event.key === "ArrowDown") { event.preventDefault(); moveLayerByStep(vowel, event.key === "ArrowUp" ? -1 : 1); } }} aria-label={`${vowel} 레이어 순서 이동`} title="끌어서 이동 · 방향키로 한 칸 이동"><GripVertical size={15} /></button>
-                    <button type="button" className="layer-visibility" onClick={() => toggleLayerEye(vowel)} title={visibility === "OFF" ? "레이어 표시" : "레이어 숨기기"}>{visibility === "OFF" ? <EyeOff size={15} /> : <Eye size={15} />}</button>
-                    <button type="button" className={`layer-semi ${visibility === "SEMI" ? "is-active" : ""}`} onClick={() => toggleLayerSemi(vowel)}>반투명</button>
-                    <button type="button" className="layer-name" onMouseDown={(event) => { if (event.button === 0) event.preventDefault(); }} onClick={(event) => selectLayer(vowel, event)}><strong>{vowel}</strong></button>
-                    {effectKeys.length ? <button type="button" className={`layer-expand ${expanded ? "is-expanded" : ""}`} onClick={() => setExpandedLayers((previous) => { const next = new Set(previous); if (next.has(vowel)) next.delete(vowel); else next.add(vowel); return next; })} aria-label={`${vowel} 디자인 변경 내역 ${expanded ? "접기" : "펼치기"}`}><ChevronDown size={14} /><span>{effectKeys.length}</span></button> : null}
-                    <button type="button" className="layer-lock" onClick={() => void toggleLock(vowel)} aria-label={locked ? `${vowel} 레이어 잠금 해제` : `${vowel} 레이어 잠금`}>{locked ? <Lock size={14} /> : <Unlock size={14} />}</button>
-                  </div>
-                  {expanded ? (
-                    <div className="layer-effects" aria-label={`${vowel} 레이어 디자인 변경 내역`}>
-                      {effectKeys.map((key) => {
-                        const value = effects[key] as DesignSettings[keyof DesignSettings];
-                        const isColor = key === "lbl_color" || key === "ell_color" || key === "ell_fill_color" || key === "raw_color";
-                        return (
-                          <div className="layer-effect-row" key={key}>
-                            <span>{DESIGN_EFFECT_LABELS[key] ?? key}</span>
-                            <strong>{isColor ? <><i className={`effect-color ${value === null ? "is-transparent" : ""}`} style={typeof value === "string" ? { background: value } : undefined} /><em>{value === null ? "투명" : String(value).toUpperCase()}</em></> : effectDisplayValue(key, value)}</strong>
-                            <button type="button" disabled={locked} onClick={() => removeLayerEffect(vowel, key)} aria-label={`${DESIGN_EFFECT_LABELS[key] ?? key} 설정 제거`}><X size={13} /></button>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  ) : null}
-                </div>
-              );
-            }) : <p className="empty-layers">현재 파일에서 모음 라벨을 찾지 못했습니다.</p>}
-          </div>
-        </div>
-        </div>
+          <LayersPanel
+            layerListHeight={layerListHeight}
+            selectedLayer={selectedLayer}
+            selectedLocked={selectedLocked}
+            effective={effective}
+            updateLayerDesign={updateLayerDesign}
+            resetSelectedLayer={resetSelectedLayer}
+            beginLayerPanelResize={beginLayerPanelResize}
+            resizeLayerPanels={resizeLayerPanels}
+            endLayerPanelResize={endLayerPanelResize}
+            cancelLayerPanelResize={cancelLayerPanelResize}
+            toggleAllLayerEyes={toggleAllLayerEyes}
+            toggleAllLayerSemi={toggleAllLayerSemi}
+            resetLayerOrder={resetLayerOrder}
+            layerListRef={layerListRef}
+            layerOrder={layerOrder}
+            layerState={layerState}
+            lockedLayers={lockedLayers}
+            layerOverrides={layerOverrides}
+            expandedLayers={expandedLayers}
+            setExpandedLayers={setExpandedLayers}
+            selectedLayers={selectedLayers}
+            draggingLayer={draggingLayer}
+            dropTarget={dropTarget}
+            layerRowRefs={layerRowRefs}
+            draggingLayerRef={draggingLayerRef}
+            cancelLayerDrag={cancelLayerDrag}
+            beginLayerDrag={beginLayerDrag}
+            moveLayerDrag={moveLayerDrag}
+            commitLayerDrag={commitLayerDrag}
+            moveLayerByStep={moveLayerByStep}
+            toggleLayerEye={toggleLayerEye}
+            toggleLayerSemi={toggleLayerSemi}
+            selectLayer={selectLayer}
+            toggleLock={toggleLock}
+            removeLayerEffect={removeLayerEffect}
+          />
         ) : (
-        <div className="layer-split-layout drawing-split-layout" style={{ "--layer-list-height": `${layerListHeight}px` } as CSSProperties}>
-          <div className="drawing-panel">
-            <section>
-              <div className="drawing-panel-heading"><span>그리기 도구</span></div>
-              <div className="drawing-tool-grid">
-                <button type="button" className={drawTool === "text" ? "is-active" : ""} onClick={() => activateDrawTool("text")}><span className="draw-tool-icon">T</span><span><strong>텍스트</strong><small>설명과 라벨</small></span></button>
-                <button type="button" className={drawTool === "line" ? "is-active" : ""} onClick={() => activateDrawTool("line")}><PenLine size={16} /><span><strong>선</strong><small>직선과 화살표</small></span></button>
-                <button type="button" className={drawTool === "area" ? "is-active" : ""} onClick={() => activateDrawTool("area")}><ScanSearch size={16} /><span><strong>영역</strong><small>강조 범위</small></span></button>
-                <button type="button" className={drawTool === "reference" ? "is-active" : ""} onClick={() => activateDrawTool("reference")}><Ruler size={16} /><span><strong>기준선</strong><small>축 기준 표시</small></span></button>
-                <button type="button" className={drawTool === "legend" ? "is-active" : ""} onClick={() => activateDrawTool("legend")}><List size={16} /><span><strong>범례</strong><small>선과 모음 설명</small></span></button>
-              </div>
-              {drawTool !== "legend" ? (
-                <div className="drawing-defaults-row">
-                  <button
-                    type="button"
-                    className="wide-action primary drawing-defaults-button"
-                    onClick={() => {
-                      openDrawDefaultsEditor(drawTool === "text" ? "text" : undefined);
-                    }}
-                  >
-                    <SlidersHorizontal size={14} /> 그리기 수정
-                  </button>
-                </div>
-              ) : null}
-              {drawTool === "reference" ? (
-                <div className="reference-mode-row drawing-panel-reference-modes">
-                  <span>기준선 종류</span>
-                  <div className="segmented-row reference-mode-choices">
-                    <button type="button" className={referenceMode === "horizontal" ? "is-active" : ""} onClick={() => { setReferenceMode("horizontal"); setMessage("수평 기준선 · 마우스를 올리면 미리보기가 보입니다."); }}>수평</button>
-                    <button type="button" className={referenceMode === "vertical" ? "is-active" : ""} onClick={() => { setReferenceMode("vertical"); setMessage("수직 기준선 · 마우스를 올리면 미리보기가 보입니다."); }}>수직</button>
-                  </div>
-                </div>
-              ) : null}
-            </section>
-          </div>
-          <div className="layer-splitter" role="separator" aria-orientation="horizontal" aria-label="그리기 디자인과 목록 높이 조절" onPointerDown={beginLayerPanelResize} onPointerMove={resizeLayerPanels} onPointerUp={endLayerPanelResize} onPointerCancel={endLayerPanelResize} onLostPointerCapture={cancelLayerPanelResize}><i /></div>
-          <div className="drawing-layer-dock">
-            <div className="layer-batch-row"><span>일괄 적용</span><button type="button" onClick={toggleAllDrawVisibility} disabled={!currentDrawObjects.length}><Eye size={14} /> 전체 표시</button><button type="button" onClick={toggleAllDrawSemi} disabled={!currentDrawObjects.length}>반투명</button></div>
-            <div className="layer-list-toolbar"><span><GripVertical size={12} /> 끌어서 순서 변경</span><button type="button" className="layer-toolbar-danger" disabled={!currentDrawObjects.length} onClick={() => persistDrawObjects([])}>모두 삭제</button></div>
-            {currentDrawObjects.length ? (
-              <div className="layer-list drawing-object-list">
-                {drawObjectsTopFirst.map((object) => {
-                  const lineIndex = object.type === "line" ? currentDrawLines.findIndex((line) => line.id === object.id) + 1 : 0;
-                  const polyIndex = object.type === "polygon"
-                    ? currentDrawObjects.filter((item) => item.type === "polygon").findIndex((item) => item.id === object.id) + 1
-                    : 0;
-                  const textIndex = object.type === "text"
-                    ? currentDrawObjects.filter((item) => item.type === "text").findIndex((item) => item.id === object.id) + 1
-                    : 0;
-                  const label = object.type === "legend"
-                    ? (object.name || "범례")
-                    : object.type === "reference"
-                      ? `${object.mode === "horizontal" ? "수평" : "수직"} ${formatRefLabel(object.value, object.axis_units, true, analysis?.normalization ?? null).trim()}`
-                      : object.type === "polygon"
-                        ? `영역 ${polyIndex}`
-                        : object.type === "text"
-                          ? `텍스트 ${textIndex}`
-                          : `선 ${lineIndex}`;
-                  return (
-                    <div
-                      className={`layer-row drawing-object-row ${object.visible ? "" : "visibility-off"} ${object.semi ? "visibility-semi" : ""} ${selectedDrawObjectIds.has(object.id) ? "is-selected" : ""} ${draggingDrawObject === object.id ? "is-dragging" : ""} ${drawDropTarget?.id === object.id ? (drawDropTarget.after ? "drop-after" : "drop-before") : ""}`}
-                      data-draw-object-id={object.id}
-                      key={object.id}
-                    >
-                      <div className="layer-row-main">
-                        <button type="button" className="layer-drag-handle" onPointerDown={(event) => beginDrawObjectDrag(event, object.id)} onPointerMove={moveDrawObjectDrag} onPointerUp={commitDrawObjectDrag} onPointerCancel={cancelDrawObjectDrag} aria-label={`${label} 순서 이동`} title="끌어서 이동"><GripVertical size={15} /></button>
-                        <button type="button" className="layer-visibility" onClick={() => toggleDrawObjectVisibility(object.id)} title={object.visible ? "레이어 숨기기" : "레이어 표시"}>{object.visible ? <Eye size={15} /> : <EyeOff size={15} />}</button>
-                        <button type="button" className={`layer-semi ${object.semi ? "is-active" : ""}`} onClick={() => toggleDrawObjectSemi(object.id)}>반투명</button>
-                        <button
-                          type="button"
-                          className="layer-name drawing-layer-name"
-                          onMouseDown={(event) => { if (event.button === 0) event.preventDefault(); }}
-                          onClick={(event) => selectDrawObject(object.id, event)}
-                        >
-                          <strong>{label}</strong>
-                        </button>
-                        <button type="button" className="layer-lock drawing-object-edit" onClick={() => openDrawLayerEditor(object)} aria-label={`${label} 편집`} title="스타일 수정"><Palette size={14} /></button>
-                        <button
-                          type="button"
-                          className="layer-lock drawing-object-delete"
-                          onClick={() => deleteDrawObjects(object.id)}
-                          aria-label={`${label} 삭제`}
-                          title="삭제"
-                        >
-                          <X size={14} />
-                        </button>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            ) : <div className="drawing-empty"><Layers3 size={20} /><strong>그리기 레이어가 없습니다</strong><span>범례·선·기준선을 추가하면 이곳에 표시됩니다.</span></div>}
-          </div>
-        </div>
+          <DrawingPanel
+            layerListHeight={layerListHeight}
+            drawTool={drawTool}
+            activateDrawTool={activateDrawTool}
+            openDrawDefaultsEditor={openDrawDefaultsEditor}
+            referenceMode={referenceMode}
+            setReferenceMode={setReferenceMode}
+            setMessage={setMessage}
+            beginLayerPanelResize={beginLayerPanelResize}
+            resizeLayerPanels={resizeLayerPanels}
+            endLayerPanelResize={endLayerPanelResize}
+            cancelLayerPanelResize={cancelLayerPanelResize}
+            toggleAllDrawVisibility={toggleAllDrawVisibility}
+            toggleAllDrawSemi={toggleAllDrawSemi}
+            persistDrawObjects={persistDrawObjects}
+            currentDrawObjects={currentDrawObjects}
+            drawObjectsTopFirst={drawObjectsTopFirst}
+            currentDrawLines={currentDrawLines}
+            normalization={analysis?.normalization ?? null}
+            selectedDrawObjectIds={selectedDrawObjectIds}
+            draggingDrawObject={draggingDrawObject}
+            drawDropTarget={drawDropTarget}
+            beginDrawObjectDrag={beginDrawObjectDrag}
+            moveDrawObjectDrag={moveDrawObjectDrag}
+            commitDrawObjectDrag={commitDrawObjectDrag}
+            cancelDrawObjectDrag={cancelDrawObjectDrag}
+            toggleDrawObjectVisibility={toggleDrawObjectVisibility}
+            toggleDrawObjectSemi={toggleDrawObjectSemi}
+            selectDrawObject={selectDrawObject}
+            openDrawLayerEditor={openDrawLayerEditor}
+            deleteDrawObjects={deleteDrawObjects}
+          />
         )}
       </aside>
       {batchExportOpen ? (
