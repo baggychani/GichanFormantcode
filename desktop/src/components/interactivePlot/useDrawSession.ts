@@ -39,7 +39,7 @@ import type {
   TextStyleDraft,
   Tool,
 } from "./types";
-import type { InteractiveRenderOverrides } from "./useLayerSession";
+import type { InteractiveRenderOverrides } from "./usePlotRender";
 
 type UseDrawSessionParams = {
   currentIndex: number;

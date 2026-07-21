@@ -7,6 +7,40 @@
   dialogs and export options. This is a shared project rule and must remain in
   this tracked file, not only in local ignored agent instructions.
 
+## Desktop Shell: Keep Orchestrators Thin
+
+Shared, versioned rule (this file). Do not rely only on local Cursor/user rules
+that may be gitignored.
+
+Two thin orchestrators remain after the interactive-plot / main-window split:
+
+- Plot window: `desktop/src/components/InteractivePlotWindow.tsx`
+- Main window: `desktop/src/components/mainWorkspace/MainWorkspace.tsx`
+- App router only: `desktop/src/App.tsx` (hash → plot vs main)
+
+### Placement map (put new work here, not in the orchestrator)
+
+| Feature | Own module |
+|---------|------------|
+| Layer session / DnD | `interactivePlot/useLayerSession.ts`, `LayersPanel.tsx` |
+| Draw session / styles | `interactivePlot/useDrawSession.ts`, `DrawingPanel.tsx`, `DrawStyleEditor.tsx` |
+| Ruler / plot-label session | `interactivePlot/useRulerSession.ts` |
+| Preview render / schedule | `interactivePlot/usePlotRender.ts` |
+| Canvas overlays / pointers | `interactivePlot/PlotStage.tsx`, `plotGeometry.ts` |
+| Left analysis / global design | `AnalysisToolsPanel.tsx`, `GlobalDesignPanel.tsx` |
+| Main file sidebar | `mainWorkspace/SourceSidebar.tsx` |
+| Main preview | `mainWorkspace/PreviewStage.tsx` |
+| Main analysis settings | `mainWorkspace/AnalysisSettingsPanel.tsx` |
+
+### Hard constraints
+
+- Orchestrators may **wire** hooks/panels and pass props. Do not add new feature
+  `useState`, long handlers, or large JSX blocks there.
+- If a change would grow an orchestrator by roughly **80+ lines** of real logic
+  or JSX, extract a module/hook/panel first, then wire it.
+- Prefer extending an existing map row over inventing a parallel path in the
+  orchestrator. Add a new row to this table when a new domain appears.
+
 ## Text Encoding
 
 - Store all source code, JSON, TOML, Markdown, and test fixtures as UTF-8.

@@ -4,19 +4,8 @@ import type { ApplicationState } from "../../../ipc/protocol";
 import { callSidecar } from "../../sidecarClient";
 import { sortVowels } from "../../vowelSort";
 import { cacheLayerSession, clampLayerListHeight } from "./layerCache";
-import type { DesignSettings, DrawObject, LayerOverrides, LayerSession, LayerVisibility, Ranges } from "./types";
-
-export type InteractiveRenderOverrides = {
-  design?: DesignSettings;
-  layers?: Record<string, LayerVisibility>;
-  ranges?: Ranges;
-  sigma?: string;
-  showEllipse?: boolean;
-  layerOverrides?: LayerOverrides;
-  layerOrder?: string[];
-  labelOffsets?: Record<string, [number, number]>;
-  drawObjects?: DrawObject[];
-};
+import type { DesignSettings, LayerOverrides, LayerSession, LayerVisibility } from "./types";
+import type { InteractiveRenderOverrides } from "./usePlotRender";
 
 type PlotSession = ApplicationState["plot_session"];
 
