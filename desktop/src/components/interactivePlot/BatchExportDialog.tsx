@@ -20,6 +20,10 @@ export function BatchExportDialog({
   onApplyVisibilityChange,
   applyLabelPositions,
   onApplyLabelPositionsChange,
+  applyLegend,
+  onApplyLegendChange,
+  applyDrawAnnotations,
+  onApplyDrawAnnotationsChange,
   onClose,
   onExport,
 }: {
@@ -37,6 +41,10 @@ export function BatchExportDialog({
   onApplyVisibilityChange: () => void;
   applyLabelPositions: boolean;
   onApplyLabelPositionsChange: () => void;
+  applyLegend: boolean;
+  onApplyLegendChange: () => void;
+  applyDrawAnnotations: boolean;
+  onApplyDrawAnnotationsChange: () => void;
   onClose: () => void;
   onExport: () => void;
 }) {
@@ -76,7 +84,7 @@ export function BatchExportDialog({
         <div className="batch-export-body">
           <div className="batch-export-summary">
             <strong>{sourceCount}개 파일</strong>
-            <span>범위 · 디자인 · 레이어 상태 · 라벨 위치 포함</span>
+            <span>범위 · 디자인 · 레이어 · 라벨 · 범례 · 그리기</span>
           </div>
           <label className="batch-export-field">
             <span>파일 형식</span>
@@ -108,6 +116,8 @@ export function BatchExportDialog({
             <ToggleSwitch label="레이어 디자인" checked={applyLayerDesign} onChange={onApplyLayerDesignChange} />
             <ToggleSwitch label="레이어 표시 상태" checked={applyVisibility} onChange={onApplyVisibilityChange} />
             <ToggleSwitch label="라벨 위치" checked={applyLabelPositions} onChange={onApplyLabelPositionsChange} />
+            <ToggleSwitch label="범례" checked={applyLegend} onChange={onApplyLegendChange} />
+            <ToggleSwitch label="그리기 주석" checked={applyDrawAnnotations} onChange={onApplyDrawAnnotationsChange} />
           </div>
           <p className="batch-export-note">동일한 파일명이 있으면 자동으로 `_2`, `_3` suffix를 붙입니다.</p>
         </div>

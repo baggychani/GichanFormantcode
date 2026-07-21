@@ -638,13 +638,37 @@ class ApplicationService:
                 )),
                 **deepcopy(session.label_offsets_by_file.get(current_index, {})),
             } if batch_options.get("apply_label_positions", True) else {},
-            "draw_objects": deepcopy(
-                session.draw_objects_by_file.get(current_index, [])
+            "draw_objects": self._filter_batch_draw_objects(
+                session.draw_objects_by_file.get(current_index, []),
+                batch_options,
             ),
             "filename": str(current_data.get("name", "")),
             "request_id": options.get("request_id"),
             "revision": session.revision,
         }
+
+    @staticmethod
+    def _filter_batch_draw_objects(
+        draw_objects: list[Any],
+        batch_options: Mapping[str, Any],
+    ) -> list[Any]:
+        """Respect batch legend / annotation toggles; default both ON when unset."""
+        apply_legend = batch_options.get("apply_legend", True)
+        apply_draw = batch_options.get("apply_draw_annotations", True)
+        if apply_legend and apply_draw:
+            return deepcopy(draw_objects)
+        filtered: list[Any] = []
+        for item in draw_objects:
+            if isinstance(item, Mapping):
+                object_type = item.get("type")
+            else:
+                object_type = getattr(item, "type", None)
+            if object_type == "legend":
+                if apply_legend:
+                    filtered.append(deepcopy(item))
+            elif apply_draw:
+                filtered.append(deepcopy(item))
+        return filtered
 
     @staticmethod
     def _interactive_render_data(current_data: Mapping[str, Any]) -> dict[str, Any]:

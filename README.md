@@ -10,15 +10,18 @@
 
 **GichanFormant**는 모음 분석 및 포먼트 시각화를 위한 데스크톱 애플리케이션입니다.
 
-> **진입점:** 정식 실행은 항상 `main.py`입니다 (`uv run main.py`).
-> Tauri/React 파일럿만 보려면 `uv run desktop_main.py` 를 사용하세요.
-> `desktop/` 자체는 실험용이며 기본 실행 경로가 아닙니다.
+> **진입점 (전환기):**
+> - **현재 배포·기본 실행:** `uv run main.py` (PySide)
+> - **마이그레이션 대상 UI:** `uv run desktop_main.py` (Tauri + React)
+>
+> `desktop/`는 더 이상 실험용 파일럿이 아닙니다. 메인·대화형 플롯 셸을 React로
+> 옮기는 **진행 중 마이그레이션**이며, 컷오버 전까지 PySide 경로도 유지합니다.
 
 ### 브랜치 안내
 
 | 브랜치 | 내용 |
 |--------|------|
-| `main` | 기본선 (PySide + Tauri/React 파일럿 최신 포함) |
+| `main` | 기본선 (PySide + Tauri/React 마이그레이션 UI) |
 | `release/pyside-stable` | PySide 전용 안정 스냅샷 |
 
 최신은 `main`입니다.
@@ -56,7 +59,7 @@ uv sync
 uv run main.py
 ```
 
-Tauri/React 파일럿(실험):
+Tauri/React 마이그레이션 UI:
 
 ```bash
 uv run desktop_main.py
@@ -64,7 +67,7 @@ uv run desktop_main.py
 
 ### 되돌리기 (PySide 안정 지점)
 
-React/Tauri 실험 커밋 이전의 PySide 전용 상태는 태그 `pyside-stable`과 브랜치 `release/pyside-stable`에 고정되어 있습니다.
+React/Tauri 마이그레이션 이전 PySide 전용 상태는 태그 `pyside-stable`과 브랜치 `release/pyside-stable`에 고정되어 있습니다.
 
 ```bash
 # 그 시점 코드만 잠깐 보기
@@ -125,8 +128,8 @@ uv run pytest tests/ -q
 
 ## 📦 기술 스택
 
-- **언어**: Python 3.10+
-- **GUI 프레임워크**: PySide6
+- **언어**: Python 3.10+, TypeScript (desktop shell)
+- **GUI**: PySide6 (현재 배포) · Tauri 2 + React (마이그레이션 대상)
 - **데이터 분석**: NumPy, Pandas, SciPy
 - **시각화**: Matplotlib
 - **패키지 관리자**: [uv](https://github.com/astral-sh/uv)

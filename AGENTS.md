@@ -27,6 +27,7 @@ Two thin orchestrators remain after the interactive-plot / main-window split:
 | Ruler / plot-label session | `interactivePlot/useRulerSession.ts` |
 | Preview render / schedule | `interactivePlot/usePlotRender.ts` |
 | Canvas overlays / pointers | `interactivePlot/PlotStage.tsx`, `plotGeometry.ts` |
+| Hz↔Bark converter plugin | `interactivePlot/UnitConverterPopover.tsx` |
 | Left analysis / global design | `AnalysisToolsPanel.tsx`, `GlobalDesignPanel.tsx` |
 | Main file sidebar | `mainWorkspace/SourceSidebar.tsx` |
 | Main preview | `mainWorkspace/PreviewStage.tsx` |

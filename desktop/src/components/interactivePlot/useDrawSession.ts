@@ -45,6 +45,7 @@ type UseDrawSessionParams = {
   currentIndex: number;
   currentSourceName: string | undefined;
   normalization: string | null;
+  tool: Tool;
   setMessage: (message: string) => void;
   setTool: (tool: Tool | ((previous: Tool) => Tool)) => void;
   setRightPanel: (panel: RightPanel) => void;
@@ -58,6 +59,7 @@ export function useDrawSession({
   currentIndex,
   currentSourceName,
   normalization,
+  tool,
   setMessage,
   setTool,
   setRightPanel,
@@ -717,6 +719,7 @@ export function useDrawSession({
   };
 
   const enterDrawMode = (nextTool: DrawTool | null = null) => {
+    if (tool === "ruler" || tool === "label") return;
     setTool("draw");
     setRightPanel("drawing");
     setRightOpen(true);
@@ -726,7 +729,25 @@ export function useDrawSession({
     if (!nextTool) setMessage("그리기 도구를 선택하세요.");
   };
 
+  const exitDrawMode = () => {
+    setDrawTool(null);
+    resetTransientDraw();
+    onResetCanvasDrawPreview?.();
+    setTool("select");
+  };
+
+  const toggleDrawMode = () => {
+    if (tool === "draw") {
+      exitDrawMode();
+      setMessage("그리기 모드를 종료했습니다.");
+      return;
+    }
+    if (tool === "ruler" || tool === "label") return;
+    enterDrawMode(null);
+  };
+
   const activateDrawTool = (next: DrawTool) => {
+    if (tool === "ruler" || tool === "label") return;
     enterDrawMode(next);
     if (next === "legend" && !currentLegend) {
       const legend = createDefaultLegend();
@@ -818,6 +839,8 @@ export function useDrawSession({
     finishDrawPolygon,
     confirmTextInput,
     enterDrawMode,
+    exitDrawMode,
+    toggleDrawMode,
     activateDrawTool,
     hydrateDrawObjectsForFile,
     clearDrawSelection,

@@ -9,6 +9,7 @@ import {
   Sparkles,
 } from "lucide-react";
 import type { Ranges, Tool } from "./types";
+import { UnitConverterPopover } from "./UnitConverterPopover";
 import { ToggleSwitch } from "./widgets";
 
 export function AnalysisToolsPanel({
@@ -74,7 +75,10 @@ export function AnalysisToolsPanel({
             <span>01</span>
             <strong>좌표축 범위</strong>
           </div>
-          <small>{rangeUnitLabel || "정규화"}</small>
+          <div className="range-heading-meta">
+            <small>{rangeUnitLabel || "정규화"}</small>
+            <UnitConverterPopover />
+          </div>
         </div>
         <div className="range-matrix">
           <div className="range-matrix-head">

@@ -1,7 +1,7 @@
-﻿# main.py — 정식 진입점 (canonical entry)
+﻿# main.py — 현재 배포 기본 진입점 (PySide)
 #
-# 배포·개발·PyInstaller 모두 이 파일을 실행합니다.
-# desktop/(Tauri/React) 파일럿은 실험용이며 이 진입점을 대체하지 않습니다.
+# 배포·PyInstaller는 컷오버 전까지 이 파일을 실행합니다.
+# Tauri/React 마이그레이션 UI는 desktop_main.py 입니다.
 
 import sys
 import platform

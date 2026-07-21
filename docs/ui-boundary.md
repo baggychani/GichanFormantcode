@@ -121,7 +121,7 @@ sidecar가 별도 `QApplication`을 유지해 기존 플롯 창을 생성한다.
 | `sidecar` (`python -m sidecar`) | NDJSON stdio 호스트 (`health`/`shutdown` 포함) |
 | Rust `SidecarState` | Tauri 배포·실행의 단일 자식 프로세스 소유자 |
 | `sidecar.supervisor` | Python 통합 테스트·로컬 진단 전용 supervisor |
-| `desktop/` Tauri 2 + React | 메인 창 파일럿 (파일 목록·미리보기·health) |
+| `desktop/` Tauri 2 + React | 마이그레이션 대상 UI (메인·대화형 플롯) |
 | `tests/test_ipc_*.py` | 스키마·호스트·ApplicationService 동등성 |
 
 프로토콜은 JSON-RPC 전체가 아니라 **NDJSON + request id**다.
@@ -135,20 +135,21 @@ sidecar가 별도 `QApplication`을 유지해 기존 플롯 창을 생성한다.
 로컬 확인:
 
 ```powershell
-# 정식 앱 (항상 이것)
+# 현재 배포 기본 실행 (PySide)
 uv run main.py
 
-# Tauri/React 파일럿 (실험) — Python 진입점
+# Tauri/React 마이그레이션 UI
 uv run desktop_main.py
 
-# Python sidecar만 (실험)
+# Python sidecar만
 uv run python -m sidecar --headless
 ```
 
 개발 중 Tauri는 `uv run python -m sidecar --desktop`을 자식 프로세스로 띄운다.
 다른 명령을 쓰려면 `GICHAN_SIDECAR_CMD` 환경 변수를 설정한다.
 
-**진입점 규칙:** 배포·릴리스·기본 실행은 `main.py`만 사용한다. `desktop/`은 파일럿이다.
+**진입점 규칙 (전환기):** 배포·릴리스 기본은 컷오버 전까지 `main.py`다.
+`desktop/`은 실험 파일럿이 아니라 **진행 중 마이그레이션 대상**이다.
 
 **롤백:** React/Tauri 이전 상태는 Git 태그 `pyside-stable`과 브랜치 `release/pyside-stable`에 고정한다.
 

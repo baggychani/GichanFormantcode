@@ -1,7 +1,7 @@
-# desktop_main.py — Tauri/React 파일럿 진입점 (실험용)
+# desktop_main.py — Tauri/React 마이그레이션 UI 진입점
 #
-# 정식 앱은 main.py 입니다.
-# 이 파일은 desktop/ React+Tauri 메인 창 시제품만 실행합니다.
+# 현재 배포 기본 실행은 아직 main.py(PySide)입니다.
+# 이 파일은 desktop/ React+Tauri 셸을 실행하며, 컷오버를 위한 마이그레이션 경로입니다.
 
 from __future__ import annotations
 
@@ -53,9 +53,9 @@ def main() -> int:
     # the development sidecar fail before it can answer IPC requests.
     env.setdefault("UV_CACHE_DIR", str(ROOT / ".uv-cache"))
 
-    print("GichanFormant Tauri/React 파일럿을 시작합니다.")
+    print("GichanFormant Tauri/React 마이그레이션 UI를 시작합니다.")
     print(f"  경로: {DESKTOP}")
-    print("  정식 PySide 앱은 계속 `uv run main.py` 로 실행하세요.\n")
+    print("  현재 배포 기본 실행은 계속 `uv run main.py` (PySide) 입니다.\n")
 
     # npm.cmd on Windows needs shell=False with full path; use npm run
     completed = subprocess.run(

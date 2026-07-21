@@ -429,7 +429,14 @@ def validate_interactive_options(raw: Any) -> dict[str, Any]:
         result["draw_objects"] = _validate_draw_objects(raw["draw_objects"])
     if "batch_options" in raw:
         batch = raw["batch_options"]
-        allowed_batch = {"apply_global_design", "apply_layer_design", "apply_layer_visibility", "apply_label_positions"}
+        allowed_batch = {
+            "apply_global_design",
+            "apply_layer_design",
+            "apply_layer_visibility",
+            "apply_label_positions",
+            "apply_legend",
+            "apply_draw_annotations",
+        }
         if not isinstance(batch, Mapping) or set(batch) - allowed_batch:
             raise InteractiveOptionsError("invalid batch options")
         if not all(isinstance(value, bool) for value in batch.values()):

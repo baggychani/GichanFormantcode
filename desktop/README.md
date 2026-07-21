@@ -1,12 +1,14 @@
-# GichanFormant Desktop (실험용 파일럿)
+# GichanFormant Desktop (Tauri + React)
 
-> ⚠️ **정식 진입점이 아닙니다.**
-> 배포·일상 개발 실행은 저장소 루트의 `main.py`만 사용하세요 (`uv run main.py`).
+> **마이그레이션 대상 UI입니다.**  
+> 현재 배포·릴리스 기본 실행은 아직 저장소 루트 `main.py`(PySide)입니다.  
+> 컷오버 전까지 두 경로를 병행합니다.
 
-이 폴더는 메인 창을 Tauri + React로 옮기기 위한 **실험용** 셸입니다.
-분석 엔진은 Python sidecar가 담당하며, 기존 PySide 앱을 대체하지 않습니다.
+이 폴더는 메인 창과 대화형 플롯 창을 Tauri + React로 옮기는 **진행 중 마이그레이션**
+셸입니다. 분석 엔진은 Python sidecar가 담당하며, 기존 PySide 앱과 같은
+`ApplicationService` / IPC 계약을 사용합니다.
 
-## 실행 (파일럿만)
+## 실행
 
 저장소 루트에서:
 
@@ -24,7 +26,7 @@ npm run tauri:dev
 
 ## 구성
 
-- `src/` — React UI (파일럿)
+- `src/` — React UI (메인 워크스페이스 + 대화형 플롯)
 - `src/plotUnits.ts` — Hz / Bark / 정규화 표시 단위의 단일 진입점 (PySide 정책과 맞춤)
 - `ipc/` — TypeScript ↔ Python 계약
 - `src-tauri/` — Tauri shell + sidecar 브리지
@@ -38,6 +40,4 @@ React/Tauri 이전 PySide 전용 스냅샷:
 
 ```bash
 git switch release/pyside-stable
-# 또는
-git switch --detach pyside-stable
 ```

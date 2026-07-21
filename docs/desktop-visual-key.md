@@ -1,7 +1,7 @@
 # Desktop Visual Key
 
 이 문서는 Tauri/React 메인 창의 실제 화면을 디자인 기준점으로 고정한다. 기존
-PySide `main.py`에는 적용하지 않으며, Tauri 파일럿인 `desktop_main.py`에서만
+PySide `main.py`에는 적용하지 않으며, 마이그레이션 UI 진입점인 `desktop_main.py`에서
 사용한다. 새 화면은 임의로 새 테마를 만들지 않고 이 기준을 따른다.
 
 ## 1. 제품 인상

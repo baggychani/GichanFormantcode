@@ -78,6 +78,8 @@ export function InteractivePlotWindow() {
   const [batchApplyLayerDesign, setBatchApplyLayerDesign] = useState(true);
   const [batchApplyVisibility, setBatchApplyVisibility] = useState(true);
   const [batchApplyLabelPositions, setBatchApplyLabelPositions] = useState(true);
+  const [batchApplyLegend, setBatchApplyLegend] = useState(true);
+  const [batchApplyDrawAnnotations, setBatchApplyDrawAnnotations] = useState(true);
   const [tool, setTool] = useState<Tool>("select");
   const [leftPanel, setLeftPanel] = useState<LeftPanel>("analysis");
   const [rightPanel, setRightPanel] = useState<RightPanel>("layers");
@@ -242,7 +244,6 @@ export function InteractivePlotWindow() {
   clearRulerOnPreviewClearedRef.current = clearRulerOnPreviewCleared;
   const {
     drawTool,
-    setDrawTool,
     drawColor,
     drawWidth,
     drawLineStyle,
@@ -302,6 +303,8 @@ export function InteractivePlotWindow() {
     finishDrawPolygon,
     confirmTextInput,
     enterDrawMode,
+    exitDrawMode,
+    toggleDrawMode,
     activateDrawTool,
     hydrateDrawObjectsForFile,
     applyLegendBounds,
@@ -311,6 +314,7 @@ export function InteractivePlotWindow() {
     currentIndex,
     currentSourceName: currentSource?.name,
     normalization: analysis?.normalization ?? null,
+    tool,
     setMessage,
     setTool,
     setRightPanel,
@@ -321,6 +325,36 @@ export function InteractivePlotWindow() {
     },
   });
   applyLegendBoundsRef.current = applyLegendBounds;
+
+  const toggleRulerMode = () => {
+    if (tool === "ruler") {
+      resetTransientRuler();
+      setRulerSettingsOpen(false);
+      setTool("select");
+      return;
+    }
+    if (tool === "label" || tool === "draw") return;
+    setTool("ruler");
+  };
+
+  const toggleLabelMode = () => {
+    if (tool === "label") {
+      setTool("select");
+      return;
+    }
+    if (tool === "ruler" || tool === "draw") return;
+    setTool("label");
+    setMessage("라벨 이동 모드 · 라벨을 드래그하세요.");
+  };
+
+  const selectNeutralTool = () => {
+    if (tool === "draw") exitDrawMode();
+    else if (tool === "ruler") {
+      resetTransientRuler();
+      setRulerSettingsOpen(false);
+      setTool("select");
+    } else setTool("select");
+  };
   const normalization = plotUnits.normalization;
   const xAxis = plotUnits.xAxisName;
   const yAxis = plotUnits.yAxisName;
@@ -678,10 +712,7 @@ export function InteractivePlotWindow() {
           setDrawHover(null);
           setMessage(drawTool === "area" ? "영역 그리기를 취소했습니다." : "선 그리기를 취소했습니다.");
         } else {
-          setDrawTool(null);
-          setDrawHover(null);
-          resetCanvasDrawPreviewRef.current();
-          setTool("select");
+          exitDrawMode();
           setMessage("그리기 모드를 종료했습니다.");
         }
         return;
@@ -729,29 +760,17 @@ export function InteractivePlotWindow() {
       }
       if (event.key.toLowerCase() === "r") {
         event.preventDefault();
-        setTool((previous) => previous === "ruler" ? "select" : "ruler");
+        toggleRulerMode();
         return;
       }
       if (event.key.toLowerCase() === "t") {
         event.preventDefault();
-        setTool((previous) => previous === "label" ? "select" : "label");
-        setMessage("라벨 이동 모드 · 라벨을 드래그하세요.");
+        toggleLabelMode();
         return;
       }
       if (event.key.toLowerCase() === "p") {
         event.preventDefault();
-        setTool((previous) => {
-          if (previous === "draw") {
-            setDrawTool(null);
-            resetCanvasDrawPreviewRef.current();
-            return "select";
-          }
-          setDrawTool(null);
-          setRightPanel("drawing");
-          setRightOpen(true);
-          setMessage("그리기 도구를 선택하세요.");
-          return "draw";
-        });
+        toggleDrawMode();
         return;
       }
       if (event.key === "Escape" && tool === "ruler") {
@@ -767,9 +786,7 @@ export function InteractivePlotWindow() {
       }
       if (event.key === "Escape" && tool === "draw") {
         event.preventDefault();
-        setDrawTool(null);
-        resetCanvasDrawPreviewRef.current();
-        setTool("select");
+        exitDrawMode();
         return;
       }
       if (tool === "draw" && ["1", "2", "3", "4", "5"].includes(event.key)) {
@@ -790,7 +807,7 @@ export function InteractivePlotWindow() {
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [analysis?.normalization, canNavigate, currentSourcePosition, drawArrowHead, drawArrowMode, drawColor, drawEditorOpen, drawLineStyle, drawTool, drawWidth, drawingPoints, navigateByPosition, navigating, resetTransientRuler, rulerSettingsOpen, setRulerSettingsOpen, shortcutHelpOpen, sources, tool]);
+  }, [analysis?.normalization, canNavigate, currentSourcePosition, drawArrowHead, drawArrowMode, drawColor, drawEditorOpen, drawLineStyle, drawTool, drawWidth, drawingPoints, exitDrawMode, finishDrawLine, finishDrawPolygon, navigateByPosition, navigating, resetTransientRuler, rulerSettingsOpen, setRulerSettingsOpen, shortcutHelpOpen, sources, toggleDrawMode, toggleLabelMode, toggleRulerMode, tool]);
 
   const updateDesign = (patch: Partial<DesignSettings>) => {
     const next = { ...design, ...patch };
@@ -912,7 +929,7 @@ export function InteractivePlotWindow() {
       const result = await callSidecar<{ exported?: string[]; errors?: Array<{ name: string; message: string }> }>("export_interactive_batch", {
         directory: batchExportDirectory,
         format: batchExportFormat,
-        options: { ranges, sigma, show_ellipse: showEllipse, design, filter_state: layerState, layer_overrides: layerOverrides, layer_order: layerOrder, locked_layers: [...lockedLayers], draw_objects: currentDrawObjects, batch_options: { apply_global_design: batchApplyGlobalDesign, apply_layer_design: batchApplyLayerDesign, apply_layer_visibility: batchApplyVisibility, apply_label_positions: batchApplyLabelPositions } },
+        options: { ranges, sigma, show_ellipse: showEllipse, design, filter_state: layerState, layer_overrides: layerOverrides, layer_order: layerOrder, locked_layers: [...lockedLayers], draw_objects: currentDrawObjects, batch_options: { apply_global_design: batchApplyGlobalDesign, apply_layer_design: batchApplyLayerDesign, apply_layer_visibility: batchApplyVisibility, apply_label_positions: batchApplyLabelPositions, apply_legend: batchApplyLegend, apply_draw_annotations: batchApplyDrawAnnotations } },
       });
       const count = result.exported?.length ?? 0;
       setMessage(`${count}개 파일을 일괄 저장했습니다${result.errors?.length ? ` · 실패 ${result.errors.length}개` : ""}.`);
@@ -971,8 +988,8 @@ export function InteractivePlotWindow() {
               tool={tool}
               onOpenVowelAnalysis={() => setVowelAnalysisOpen(true)}
               onOpenCompare={() => void openComparePlot()}
-              onToggleRuler={() => setTool(tool === "ruler" ? "select" : "ruler")}
-              onEnterDraw={() => enterDrawMode(null)}
+              onToggleRuler={toggleRulerMode}
+              onEnterDraw={toggleDrawMode}
               hasCombined={hasCombined}
               hasPreview={Boolean(previewUrl)}
               onExport={(format) => void exportInteractive(format)}
@@ -1000,13 +1017,15 @@ export function InteractivePlotWindow() {
         currentSourceName={currentSource?.name}
         currentIndex={currentIndex}
         tool={tool}
-        setTool={setTool}
+        selectNeutralTool={selectNeutralTool}
+        toggleRulerMode={toggleRulerMode}
+        toggleLabelMode={toggleLabelMode}
+        toggleDrawMode={toggleDrawMode}
         setMessage={setMessage}
         leftOpen={leftOpen}
         setLeftOpen={setLeftOpen}
         rightOpen={rightOpen}
         setRightOpen={setRightOpen}
-        enterDrawMode={enterDrawMode}
         design={design}
         layerOverrides={layerOverrides}
         analysisNormalization={analysis?.normalization}
@@ -1073,7 +1092,7 @@ export function InteractivePlotWindow() {
 
       <aside className="layer-inspector">
         <header className="layer-inspector-header"><div><span className="section-eyebrow">{rightPanel === "layers" ? "레이어 디자인" : "그리기 디자인"}</span><strong>{rightPanel === "layers" ? `${currentVowels.length}개 모음` : "주석 도구"}</strong></div><button className="rail-collapse" aria-label="오른쪽 패널 접기" onClick={() => setRightOpen(false)}><PanelRightClose size={16} /></button></header>
-        <div className="layer-panel-tabs"><button type="button" className={rightPanel === "layers" ? "is-active" : ""} onClick={() => setRightPanel("layers")}><Layers3 size={15} /> 레이어</button><button type="button" className={rightPanel === "drawing" ? "is-active" : ""} onClick={() => enterDrawMode(drawTool)}><PenLine size={15} /> 그리기</button></div>
+        <div className="layer-panel-tabs"><button type="button" className={rightPanel === "layers" ? "is-active" : ""} onClick={() => setRightPanel("layers")}><Layers3 size={15} /> 레이어</button><button type="button" className={rightPanel === "drawing" ? "is-active" : ""} onClick={() => { if (tool === "ruler" || tool === "label") return; enterDrawMode(drawTool); }}><PenLine size={15} /> 그리기</button></div>
         {rightPanel === "layers" ? (
           <LayersPanel
             layerListHeight={layerListHeight}
@@ -1163,6 +1182,10 @@ export function InteractivePlotWindow() {
           onApplyVisibilityChange={() => setBatchApplyVisibility((value) => !value)}
           applyLabelPositions={batchApplyLabelPositions}
           onApplyLabelPositionsChange={() => setBatchApplyLabelPositions((value) => !value)}
+          applyLegend={batchApplyLegend}
+          onApplyLegendChange={() => setBatchApplyLegend((value) => !value)}
+          applyDrawAnnotations={batchApplyDrawAnnotations}
+          onApplyDrawAnnotationsChange={() => setBatchApplyDrawAnnotations((value) => !value)}
           onClose={() => setBatchExportOpen(false)}
           onExport={() => void runBatchExport()}
         />
