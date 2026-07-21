@@ -61,6 +61,8 @@ export function MainWorkspace() {
   const [dragOver, setDragOver] = useState(false);
   const [settingsAttention, setSettingsAttention] = useState(false);
   const settingsAttentionTimersRef = useRef<number[]>([]);
+  const [guideAttention, setGuideAttention] = useState(false);
+  const guideAttentionTimersRef = useRef<number[]>([]);
   const [combinedVisible, setCombinedVisible] = useState(() => {
     const saved = window.localStorage.getItem("gichanformant-show-combined");
     return saved === "true";
@@ -141,8 +143,18 @@ export function MainWorkspace() {
     settingsAttentionTimersRef.current = [startTimer, endTimer];
   }, []);
 
+  const signalGuideAttention = useCallback(() => {
+    guideAttentionTimersRef.current.forEach((timer) => window.clearTimeout(timer));
+    setGuideAttention(false);
+    // Let the error toast settle first, then pulse the guide button.
+    const startTimer = window.setTimeout(() => setGuideAttention(true), 720);
+    const endTimer = window.setTimeout(() => setGuideAttention(false), 4200);
+    guideAttentionTimersRef.current = [startTimer, endTimer];
+  }, []);
+
   useEffect(() => () => {
     settingsAttentionTimersRef.current.forEach((timer) => window.clearTimeout(timer));
+    guideAttentionTimersRef.current.forEach((timer) => window.clearTimeout(timer));
   }, []);
 
   const requestMainPreview = useCallback(() => {
@@ -188,6 +200,7 @@ export function MainWorkspace() {
       const skippedCount = normalizedPaths.length - loadablePaths.length;
       if (!loadablePaths.length) {
         setError("지원하지 않는 파일 형식입니다. TXT, CSV, TSV, XLSX, XLS 파일만 불러올 수 있습니다.");
+        signalGuideAttention();
         return;
       }
       beginBusy();
@@ -206,15 +219,19 @@ export function MainWorkspace() {
         if (response.load_result.failed.length > 0 || skippedCount > 0) {
           const failedCount = response.load_result.failed.length + skippedCount;
           setError(`${failedCount}개 파일을 건너뛰었습니다. 지원 형식(TXT, CSV, TSV, XLSX, XLS)인지 확인해 주세요.`);
+          signalGuideAttention();
         }
         pushStatus(`${response.load_result.success_count}개 소스를 작업 공간에 추가했습니다`);
       } catch (err) {
-        if (aliveRef.current) setError(String(err));
+        if (aliveRef.current) {
+          setError(String(err));
+          signalGuideAttention();
+        }
       } finally {
         endBusySafe();
       }
     },
-    [beginBusy, endBusySafe, pushStatus, requestMainPreview, signalSettingsAttention],
+    [beginBusy, endBusySafe, pushStatus, requestMainPreview, signalGuideAttention, signalSettingsAttention],
   );
 
   useEffect(() => {
@@ -535,8 +552,12 @@ export function MainWorkspace() {
           </button>
           <button
             type="button"
-            className="quiet-button"
-            onClick={() => setGuideOpen(true)}
+            className={`quiet-button guide-button${guideAttention ? " is-attention" : ""}`}
+            onClick={() => {
+              guideAttentionTimersRef.current.forEach((timer) => window.clearTimeout(timer));
+              setGuideAttention(false);
+              setGuideOpen(true);
+            }}
             disabled={busy}
           >
             <BookOpen size={15} />

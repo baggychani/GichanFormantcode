@@ -107,8 +107,8 @@ export function AnalysisSettingsPanel({
                 <small>눈금과 좌표 방향을 정합니다</small>
               </div>
             </div>
-            <div className="field-grid">
-              <div className="scale-field">
+            <div className="settings-stack">
+              <div className="settings-field">
                 <span className="field-caption">F1 눈금</span>
                 <div className="segmented-control three">
                   <button
@@ -140,7 +140,7 @@ export function AnalysisSettingsPanel({
                   </button>
                 </div>
               </div>
-              <div className="scale-field">
+              <div className="settings-field">
                 <span className="field-caption">{X_AXIS_LABEL[plotType]} 눈금</span>
                 <div className="segmented-control three">
                   <button
@@ -172,37 +172,37 @@ export function AnalysisSettingsPanel({
                   </button>
                 </div>
               </div>
+              <label className="settings-field select-field">
+                <span>좌표 원점</span>
+                <select
+                  value={analysis?.origin ?? "top_right"}
+                  disabled={busy || !hasFiles || axisControlsLocked}
+                  onChange={(event) =>
+                    onPatchSettings({ origin: event.target.value })
+                  }
+                >
+                  <option value="top_right">Praat 방식 · 오른쪽 위</option>
+                  <option value="bottom_left">수학적 좌표 · 왼쪽 아래</option>
+                </select>
+              </label>
+              <label className="switch-row">
+                <span>
+                  <strong>Bark 단위로 표시</strong>
+                  <small>
+                    {axisControlsLocked
+                      ? "정규화 중에는 축·Bark 설정이 잠깁니다"
+                      : barkDisplayLocked
+                        ? "양쪽 축 Bark 고정 · 눈금 버튼 잠금"
+                        : "주파수 눈금을 지각 척도로 바꿉니다"}
+                  </small>
+                </span>
+                <SettingsSwitch
+                  checked={analysis?.use_bark_units ?? false}
+                  disabled={busy || !hasFiles || axisControlsLocked}
+                  onChange={onToggleBarkDisplayUnits}
+                />
+              </label>
             </div>
-            <label className="select-field wide">
-              <span>좌표 원점</span>
-              <select
-                value={analysis?.origin ?? "top_right"}
-                disabled={busy || !hasFiles || axisControlsLocked}
-                onChange={(event) =>
-                  onPatchSettings({ origin: event.target.value })
-                }
-              >
-                <option value="top_right">Praat 방식 · 오른쪽 위</option>
-                <option value="bottom_left">수학적 좌표 · 왼쪽 아래</option>
-              </select>
-            </label>
-            <label className="switch-row">
-              <span>
-                <strong>Bark 단위로 표시</strong>
-                <small>
-                  {axisControlsLocked
-                    ? "정규화 중에는 축·Bark 설정이 잠깁니다"
-                    : barkDisplayLocked
-                      ? "양쪽 축 Bark 고정 · 눈금 버튼 잠금"
-                      : "주파수 눈금을 지각 척도로 바꿉니다"}
-                </small>
-              </span>
-              <SettingsSwitch
-                checked={analysis?.use_bark_units ?? false}
-                disabled={busy || !hasFiles || axisControlsLocked}
-                onChange={onToggleBarkDisplayUnits}
-              />
-            </label>
           </section>
 
           <section className="settings-section">
@@ -213,70 +213,73 @@ export function AnalysisSettingsPanel({
                 <small>이상치와 화자 차이를 보정합니다</small>
               </div>
             </div>
-            <span className="field-caption">이상치 처리</span>
-            <div className="segmented-control three">
-              <button
-                type="button"
-                className={!analysis?.outlier_mode ? "active" : ""}
-                disabled={busy || !hasFiles}
-                onClick={() =>
-                  onPatchSettings({ outlier_mode: null, outlier_scope: null })
-                }
-                aria-pressed={!analysis?.outlier_mode}
-              >
-                사용 안 함
-              </button>
-              <button
-                type="button"
-                className={analysis?.outlier_mode === "tukey_iqr" ? "active" : ""}
-                disabled={busy || !hasFiles}
-                onClick={() =>
-                  onPatchSettings({
-                    outlier_mode: "tukey_iqr",
-                    outlier_scope: analysis?.outlier_scope ?? "combined",
-                  })
-                }
-                aria-pressed={analysis?.outlier_mode === "tukey_iqr"}
-              >
-                Tukey
-              </button>
-              <button
-                type="button"
-                className={
-                  analysis?.outlier_mode === "mahalanobis_2sigma" ? "active" : ""
-                }
-                disabled={busy || !hasFiles}
-                onClick={() =>
-                  onPatchSettings({
-                    outlier_mode: "mahalanobis_2sigma",
-                    outlier_scope: analysis?.outlier_scope ?? "combined",
-                  })
-                }
-                aria-pressed={analysis?.outlier_mode === "mahalanobis_2sigma"}
-              >
-                2σ
-              </button>
-            </div>
-            {analysis?.outlier_mode ? (
-              <label className="select-field wide compact-field">
-                <span>적용 범위</span>
+            <div className="settings-stack">
+              <div className="settings-field">
+                <span className="field-caption">이상치 처리</span>
+                <div className="segmented-control three">
+                  <button
+                    type="button"
+                    className={!analysis?.outlier_mode ? "active" : ""}
+                    disabled={busy || !hasFiles}
+                    onClick={() =>
+                      onPatchSettings({ outlier_mode: null, outlier_scope: null })
+                    }
+                    aria-pressed={!analysis?.outlier_mode}
+                  >
+                    사용 안 함
+                  </button>
+                  <button
+                    type="button"
+                    className={analysis?.outlier_mode === "tukey_iqr" ? "active" : ""}
+                    disabled={busy || !hasFiles}
+                    onClick={() =>
+                      onPatchSettings({
+                        outlier_mode: "tukey_iqr",
+                        outlier_scope: analysis?.outlier_scope ?? "combined",
+                      })
+                    }
+                    aria-pressed={analysis?.outlier_mode === "tukey_iqr"}
+                  >
+                    Tukey
+                  </button>
+                  <button
+                    type="button"
+                    className={
+                      analysis?.outlier_mode === "mahalanobis_2sigma" ? "active" : ""
+                    }
+                    disabled={busy || !hasFiles}
+                    onClick={() =>
+                      onPatchSettings({
+                        outlier_mode: "mahalanobis_2sigma",
+                        outlier_scope: analysis?.outlier_scope ?? "combined",
+                      })
+                    }
+                    aria-pressed={analysis?.outlier_mode === "mahalanobis_2sigma"}
+                  >
+                    2σ
+                  </button>
+                </div>
+              </div>
+              {analysis?.outlier_mode ? (
+                <label className="settings-field select-field">
+                  <span>적용 범위</span>
+                  <select
+                    value={analysis.outlier_scope ?? "combined"}
+                    disabled={busy || !hasFiles}
+                    onChange={(event) =>
+                      onPatchSettings({ outlier_scope: event.target.value })
+                    }
+                  >
+                    <option value="individual">파일별로 계산</option>
+                    <option value="combined">전체 데이터를 함께 계산</option>
+                  </select>
+                </label>
+              ) : null}
+              <label className="settings-field select-field">
+                <span>화자 정규화</span>
                 <select
-                  value={analysis.outlier_scope ?? "combined"}
-                  disabled={busy || !hasFiles}
-                  onChange={(event) =>
-                    onPatchSettings({ outlier_scope: event.target.value })
-                  }
-                >
-                  <option value="individual">파일별로 계산</option>
-                  <option value="combined">전체 데이터를 함께 계산</option>
-                </select>
-              </label>
-            ) : null}
-            <label className="select-field wide compact-field">
-              <span>화자 정규화</span>
-              <select
-                value={analysis?.normalization ?? ""}
-                disabled={busy || !hasFiles || derivedPlotUnsupportedNorm || preLobanovLocked}
+                  value={analysis?.normalization ?? ""}
+                  disabled={busy || !hasFiles || derivedPlotUnsupportedNorm || preLobanovLocked}
                 onChange={(event) =>
                   onPatchSettings({ normalization: event.target.value || null })
                 }
@@ -291,7 +294,8 @@ export function AnalysisSettingsPanel({
                 <option value="">사용 안 함</option>
                 <option value="Lobanov">Lobanov</option>
               </select>
-            </label>
+              </label>
+            </div>
           </section>
         </div>
       ) : (

@@ -60,18 +60,18 @@
   padding: 12px 13px;
   border: 1px solid rgba(210, 180, 40, 0.45);
   border-radius: 10px;
-  background: #ffe300;
+  background: var(--gf-brand-kakao);
 }
 
 .support-bank,
 .support-holder {
   color: var(--gf-text-tertiary);
-  font-size: 11px;
+  font-size: var(--gf-text-xs);
 }
 
 .support-number {
   font-family: var(--gf-font-sans);
-  font-size: 15px;
+  font-size: var(--gf-text-lg);
   font-weight: 650;
   letter-spacing: 0.01em;
   color: var(--gf-text-primary);
@@ -111,7 +111,7 @@ html[data-theme="dark"] .support-panel {
 
 html[data-theme="dark"] .support-account {
   border-color: rgba(255, 227, 0, 0.55);
-  background: #ffe300;
+  background: var(--gf-brand-kakao);
   color: #1a1a1a;
 }
 

@@ -97,6 +97,30 @@
   --gf-sidebar-width: 248px;
   --gf-settings-width: 340px;
 
+  /* Spacing scale — prefer these over one-off px in layout CSS. */
+  --gf-space-1: 4px;
+  --gf-space-2: 7px;
+  --gf-space-3: 10px;
+  --gf-space-4: 12px;
+  --gf-space-5: 16px;
+  --gf-space-6: 20px;
+  --gf-space-7: 24px;
+  --gf-space-8: 28px;
+
+  /* Settings panel rhythm (main window right rail). */
+  --gf-settings-section-pad-y: var(--gf-space-7);
+  --gf-settings-title-gap: var(--gf-space-5);
+  --gf-settings-stack-gap: var(--gf-space-5);
+  --gf-settings-field-gap: var(--gf-space-2);
+  --gf-settings-control-height: 40px;
+  --gf-settings-segment-height: 38px;
+  --gf-settings-label-size: 11.5px;
+  --gf-settings-label-weight: 620;
+  --gf-settings-help-size: 10.5px;
+
+  /* Brand accents used outside the teal system. */
+  --gf-brand-kakao: #ffe300;
+
   --gf-font-sans: "Pretendard Variable", "Pretendard", "Noto Sans KR", "Malgun Gothic", "Segoe UI Variable", "Segoe UI", sans-serif;
   /* IPA-capable stack (bundled Charis SIL / Andika — same as plot labels). */
   --gf-font-ipa: "Charis SIL", "Andika", "Noto Sans", "Segoe UI Symbol", "Lucida Sans Unicode", "Arial Unicode MS", sans-serif;
