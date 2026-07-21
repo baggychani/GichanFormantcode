@@ -67,7 +67,6 @@ export function SupportPanel({ open, onClose, onCopied }: SupportPanelProps) {
       >
         <header className="support-panel-header">
           <div>
-            <p className="support-kicker">선택</p>
             <h2 id="support-title">후원</h2>
           </div>
           <button type="button" className="icon-button" onClick={onClose} aria-label="닫기">

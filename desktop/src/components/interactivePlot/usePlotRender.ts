@@ -14,6 +14,8 @@ export type InteractiveRenderOverrides = {
   layerOrder?: string[];
   labelOffsets?: Record<string, [number, number]>;
   drawObjects?: DrawObject[];
+  /** Shown when this render's preview_ready arrives (overrides the generic status). */
+  successMessage?: string;
 };
 
 type UsePlotRenderParams = {
@@ -62,6 +64,7 @@ export function usePlotRender({
   // same sidecar just because its local counter started at zero again.
   const renderRequestRef = useRef(Date.now() * 1000);
   const renderTimerRef = useRef<number | null>(null);
+  const pendingSuccessByRequestRef = useRef(new Map<number, string>());
   const unitModeKeyRef = useRef(unitModeKey);
   const previousNormRef = useRef<string | null>(normalization);
 
@@ -158,6 +161,17 @@ export function usePlotRender({
     unitModeKey,
   ]);
 
+  const consumePreviewSuccessMessage = useCallback((requestId: number): string | null => {
+    const pending = pendingSuccessByRequestRef.current;
+    const message = pending.get(requestId) ?? null;
+    pending.delete(requestId);
+    // Drop stale entries for superseded requests so the map cannot grow forever.
+    for (const id of pending.keys()) {
+      if (id < requestId) pending.delete(id);
+    }
+    return message;
+  }, []);
+
   const renderInteractive = async (overrides: InteractiveRenderOverrides = {}) => {
     if (!canPlot) return;
     if (renderTimerRef.current !== null) {
@@ -165,6 +179,9 @@ export function usePlotRender({
       renderTimerRef.current = null;
     }
     const requestId = ++renderRequestRef.current;
+    if (overrides.successMessage) {
+      pendingSuccessByRequestRef.current.set(requestId, overrides.successMessage);
+    }
     try {
       await callSidecar("render_interactive_preview", {
         options: {
@@ -182,6 +199,7 @@ export function usePlotRender({
         },
       });
     } catch (err) {
+      pendingSuccessByRequestRef.current.delete(requestId);
       setMessage(`설정을 적용하지 못했습니다: ${String(err)}`);
     }
   };
@@ -210,6 +228,7 @@ export function usePlotRender({
     renderRequestRef,
     renderInteractive,
     scheduleInteractiveRender,
+    consumePreviewSuccessMessage,
     isStalePreviewRequest,
     nextRenderRequestId,
     invalidatePendingRender,

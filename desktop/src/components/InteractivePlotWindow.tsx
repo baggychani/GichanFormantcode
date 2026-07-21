@@ -469,6 +469,7 @@ export function InteractivePlotWindow() {
     setPreviewLoading,
     renderInteractive,
     scheduleInteractiveRender,
+    consumePreviewSuccessMessage,
     isStalePreviewRequest,
     nextRenderRequestId,
     invalidatePendingRender,
@@ -558,7 +559,7 @@ export function InteractivePlotWindow() {
         }
         clearLegendDragPreviewRef.current();
         clearRulerOnPreviewReadyRef.current();
-        setMessage("현재 설정을 플롯에 반영했습니다.");
+        setMessage(consumePreviewSuccessMessage(requestId) ?? "플롯을 업데이트했습니다.");
       } else if (payload.event === "preview_failed" && payload.payload.target === "interactive") {
         const requestId = Number(payload.payload.request_id ?? 0);
         if (isStalePreviewRequest(requestId)) return;
@@ -598,7 +599,7 @@ export function InteractivePlotWindow() {
       aliveRef.current = false;
       disposeEvent?.();
     };
-  }, [applyPreviewCleared, applyPreviewFailed, applyPreviewReady, isStalePreviewRequest, refresh]);
+  }, [applyPreviewCleared, applyPreviewFailed, applyPreviewReady, consumePreviewSuccessMessage, isStalePreviewRequest, refresh]);
 
   const navigateTo = useCallback(async (sourceIndex: number) => {
     if (!sources.length || navigatingRef.current) return;
@@ -816,7 +817,7 @@ export function InteractivePlotWindow() {
     scheduleInteractiveRender({ design: next });
   };
 
-  const resetPlot = () => {
+  const resetPlot = (successMessage = "좌표축 범위와 신뢰 타원을 초기화했습니다.") => {
     const nextRanges = defaultRanges;
     const nextLayers = resetLayers(currentVowels);
     setRanges(nextRanges);
@@ -824,7 +825,16 @@ export function InteractivePlotWindow() {
     setShowEllipse(true);
     setDesign(canonicalDesign);
     setGlobalDesignLocked(false);
-    void renderInteractive({ design: canonicalDesign, layers: nextLayers, ranges: nextRanges, sigma: "2", showEllipse: true, layerOverrides: {}, layerOrder: sortVowels(currentVowels) });
+    void renderInteractive({
+      design: canonicalDesign,
+      layers: nextLayers,
+      ranges: nextRanges,
+      sigma: "2",
+      showEllipse: true,
+      layerOverrides: {},
+      layerOrder: sortVowels(currentVowels),
+      successMessage,
+    });
   };
 
   const openLegacyPlot = async () => {
@@ -973,15 +983,23 @@ export function InteractivePlotWindow() {
               sigma={sigma}
               onSigmaChange={(next) => {
                 setSigma(next);
-                void renderInteractive({ sigma: next });
+                void renderInteractive({
+                  sigma: next,
+                  successMessage: `신뢰 타원 범위를 ${next}σ로 바꿨습니다.`,
+                });
               }}
               showEllipse={showEllipse}
               onShowEllipseChange={(next) => {
                 setShowEllipse(next);
-                void renderInteractive({ showEllipse: next });
+                void renderInteractive({
+                  showEllipse: next,
+                  successMessage: next ? "신뢰 타원을 표시합니다." : "신뢰 타원을 숨겼습니다.",
+                });
               }}
-              onReset={resetPlot}
-              onApplyRanges={() => void renderInteractive()}
+              onReset={() => resetPlot()}
+              onApplyRanges={() => void renderInteractive({
+                successMessage: "좌표축 범위를 플롯에 반영했습니다.",
+              })}
               busy={busy}
               sourceCount={sources.length}
               canCompare={sources.filter((source) => !source.is_combined).length >= 2}
@@ -1001,7 +1019,7 @@ export function InteractivePlotWindow() {
             <GlobalDesignPanel
               design={design}
               onUpdateDesign={updateDesign}
-              onReset={resetPlot}
+              onReset={() => resetPlot("광역 디자인을 초기화했습니다.")}
               globalDesignLocked={globalDesignLocked}
               onToggleLock={() => setGlobalDesignLocked((locked) => !locked)}
             />

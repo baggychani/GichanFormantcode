@@ -284,14 +284,14 @@ export function GlobalDesignPanel({
           </div>
           <label className="opacity-control">
             <span>
-              눈금 숫자 크기 <b>{Number(design.tick_label_size ?? 13)}pt</b>
+              눈금 숫자 크기 <b>{Number(design.tick_label_size ?? 12)}pt</b>
             </span>
             <input
               type="range"
               min="10"
               max="18"
               step="1"
-              value={Number(design.tick_label_size ?? 13)}
+              value={Number(design.tick_label_size ?? 12)}
               onChange={(event) => onUpdateDesign({ tick_label_size: Number(event.target.value) })}
             />
           </label>

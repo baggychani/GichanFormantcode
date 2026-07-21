@@ -80,7 +80,7 @@ export const EMPTY_DESIGN: DesignSettings = {
   font_family: "Noto Serif KR",
   font_weight: "bold",
   label_slash_wrap: false,
-  tick_label_size: 13,
+  tick_label_size: 12,
 };
 
 export const FONT_FAMILIES = ["Noto Sans KR", "Noto Serif KR", "Charis SIL", "Andika"] as const;

@@ -28,7 +28,7 @@ SINGLE_DESIGN_DEFAULTS = {
     "font_family": "Noto Serif KR",
     "font_weight": "bold",
     "label_slash_wrap": False,
-    "tick_label_size": 13,
+    "tick_label_size": 12,
 }
 
 

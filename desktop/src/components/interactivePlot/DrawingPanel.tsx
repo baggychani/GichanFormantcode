@@ -114,7 +114,7 @@ export function DrawingPanel({
               className={drawTool === "line" ? "is-active" : ""}
               onClick={() => activateDrawTool("line")}
             >
-              <PenLine size={16} />
+              <PenLine size={17} />
               <span>
                 <strong>선</strong>
                 <small>직선과 화살표</small>
@@ -125,7 +125,7 @@ export function DrawingPanel({
               className={drawTool === "area" ? "is-active" : ""}
               onClick={() => activateDrawTool("area")}
             >
-              <ScanSearch size={16} />
+              <ScanSearch size={17} />
               <span>
                 <strong>영역</strong>
                 <small>강조 범위</small>
@@ -136,7 +136,7 @@ export function DrawingPanel({
               className={drawTool === "reference" ? "is-active" : ""}
               onClick={() => activateDrawTool("reference")}
             >
-              <Ruler size={16} />
+              <Ruler size={17} />
               <span>
                 <strong>기준선</strong>
                 <small>축 기준 표시</small>
@@ -147,7 +147,7 @@ export function DrawingPanel({
               className={drawTool === "legend" ? "is-active" : ""}
               onClick={() => activateDrawTool("legend")}
             >
-              <List size={16} />
+              <List size={17} />
               <span>
                 <strong>범례</strong>
                 <small>선과 모음 설명</small>
@@ -159,7 +159,9 @@ export function DrawingPanel({
               <button
                 type="button"
                 className="wide-action primary drawing-defaults-button"
+                disabled={!drawTool}
                 onClick={() => {
+                  if (!drawTool) return;
                   openDrawDefaultsEditor(drawTool === "text" ? "text" : undefined);
                 }}
               >

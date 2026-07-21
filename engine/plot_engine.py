@@ -697,7 +697,7 @@ class PlotEngine:
                 fontfamily=axis_font,
             )
 
-        tick_label_size = int(design_settings.get("tick_label_size", 13))
+        tick_label_size = int(design_settings.get("tick_label_size", 12))
         ax.tick_params(axis="both", which="major", length=6, labelsize=tick_label_size)
         for lbl in ax.get_xticklabels() + ax.get_yticklabels():
             lbl.set_fontfamily(axis_font)
@@ -1255,7 +1255,7 @@ class PlotEngine:
                 fontfamily=axis_font,
             )
 
-        tick_label_size = int(common.get("tick_label_size", 13))
+        tick_label_size = int(common.get("tick_label_size", 12))
         ax.tick_params(axis="both", which="major", length=6, labelsize=tick_label_size)
         for lbl in ax.get_xticklabels() + ax.get_yticklabels():
             lbl.set_fontfamily(axis_font)
@@ -1474,7 +1474,7 @@ class PlotEngine:
                 fontweight="normal",
                 fontfamily=axis_font,
             )
-        tick_label_size = int(design_settings.get("tick_label_size", 13))
+        tick_label_size = int(design_settings.get("tick_label_size", 12))
         ax.tick_params(axis="both", which="major", length=6, labelsize=tick_label_size)
         for lbl in ax.get_xticklabels() + ax.get_yticklabels():
             lbl.set_fontfamily(axis_font)
@@ -1881,7 +1881,7 @@ class PlotEngine:
                 fontweight="normal",
                 fontfamily=axis_font,
             )
-        tick_label_size = int(common.get("tick_label_size", 13))
+        tick_label_size = int(common.get("tick_label_size", 12))
         ax.tick_params(axis="both", which="major", length=6, labelsize=tick_label_size)
         for lbl in ax.get_xticklabels() + ax.get_yticklabels():
             lbl.set_fontfamily(axis_font)

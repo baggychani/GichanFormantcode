@@ -67,7 +67,7 @@ def default_compare_design_settings(series_count: int = 2) -> dict[str, Any]:
             "font_family": "Noto Serif KR",
             "font_weight": "regular",
             "label_slash_wrap": False,
-            "tick_label_size": 13,
+            "tick_label_size": 12,
         },
         series_cfgs=[_default_series_cfg(i) for i in range(series_count)],
     )
