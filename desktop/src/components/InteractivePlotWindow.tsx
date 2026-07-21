@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent } from "react";
+import type { PointerEvent as ReactPointerEvent } from "react";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { open, save } from "@tauri-apps/plugin-dialog";
@@ -40,7 +40,6 @@ import {
   EMPTY_DESIGN,
   fontFamilyStyle,
   NORM_RANGE_DEFAULTS,
-  normalizedFontWeight,
   RANGE_DEFAULTS,
   rangesLookCompatible,
 } from "./interactivePlot/designDefaults";
@@ -49,21 +48,13 @@ import {
   clampDrawTextFontSize,
   clampDrawTextLineSpacing,
   DRAW_LINE_DEFAULT_COLOR,
-  DRAW_LINE_DEFAULT_WIDTH,
-  DRAW_POLYGON_DEFAULT_BORDER,
-  DRAW_POLYGON_DEFAULT_FILL,
   DRAW_TEXT_DEFAULT_COLOR,
   DRAW_TEXT_DEFAULT_FAMILY,
   DRAW_TEXT_DEFAULT_LINE_SPACING,
-  DRAW_TEXT_DEFAULT_SIZE,
   formatRefLabel,
   roundRefValue,
 } from "./interactivePlot/drawDefaults";
-import {
-  cacheLayerSession,
-  clampLayerListHeight,
-  MAX_CACHED_FILE_DESIGNS,
-} from "./interactivePlot/layerCache";
+import { MAX_CACHED_FILE_DESIGNS } from "./interactivePlot/layerCache";
 import * as plotGeometry from "./interactivePlot/plotGeometry";
 import {
   clearVowelAnalysisCache,
@@ -79,35 +70,26 @@ import { DrawingPanel } from "./interactivePlot/DrawingPanel";
 import { GlobalDesignPanel } from "./interactivePlot/GlobalDesignPanel";
 import { LayersPanel } from "./interactivePlot/LayersPanel";
 import { ShortcutHelpDialog } from "./interactivePlot/ShortcutHelpDialog";
+import { useDrawSession } from "./interactivePlot/useDrawSession";
+import {
+  type InteractiveRenderOverrides,
+  useLayerSession,
+} from "./interactivePlot/useLayerSession";
 import { VowelAnalysisShell } from "./interactivePlot/VowelAnalysisShell";
 import { FileSelectMenu } from "./interactivePlot/widgets";
 import type {
   DesignSettings,
-  DrawArrowHead,
-  DrawArrowMode,
-  DrawEditorKind,
-  DrawEditorMode,
   DrawHoverState,
   DrawLegendObject,
-  DrawLineObject,
   DrawObject,
   DrawPoint,
-  DrawPolygonObject,
   DrawReferenceObject,
   DrawTextObject,
   DrawTool,
-  LayerOverrides,
-  LayerSession,
-  LayerVisibility,
   LeftPanel,
-  LegendDraft,
-  LegendStyleDefaults,
-  LineStyleDraft,
   PlotLabel,
-  PolygonStyleDraft,
   Ranges,
   ReferencePreview,
-  ReferenceStyleDraft,
   RightPanel,
   RulerContext,
   RulerDisplayMode,
@@ -115,8 +97,6 @@ import type {
   RulerMeasurement,
   RulerPoint,
   SidecarEvent,
-  TextInputState,
-  TextStyleDraft,
   Tool,
 } from "./interactivePlot/types";
 import "./InteractivePlotWindow.css";
@@ -150,65 +130,15 @@ export function InteractivePlotWindow() {
   const [tool, setTool] = useState<Tool>("select");
   const [leftPanel, setLeftPanel] = useState<LeftPanel>("analysis");
   const [rightPanel, setRightPanel] = useState<RightPanel>("layers");
-  const [drawTool, setDrawTool] = useState<DrawTool | null>(null);
-  const [drawColor, setDrawColor] = useState<string | null>(DRAW_LINE_DEFAULT_COLOR);
-  const [drawWidth, setDrawWidth] = useState(DRAW_LINE_DEFAULT_WIDTH);
-  const [drawLineStyle, setDrawLineStyle] = useState("-");
-  const [drawArrowMode, setDrawArrowMode] = useState<DrawArrowMode>("none");
-  const [drawArrowHead, setDrawArrowHead] = useState<DrawArrowHead>("stealth");
-  const [drawRefColor, setDrawRefColor] = useState<string | null>(null);
-  const [drawRefStyle, setDrawRefStyle] = useState("-");
-  const [drawPolyBorderStyle, setDrawPolyBorderStyle] = useState("-");
-  const [drawPolyBorderColor, setDrawPolyBorderColor] = useState(DRAW_POLYGON_DEFAULT_BORDER);
-  const [drawPolyFillColor, setDrawPolyFillColor] = useState<string | null>(DRAW_POLYGON_DEFAULT_FILL);
-  const [drawPolyFillOpacity, setDrawPolyFillOpacity] = useState(0.15);
-  const [drawTextFontSize, setDrawTextFontSize] = useState(DRAW_TEXT_DEFAULT_SIZE);
-  const [drawTextFontFamily, setDrawTextFontFamily] = useState(DRAW_TEXT_DEFAULT_FAMILY);
-  const [drawTextFontWeight, setDrawTextFontWeight] = useState<DesignSettings["font_weight"]>("regular");
-  const [drawTextItalic, setDrawTextItalic] = useState(false);
-  const [drawTextLineSpacing, setDrawTextLineSpacing] = useState(DRAW_TEXT_DEFAULT_LINE_SPACING);
-  const [drawTextColor, setDrawTextColor] = useState(DRAW_TEXT_DEFAULT_COLOR);
   const [draggingTextId, setDraggingTextId] = useState<string | null>(null);
   const [hoveredDrawTextId, setHoveredDrawTextId] = useState<string | null>(null);
   const [textDragPointer, setTextDragPointer] = useState<{ x: number; y: number } | null>(null);
   const textDragRef = useRef<{ id: string; offsetX: number; offsetY: number } | null>(null);
   const textDragFrameRef = useRef<number | null>(null);
   const textHasMovedRef = useRef(false);
-  const [legendDefaults, setLegendDefaults] = useState<LegendStyleDefaults>({
-    name: "범례",
-    font_size: 9,
-    font_family: "Noto Sans KR",
-    font_weight: "regular",
-    font_italic: false,
-    show_border: true,
-    border_style: "-",
-    border_color: "#3f4650",
-    show_fill: true,
-    fill_color: "#ffffff",
-    fill_opacity: 1,
-  });
-  const [drawObjectsByFile, setDrawObjectsByFile] = useState<Record<number, DrawObject[]>>({});
-  const [drawingPoints, setDrawingPoints] = useState<DrawPoint[]>([]);
-  const [drawHover, setDrawHover] = useState<DrawHoverState | null>(null);
-  const [draggingDrawObject, setDraggingDrawObject] = useState<string | null>(null);
-  const [drawDropTarget, setDrawDropTarget] = useState<{ id: string; after: boolean } | null>(null);
-  const [selectedDrawObjectId, setSelectedDrawObjectId] = useState<string | null>(null);
-  const [selectedDrawObjectIds, setSelectedDrawObjectIds] = useState<Set<string>>(() => new Set());
-  const drawSelectionAnchorRef = useRef("");
   const [draggingLegend, setDraggingLegend] = useState(false);
   const [legendDragPreview, setLegendDragPreview] = useState<Pick<DrawLegendObject, "fx" | "fy" | "width_frac" | "height_frac"> | null>(null);
-  const [referenceMode, setReferenceMode] = useState<"horizontal" | "vertical">("horizontal");
   const [referencePreview, setReferencePreview] = useState<ReferencePreview | null>(null);
-  const [drawEditorOpen, setDrawEditorOpen] = useState(false);
-  const [drawEditorMode, setDrawEditorMode] = useState<DrawEditorMode>("defaults");
-  const [drawEditorKind, setDrawEditorKind] = useState<DrawEditorKind>("line");
-  const [drawEditorObjectId, setDrawEditorObjectId] = useState<string | null>(null);
-  const [lineDraft, setLineDraft] = useState<LineStyleDraft | null>(null);
-  const [polygonDraft, setPolygonDraft] = useState<PolygonStyleDraft | null>(null);
-  const [referenceDraft, setReferenceDraft] = useState<ReferenceStyleDraft | null>(null);
-  const [legendDraft, setLegendDraft] = useState<LegendDraft | null>(null);
-  const [textDraft, setTextDraft] = useState<TextStyleDraft | null>(null);
-  const [textInput, setTextInput] = useState<TextInputState | null>(null);
   const [globalDesignLocked, setGlobalDesignLocked] = useState(true);
   const [leftOpen, setLeftOpen] = useState(true);
   const [rightOpen, setRightOpen] = useState(true);
@@ -216,52 +146,25 @@ export function InteractivePlotWindow() {
   const [sigma, setSigma] = useState("2.0");
   const [showEllipse, setShowEllipse] = useState(true);
   const [design, setDesign] = useState<DesignSettings>(EMPTY_DESIGN);
-  const [layerState, setLayerState] = useState<Record<string, LayerVisibility>>({});
-  const [layerOverrides, setLayerOverrides] = useState<LayerOverrides>({});
-  const [layerOrder, setLayerOrder] = useState<string[]>([]);
-  const [selectedLayer, setSelectedLayer] = useState("");
-  const [selectedLayers, setSelectedLayers] = useState<Set<string>>(new Set());
-  const selectionAnchorRef = useRef("");
-  const [expandedLayers, setExpandedLayers] = useState<Set<string>>(new Set());
-  const [lockedLayers, setLockedLayers] = useState<Set<string>>(new Set());
-  const [draggingLayer, setDraggingLayer] = useState<string | null>(null);
-  const [dropTarget, setDropTarget] = useState<{ vowel: string; after: boolean } | null>(null);
-  const [layerListHeight, setLayerListHeight] = useState(() => clampLayerListHeight(Math.min(460, Math.max(360, Math.round(window.innerHeight * 0.46)))));
   const [navigating, setNavigating] = useState(false);
   const [busy, setBusy] = useState(false);
   const [engineConnected, setEngineConnected] = useState(false);
   const [vowelAnalysisOpen, setVowelAnalysisOpen] = useState(false);
   const [shortcutHelpOpen, setShortcutHelpOpen] = useState(false);
   const [message, setMessage] = useState("분석 엔진과 연결하는 중입니다.");
-  const layerRowRefs = useRef(new Map<string, HTMLDivElement>());
-  const layerListRef = useRef<HTMLDivElement | null>(null);
-  const layerOrderRef = useRef<string[]>([]);
-  const dragStartOrderRef = useRef<string[]>([]);
-  const dragCandidateOrderRef = useRef<string[]>([]);
-  const draggedLayersRef = useRef<string[]>([]);
-  const draggingLayerRef = useRef<string | null>(null);
-  const dragMovedRef = useRef(false);
-  const dragPointerYRef = useRef(0);
-  const dragScrollFrameRef = useRef<number | null>(null);
-  const flipFrameRef = useRef<number | null>(null);
-  const dragListenersRef = useRef<{
-    move: (event: PointerEvent) => void;
-    up: (event: PointerEvent) => void;
-    cancel: (event: PointerEvent) => void;
-  } | null>(null);
   const aliveRef = useRef(true);
   const navigatingRef = useRef(false);
   const currentIndexRef = useRef(0);
-  const resizeRef = useRef<{ startY: number; startHeight: number } | null>(null);
   // A reopened Tauri window must not accept an older preview event from the
   // same sidecar just because its local counter started at zero again.
   const renderRequestRef = useRef(Date.now() * 1000);
   const renderTimerRef = useRef<number | null>(null);
-  const layerSessionsRef = useRef(new Map<string, LayerSession>());
+  const renderInteractiveRef = useRef<(overrides?: InteractiveRenderOverrides) => void | Promise<void>>(async () => {});
+  const scheduleInteractiveRenderRef = useRef<(overrides?: InteractiveRenderOverrides) => void>(() => {});
+  const applyLegendBoundsRef = useRef<(legendBounds: Record<string, { width_frac: number; height_frac: number }>) => void>(() => {});
   const plotPaperRef = useRef<HTMLDivElement | null>(null);
   const plotImageRef = useRef<HTMLImageElement | null>(null);
   const plotLabelFrameRef = useRef<number | null>(null);
-  const drawIdRef = useRef(0);
   const plotLabelDragStartRef = useRef<{ x: number; y: number } | null>(null);
   const plotLabelHasMovedRef = useRef(false);
   const legendDragRef = useRef<{ startX: number; startY: number; fx: number; fy: number } | null>(null);
@@ -271,7 +174,6 @@ export function InteractivePlotWindow() {
   const lineMoveRef = useRef<(clientX: number, clientY: number) => void>(() => {});
   const areaMoveRef = useRef<(clientX: number, clientY: number) => void>(() => {});
   const legendPointerRef = useRef<Pick<DrawLegendObject, "fx" | "fy" | "width_frac" | "height_frac"> | null>(null);
-  const drawObjectDragRef = useRef<{ id: string; ids: string[]; startY: number; moved: boolean } | null>(null);
   const globalDesignByFileRef = useRef(new Map<string, DesignSettings>());
   const designInitializedRef = useRef(false);
   const [previewLoading, setPreviewLoading] = useState(true);
@@ -332,27 +234,7 @@ export function InteractivePlotWindow() {
         setRulerContext(nextRuler);
         const legendBounds = nextRuler?.legend_bounds;
         if (legendBounds) {
-          setDrawObjectsByFile((previous) => {
-            let changed = false;
-            const next: Record<number, DrawObject[]> = { ...previous };
-            for (const [key, list] of Object.entries(previous)) {
-              const updated = list.map((obj) => {
-                if (obj.type !== "legend") return obj;
-                const measured = legendBounds[obj.id];
-                if (!measured) return obj;
-                if (
-                  Math.abs(measured.width_frac - obj.width_frac) < 0.002
-                  && Math.abs(measured.height_frac - obj.height_frac) < 0.002
-                ) {
-                  return obj;
-                }
-                changed = true;
-                return { ...obj, width_frac: measured.width_frac, height_frac: measured.height_frac };
-              });
-              next[Number(key)] = updated;
-            }
-            return changed ? next : previous;
-          });
+          applyLegendBoundsRef.current(legendBounds);
         }
         setLegendDragPreview(null);
         setPlotLabelPreviewVowel(null);
@@ -409,18 +291,6 @@ export function InteractivePlotWindow() {
   }, [refresh]);
 
   useEffect(() => {
-    if (!textInput) return;
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key !== "Escape") return;
-      event.preventDefault();
-      event.stopPropagation();
-      setTextInput(null);
-    };
-    window.addEventListener("keydown", onKeyDown, true);
-    return () => window.removeEventListener("keydown", onKeyDown, true);
-  }, [textInput]);
-
-  useEffect(() => {
     const applySharedTheme = () => {
       const saved = window.localStorage.getItem("gichanformant-theme");
       const theme = saved === "dark" || saved === "light"
@@ -452,18 +322,12 @@ export function InteractivePlotWindow() {
 
   useEffect(() => () => {
     if (renderTimerRef.current !== null) window.clearTimeout(renderTimerRef.current);
-    removeLayerDragListeners();
-    if (dragScrollFrameRef.current !== null) cancelAnimationFrame(dragScrollFrameRef.current);
-    if (flipFrameRef.current !== null) cancelAnimationFrame(flipFrameRef.current);
     if (textDragFrameRef.current !== null) cancelAnimationFrame(textDragFrameRef.current);
     if (legendFrameRef.current !== null) cancelAnimationFrame(legendFrameRef.current);
     if (plotLabelFrameRef.current !== null) cancelAnimationFrame(plotLabelFrameRef.current);
-    dragScrollFrameRef.current = null;
-    flipFrameRef.current = null;
     textDragFrameRef.current = null;
     legendFrameRef.current = null;
     plotLabelFrameRef.current = null;
-    draggingLayerRef.current = null;
   }, []);
 
   const analysis = state?.analysis;
@@ -477,12 +341,139 @@ export function InteractivePlotWindow() {
   const currentSourcePosition = Math.max(0, sources.findIndex((source) => source.index === currentIndex));
   const hasCombined = currentSource?.is_combined === true;
   const currentFileKey = currentSource ? String(currentSource.path ?? `${currentSource.index}:${currentSource.name}`) : "";
-  const currentDrawObjects = drawObjectsByFile[currentIndex] ?? [];
-  const currentDrawLines = currentDrawObjects.filter((object): object is DrawLineObject => object.type === "line");
-  const currentLegend = currentDrawObjects.find((object): object is DrawLegendObject => object.type === "legend") ?? null;
   const currentVowels = state?.current_vowels ?? [];
+  const {
+    layerState,
+    layerOverrides,
+    layerOrder,
+    selectedLayer,
+    selectedLayers,
+    expandedLayers,
+    setExpandedLayers,
+    lockedLayers,
+    draggingLayer,
+    dropTarget,
+    layerListHeight,
+    selectedLocked,
+    effective,
+    layerRowRefs,
+    layerListRef,
+    draggingLayerRef,
+    selectLayer,
+    updateLayerDesign,
+    toggleLayerEye,
+    toggleLayerSemi,
+    toggleAllLayerEyes,
+    toggleAllLayerSemi,
+    toggleLock,
+    resetSelectedLayer,
+    removeLayerEffect,
+    beginLayerDrag,
+    moveLayerDrag,
+    commitLayerDrag,
+    cancelLayerDrag,
+    resetLayerOrder,
+    moveLayerByStep,
+    beginLayerPanelResize,
+    resizeLayerPanels,
+    endLayerPanelResize,
+    cancelLayerPanelResize,
+    cacheCurrentLayerSession,
+    hydrateLayersForFile,
+    applyLayersAfterNavigate,
+    resetLayers,
+  } = useLayerSession({
+    currentVowels,
+    aliveRef,
+    setMessage,
+    design,
+    renderInteractive: (overrides) => renderInteractiveRef.current(overrides),
+    scheduleInteractiveRender: (overrides) => scheduleInteractiveRenderRef.current(overrides),
+  });
   const plotType = analysis?.type ?? "f1_f2";
   const plotUnits = useMemo(() => resolvePlotUnits(analysis), [analysis]);
+  const {
+    drawTool,
+    setDrawTool,
+    drawColor,
+    drawWidth,
+    drawLineStyle,
+    drawArrowMode,
+    drawArrowHead,
+    drawRefColor,
+    drawRefStyle,
+    drawPolyBorderColor,
+    drawPolyFillColor,
+    drawPolyFillOpacity,
+    drawingPoints,
+    setDrawingPoints,
+    drawHover,
+    setDrawHover,
+    draggingDrawObject,
+    drawDropTarget,
+    selectedDrawObjectIds,
+    referenceMode,
+    setReferenceMode,
+    drawEditorOpen,
+    drawEditorMode,
+    drawEditorKind,
+    lineDraft,
+    setLineDraft,
+    polygonDraft,
+    setPolygonDraft,
+    referenceDraft,
+    setReferenceDraft,
+    legendDraft,
+    setLegendDraft,
+    textDraft,
+    setTextDraft,
+    textInput,
+    setTextInput,
+    drawIdRef,
+    currentDrawObjects,
+    currentDrawLines,
+    currentLegend,
+    drawObjectsTopFirst,
+    persistDrawObjects,
+    selectDrawObject,
+    focusDrawObject,
+    deleteDrawObjects,
+    toggleDrawObjectVisibility,
+    toggleDrawObjectSemi,
+    toggleAllDrawVisibility,
+    toggleAllDrawSemi,
+    beginDrawObjectDrag,
+    moveDrawObjectDrag,
+    commitDrawObjectDrag,
+    cancelDrawObjectDrag,
+    closeDrawEditor,
+    openDrawDefaultsEditor,
+    openDrawLayerEditor,
+    saveDrawEditor,
+    finishDrawLine,
+    finishDrawPolygon,
+    confirmTextInput,
+    enterDrawMode,
+    activateDrawTool,
+    hydrateDrawObjectsForFile,
+    applyLegendBounds,
+    beginTextInput,
+    resetTransientDraw,
+  } = useDrawSession({
+    currentIndex,
+    currentSourceName: currentSource?.name,
+    normalization: analysis?.normalization ?? null,
+    setMessage,
+    setTool,
+    setRightPanel,
+    setRightOpen,
+    renderInteractive: (overrides) => renderInteractiveRef.current(overrides),
+    onResetCanvasDrawPreview: () => {
+      referencePointerRef.current = null;
+      setReferencePreview(null);
+    },
+  });
+  applyLegendBoundsRef.current = applyLegendBounds;
   const normalization = plotUnits.normalization;
   const xAxis = plotUnits.xAxisName;
   const yAxis = plotUnits.yAxisName;
@@ -545,37 +536,21 @@ export function InteractivePlotWindow() {
       void navigateTo(currentIndex);
     }
   }, [combinedVisible, currentIndex, rawCurrentIndex, sources.length]);
-  const selectedOverride = selectedLayer ? layerOverrides[selectedLayer] ?? {} : {};
-  const selectedLocked = selectedLayer ? lockedLayers.has(selectedLayer) : false;
 
   useEffect(() => {
     currentIndexRef.current = currentIndex;
   }, [currentIndex]);
 
   useEffect(() => {
-    setSelectedDrawObjectId(null);
-    setSelectedDrawObjectIds(new Set());
-    drawSelectionAnchorRef.current = "";
-  }, [currentIndex]);
-
-  useEffect(() => {
-    const clampOnResize = () => setLayerListHeight((height) => clampLayerListHeight(height));
-    window.addEventListener("resize", clampOnResize);
-    return () => window.removeEventListener("resize", clampOnResize);
-  }, []);
-
-  useEffect(() => {
-    const defaultOrder = sortVowels(currentVowels);
-    const cached = currentFileKey ? layerSessionsRef.current.get(currentFileKey) : undefined;
     const session = state?.plot_session;
     const sessionKey = String(currentIndex);
-    const sessionState = session?.vowel_filter_state_by_file?.[sessionKey] as Record<string, LayerVisibility> | undefined;
-    const sessionOverrides = session?.layer_design_overrides_by_file?.[sessionKey] as LayerOverrides | undefined;
-    const sessionLocked = session?.layer_locked_vowels_by_file?.[sessionKey];
-    const sessionOrder = session?.layer_order_by_file?.[sessionKey];
     const sessionDrawObjects = session?.draw_objects_by_file?.[sessionKey] as DrawObject[] | undefined;
-    setLayerState(sessionState ?? cached?.state ?? Object.fromEntries(currentVowels.map((vowel) => [vowel, "ON"])));
-    setLayerOverrides(sessionOverrides ?? cached?.overrides ?? {});
+    hydrateLayersForFile({
+      fileKey: currentFileKey,
+      vowels: currentVowels,
+      sessionKey,
+      plotSession: session,
+    });
     const sessionRanges = session?.ranges as Ranges | undefined;
     const useBark = analysis?.use_bark_units ?? false;
     const canReuseSessionRanges = sessionRanges
@@ -590,24 +565,10 @@ export function InteractivePlotWindow() {
       setDesign(sessionDesign);
       designInitializedRef.current = true;
     }
-    setSelectedLayer(defaultOrder[0] ?? "");
-    setSelectedLayers(new Set(defaultOrder[0] ? [defaultOrder[0]] : []));
-    selectionAnchorRef.current = defaultOrder[0] ?? "";
-    setExpandedLayers(cached?.expanded ? new Set(cached.expanded) : new Set());
-    setLockedLayers(sessionLocked ? new Set(sessionLocked) : cached ? new Set(cached.locked) : new Set());
-    if (sessionDrawObjects) {
-      setDrawObjectsByFile((previous) => ({ ...previous, [currentIndex]: sessionDrawObjects }));
-    }
-    setDrawingPoints([]);
-    setDrawHover(null);
-    const storedOrder = sessionOrder ?? cached?.order ?? layerOrderRef.current;
-    const sameSet = storedOrder.length === defaultOrder.length && storedOrder.every((vowel) => defaultOrder.includes(vowel));
-    const nextOrder = sameSet ? storedOrder : defaultOrder;
-    layerOrderRef.current = nextOrder;
-    setLayerOrder(nextOrder);
+    hydrateDrawObjectsForFile({ index: currentIndex, sessionDrawObjects });
     // Hydrate from durable session when the *file* changes — not on every
     // plot_session revision (those arrive while local controls are mid-edit).
-  }, [analysis?.use_bark_units, canonicalDesign, currentFileKey, currentIndex, currentVowels.join("\u0000"), defaultRanges, normalization]);
+  }, [analysis?.use_bark_units, canonicalDesign, currentFileKey, currentIndex, currentVowels.join("\u0000"), defaultRanges, hydrateDrawObjectsForFile, hydrateLayersForFile, normalization]);
 
   const unitModeKey = [
     normalization ?? "",
@@ -658,17 +619,7 @@ export function InteractivePlotWindow() {
     });
   }, [currentDrawObjects, defaultRanges, design, layerOrder, layerOverrides, layerState, lockedLayers, normalization, showEllipse, sigma, state?.capabilities.can_plot, unitModeKey]);
 
-  const renderInteractive = async (overrides: {
-    design?: DesignSettings;
-    layers?: Record<string, LayerVisibility>;
-    ranges?: Ranges;
-    sigma?: string;
-    showEllipse?: boolean;
-    layerOverrides?: LayerOverrides;
-    layerOrder?: string[];
-    labelOffsets?: Record<string, [number, number]>;
-    drawObjects?: DrawObject[];
-  } = {}) => {
+  const renderInteractive = async (overrides: InteractiveRenderOverrides = {}) => {
     if (!state?.capabilities.can_plot) return;
     if (renderTimerRef.current !== null) {
       window.clearTimeout(renderTimerRef.current);
@@ -695,8 +646,9 @@ export function InteractivePlotWindow() {
       setMessage(`설정을 적용하지 못했습니다: ${String(err)}`);
     }
   };
+  renderInteractiveRef.current = renderInteractive;
 
-  const scheduleInteractiveRender = (overrides: Parameters<typeof renderInteractive>[0]) => {
+  const scheduleInteractiveRender = (overrides: InteractiveRenderOverrides = {}) => {
     if (renderTimerRef.current !== null) window.clearTimeout(renderTimerRef.current);
     renderTimerRef.current = window.setTimeout(() => {
       renderTimerRef.current = null;
@@ -704,45 +656,7 @@ export function InteractivePlotWindow() {
       void renderInteractive(overrides);
     }, 70);
   };
-
-  const selectLayer = (vowel: string, event: ReactMouseEvent<HTMLButtonElement>) => {
-    event.preventDefault();
-    const order = layerOrderRef.current;
-    const anchor = selectionAnchorRef.current;
-    const withRange = event.shiftKey && anchor && order.includes(anchor);
-    if (withRange) {
-      const start = order.indexOf(anchor);
-      const end = order.indexOf(vowel);
-      const range = order.slice(Math.min(start, end), Math.max(start, end) + 1);
-      setSelectedLayers((previous) => {
-        if (event.ctrlKey || event.metaKey) return new Set([...previous, ...range]);
-        return new Set(range);
-      });
-      setSelectedLayer(vowel);
-      return;
-    }
-    if (event.ctrlKey || event.metaKey) {
-      setSelectedLayers((previous) => {
-        const next = new Set(previous);
-        if (next.has(vowel)) next.delete(vowel);
-        else next.add(vowel);
-        const nextPrimary = next.has(vowel) ? vowel : [...next][0] ?? "";
-        setSelectedLayer(nextPrimary);
-        if (next.size) selectionAnchorRef.current = nextPrimary;
-        return next;
-      });
-      return;
-    }
-    if (selectedLayer === vowel) {
-      setSelectedLayer("");
-      setSelectedLayers(new Set());
-      selectionAnchorRef.current = "";
-      return;
-    }
-    setSelectedLayers(new Set([vowel]));
-    setSelectedLayer(vowel);
-    selectionAnchorRef.current = vowel;
-  };
+  scheduleInteractiveRenderRef.current = scheduleInteractiveRender;
 
   const navigateTo = useCallback(async (sourceIndex: number) => {
     if (!sources.length || navigatingRef.current) return;
@@ -761,18 +675,11 @@ export function InteractivePlotWindow() {
     setRulerStart(null);
     setRulerHover(null);
     setRulerPointer(null);
-    setDrawingPoints([]);
-    setDrawHover(null);
+    resetTransientDraw();
     try {
        if (currentFileKey) {
          cacheMapSet(globalDesignByFileRef.current, currentFileKey, design, MAX_CACHED_FILE_DESIGNS);
-         cacheLayerSession(layerSessionsRef.current, currentFileKey, {
-          state: { ...layerState },
-          overrides: { ...layerOverrides },
-          locked: new Set(lockedLayers),
-          order: [...layerOrderRef.current],
-          expanded: new Set(expandedLayers),
-        });
+         cacheCurrentLayerSession(currentFileKey);
       }
        const nextFileKey = nextSource ? String(nextSource.path ?? `${nextSource.index}:${nextSource.name}`) : "";
        const nextDesignForFile = globalDesignLocked
@@ -798,17 +705,14 @@ export function InteractivePlotWindow() {
       const nextVowels = next.current_vowels ?? [];
        const nextStateSource = next.sources.find((source) => source.index === target);
        const resolvedNextFileKey = nextStateSource ? String(nextStateSource.path ?? `${nextStateSource.index}:${nextStateSource.name}`) : nextFileKey;
-      const cached = nextFileKey ? layerSessionsRef.current.get(nextFileKey) : undefined;
       const sessionKey = String(target);
       const nextSession = next.plot_session;
-      const defaultOrder = sortVowels(nextVowels);
-      const previousOrder = layerOrderRef.current;
-      const storedOrder = nextSession.layer_order_by_file?.[sessionKey] ?? cached?.order ?? previousOrder;
-      const storedSameSet = storedOrder.length === defaultOrder.length && storedOrder.every((vowel) => defaultOrder.includes(vowel));
-      const nextOrder = storedSameSet ? storedOrder : defaultOrder;
-      const nextLayers = (nextSession.vowel_filter_state_by_file?.[sessionKey] as Record<string, LayerVisibility> | undefined) ?? cached?.state ?? Object.fromEntries(nextVowels.map((vowel) => [vowel, "ON" as LayerVisibility]));
-      const nextOverrides = (nextSession.layer_design_overrides_by_file?.[sessionKey] as LayerOverrides | undefined) ?? cached?.overrides ?? {};
-      const nextExpanded = cached?.expanded ? new Set(cached.expanded) : new Set<string>();
+      applyLayersAfterNavigate({
+        fileKey: nextFileKey,
+        vowels: nextVowels,
+        sessionKey,
+        plotSession: nextSession,
+      });
       // Ranges and global design are intentionally shared across files in PlotSessionState.
       const sessionNextRanges = nextSession.ranges as Ranges | undefined;
       const nextRanges = sessionNextRanges
@@ -821,13 +725,6 @@ export function InteractivePlotWindow() {
          : globalDesignByFileRef.current.get(resolvedNextFileKey) ?? ({ ...canonicalDesign, ...(nextSession.design_settings ?? {}) } as DesignSettings);
       const nextSigma = nextSession.sigma ?? "2";
       const nextShowEllipse = nextSession.show_ellipse ?? true;
-      layerOrderRef.current = nextOrder;
-      setLayerOrder(nextOrder);
-      setLayerState(nextLayers);
-      setLayerOverrides(nextOverrides);
-      setExpandedLayers(nextExpanded);
-      const nextLocked = new Set(nextSession.layer_locked_vowels_by_file?.[sessionKey] ?? cached?.locked ?? []);
-      setLockedLayers(nextLocked);
       setRanges(nextRanges);
        setDesign(nextDesign);
        cacheMapSet(globalDesignByFileRef.current, resolvedNextFileKey, nextDesign, MAX_CACHED_FILE_DESIGNS);
@@ -842,7 +739,7 @@ export function InteractivePlotWindow() {
       navigatingRef.current = false;
       if (aliveRef.current) setNavigating(false);
     }
-  }, [analysis?.use_bark_units, canonicalDesign, currentFileKey, defaultRanges, design, expandedLayers, globalDesignLocked, layerOverrides, layerState, lockedLayers, normalization, ranges, showEllipse, sigma, sources]);
+  }, [analysis?.use_bark_units, applyLayersAfterNavigate, cacheCurrentLayerSession, canonicalDesign, currentFileKey, defaultRanges, design, globalDesignLocked, normalization, ranges, resetTransientDraw, showEllipse, sigma, sources]);
 
   const navigateByPosition = useCallback((position: number) => {
     const target = sources[Math.max(0, Math.min(position, sources.length - 1))];
@@ -1002,347 +899,15 @@ export function InteractivePlotWindow() {
     scheduleInteractiveRender({ design: next });
   };
 
-  const updateLayerDesign = (patch: Partial<DesignSettings>) => {
-    if (!selectedLayer || selectedLocked) return;
-    const next = { ...layerOverrides, [selectedLayer]: { ...selectedOverride, ...patch } };
-    setLayerOverrides(next);
-    setExpandedLayers((previous) => new Set(previous).add(selectedLayer));
-    scheduleInteractiveRender({ layerOverrides: next });
-  };
-
-  const toggleLayerEye = (vowel: string) => {
-    const nextState: LayerVisibility = (layerState[vowel] ?? "ON") === "OFF" ? "ON" : "OFF";
-    const next = { ...layerState, [vowel]: nextState };
-    setLayerState(next);
-    void renderInteractive({ layers: next });
-  };
-
-  const toggleLayerSemi = (vowel: string) => {
-    const nextState: LayerVisibility = (layerState[vowel] ?? "ON") === "SEMI" ? "ON" : "SEMI";
-    const next = { ...layerState, [vowel]: nextState };
-    setLayerState(next);
-    void renderInteractive({ layers: next });
-  };
-
-  const toggleAllLayerEyes = () => {
-    const allOff = currentVowels.length > 0 && currentVowels.every((vowel) => layerState[vowel] === "OFF");
-    const next = { ...layerState };
-    currentVowels.forEach((vowel) => { next[vowel] = allOff ? "ON" : "OFF"; });
-    setLayerState(next);
-    void renderInteractive({ layers: next });
-  };
-
-  const toggleAllLayerSemi = () => {
-    const visible = currentVowels.filter((vowel) => layerState[vowel] !== "OFF");
-    const allSemi = visible.length > 0 && visible.every((vowel) => layerState[vowel] === "SEMI");
-    const next = { ...layerState };
-    visible.forEach((vowel) => { next[vowel] = allSemi ? "ON" : "SEMI"; });
-    setLayerState(next);
-    void renderInteractive({ layers: next });
-  };
-
-  const toggleLock = async (vowel: string) => {
-    const previous = new Set(lockedLayers);
-    const next = new Set(previous);
-    if (next.has(vowel)) next.delete(vowel);
-    else next.add(vowel);
-    setLockedLayers(next);
-    try {
-      await callSidecar("update_interactive_session", { options: { locked_layers: [...next] } });
-    } catch (err) {
-      setLockedLayers(previous);
-      setMessage(`레이어 잠금 상태를 저장하지 못했습니다. ${String(err)}`);
-    }
-  };
-
   const resetPlot = () => {
     const nextRanges = defaultRanges;
-    const nextLayers = Object.fromEntries(currentVowels.map((vowel) => [vowel, "ON" as LayerVisibility]));
+    const nextLayers = resetLayers(currentVowels);
     setRanges(nextRanges);
     setSigma("2.0");
     setShowEllipse(true);
     setDesign(canonicalDesign);
-    setLayerState(nextLayers);
-    setLayerOverrides({});
     setGlobalDesignLocked(false);
     void renderInteractive({ design: canonicalDesign, layers: nextLayers, ranges: nextRanges, sigma: "2", showEllipse: true, layerOverrides: {}, layerOrder: sortVowels(currentVowels) });
-  };
-
-  const resetSelectedLayer = () => {
-    if (!selectedLayer || selectedLocked) return;
-    const next = { ...layerOverrides };
-    delete next[selectedLayer];
-    setLayerOverrides(next);
-    setExpandedLayers((previous) => {
-      const expanded = new Set(previous);
-      expanded.delete(selectedLayer);
-      return expanded;
-    });
-    void renderInteractive({ layerOverrides: next });
-  };
-
-  const removeLayerEffect = (vowel: string, key: keyof DesignSettings) => {
-    if (lockedLayers.has(vowel)) return;
-    const current = layerOverrides[vowel];
-    if (!current || !(key in current)) return;
-    const nextLayer = { ...current };
-    delete nextLayer[key];
-    const next = { ...layerOverrides };
-    if (Object.keys(nextLayer).length) next[vowel] = nextLayer;
-    else delete next[vowel];
-    setLayerOverrides(next);
-    if (!Object.keys(nextLayer).length) {
-      setExpandedLayers((previous) => {
-        const expanded = new Set(previous);
-        expanded.delete(vowel);
-        return expanded;
-      });
-    }
-    void renderInteractive({ layerOverrides: next });
-  };
-
-  const cancelFlipFrame = () => {
-    if (flipFrameRef.current !== null) cancelAnimationFrame(flipFrameRef.current);
-    flipFrameRef.current = null;
-  };
-
-  const animateLayerOrder = (nextOrder: string[]) => {
-    cancelFlipFrame();
-    const previousTops = new Map<string, number>();
-    layerRowRefs.current.forEach((element, vowel) => previousTops.set(vowel, element.offsetTop));
-    layerOrderRef.current = nextOrder;
-    setLayerOrder(nextOrder);
-    flipFrameRef.current = requestAnimationFrame(() => {
-      flipFrameRef.current = null;
-      if (!aliveRef.current) return;
-      layerRowRefs.current.forEach((element, vowel) => {
-        element.getAnimations().forEach((animation) => animation.cancel());
-        if (vowel === draggingLayerRef.current) return;
-        const previousTop = previousTops.get(vowel);
-        if (previousTop === undefined) return;
-        const delta = previousTop - element.offsetTop;
-        if (Math.abs(delta) < 1) return;
-        element.animate(
-          [{ transform: `translateY(${delta}px)` }, { transform: "translateY(0)" }],
-          { duration: 210, easing: "cubic-bezier(.22,.8,.24,1)" },
-        );
-      });
-    });
-  };
-
-  const removeLayerDragListeners = () => {
-    const listeners = dragListenersRef.current;
-    if (!listeners) return;
-    window.removeEventListener("pointermove", listeners.move);
-    window.removeEventListener("pointerup", listeners.up);
-    window.removeEventListener("pointercancel", listeners.cancel);
-    dragListenersRef.current = null;
-  };
-
-  const beginLayerDrag = (event: ReactPointerEvent<HTMLButtonElement>, vowel: string) => {
-    if (event.button !== 0) return;
-    event.preventDefault();
-    stopLayerDragScroll();
-    cancelFlipFrame();
-    dragStartOrderRef.current = [...layerOrderRef.current];
-    dragCandidateOrderRef.current = [...layerOrderRef.current];
-    draggedLayersRef.current = selectedLayers.has(vowel) && selectedLayers.size > 1
-      ? layerOrderRef.current.filter((item) => selectedLayers.has(item))
-      : [vowel];
-    draggingLayerRef.current = vowel;
-    dragMovedRef.current = false;
-    dragPointerYRef.current = event.clientY;
-    setDraggingLayer(vowel);
-    const pointerId = event.pointerId;
-    const onMove = (nativeEvent: PointerEvent) => {
-      if (nativeEvent.pointerId !== pointerId || !draggingLayerRef.current) return;
-      nativeEvent.preventDefault();
-      dragPointerYRef.current = nativeEvent.clientY;
-      repositionDraggedLayer(nativeEvent.clientY);
-    };
-    const onUp = (nativeEvent: PointerEvent) => {
-      if (nativeEvent.pointerId !== pointerId) return;
-      nativeEvent.preventDefault();
-      commitLayerDrag(nativeEvent);
-    };
-    const onCancel = (nativeEvent: PointerEvent) => {
-      if (nativeEvent.pointerId !== pointerId) return;
-      cancelLayerDrag();
-    };
-    dragListenersRef.current = { move: onMove, up: onUp, cancel: onCancel };
-    window.addEventListener("pointermove", onMove, { passive: false });
-    window.addEventListener("pointerup", onUp, { passive: false });
-    window.addEventListener("pointercancel", onCancel);
-    const autoScroll = () => {
-      const list = layerListRef.current;
-      if (!aliveRef.current || !draggingLayerRef.current || !list) {
-        dragScrollFrameRef.current = null;
-        return;
-      }
-      const bounds = list.getBoundingClientRect();
-      const edge = 34;
-      const pointerY = dragPointerYRef.current;
-      const speed = pointerY < bounds.top + edge
-        ? -Math.min(14, Math.max(2, (bounds.top + edge - pointerY) * 0.32))
-        : pointerY > bounds.bottom - edge
-          ? Math.min(14, Math.max(2, (pointerY - (bounds.bottom - edge)) * 0.32))
-          : 0;
-      if (speed) {
-        const previousScroll = list.scrollTop;
-        list.scrollTop += speed;
-        if (list.scrollTop !== previousScroll) repositionDraggedLayer(pointerY);
-      }
-      dragScrollFrameRef.current = requestAnimationFrame(autoScroll);
-    };
-    dragScrollFrameRef.current = requestAnimationFrame(autoScroll);
-  };
-
-  const repositionDraggedLayer = (clientY: number) => {
-    const source = draggingLayerRef.current;
-    const list = layerListRef.current;
-    if (!source || !list) return;
-    const dragged = draggedLayersRef.current.length ? draggedLayersRef.current : [source];
-    const order = layerOrderRef.current;
-    const without = order.filter((vowel) => !dragged.includes(vowel));
-    const listBounds = list.getBoundingClientRect();
-    const pointerY = clientY - listBounds.top + list.scrollTop;
-    const visualRows = without
-      .map((vowel) => ({ vowel, element: layerRowRefs.current.get(vowel) }))
-      .filter((row): row is { vowel: string; element: HTMLDivElement } => Boolean(row.element))
-      .sort((left, right) => left.element.offsetTop - right.element.offsetTop);
-    const visualTarget = visualRows.find(
-      ({ element }) => pointerY < element.offsetTop + element.offsetHeight / 2,
-    );
-    const anchor = visualTarget?.vowel ?? visualRows[visualRows.length - 1]?.vowel;
-    let insertAt = anchor ? without.indexOf(anchor) : without.length;
-    if (!visualTarget && anchor) insertAt += 1;
-    insertAt = Math.max(0, Math.min(without.length, insertAt));
-
-    if (anchor) {
-      setDropTarget({ vowel: anchor, after: !visualTarget });
-    } else {
-      setDropTarget(null);
-    }
-
-    const next = [...without];
-    next.splice(insertAt, 0, ...dragged);
-    dragCandidateOrderRef.current = next;
-    dragMovedRef.current = next.join("\u0000") !== dragStartOrderRef.current.join("\u0000");
-  };
-
-  // Keep the local handler for browsers that continue dispatching to the
-  // handle, while the window listeners cover pointer movement outside it.
-  const moveLayerDrag = (event: ReactPointerEvent<HTMLButtonElement>) => {
-    if (!draggingLayerRef.current) return;
-    event.preventDefault();
-    dragPointerYRef.current = event.clientY;
-    repositionDraggedLayer(event.clientY);
-  };
-
-  const stopLayerDragScroll = () => {
-    if (dragScrollFrameRef.current !== null) cancelAnimationFrame(dragScrollFrameRef.current);
-    dragScrollFrameRef.current = null;
-  };
-
-  const commitLayerDrag = (event: { pointerId?: number; preventDefault?: () => void }) => {
-    if (!draggingLayerRef.current) return;
-    event.preventDefault?.();
-    const moved = dragMovedRef.current;
-    const committedOrder = [...dragCandidateOrderRef.current];
-    draggingLayerRef.current = null;
-    dragMovedRef.current = false;
-    stopLayerDragScroll();
-    cancelFlipFrame();
-    removeLayerDragListeners();
-    draggedLayersRef.current = [];
-    if (moved) {
-      animateLayerOrder(committedOrder);
-      setMessage("레이어 순서를 플롯에 반영했습니다.");
-      void renderInteractive({ layerOrder: committedOrder });
-    }
-    setDraggingLayer(null);
-    setDropTarget(null);
-  };
-
-  const cancelLayerDrag = () => {
-    cancelFlipFrame();
-    draggingLayerRef.current = null;
-    stopLayerDragScroll();
-    dragMovedRef.current = false;
-    removeLayerDragListeners();
-    draggedLayersRef.current = [];
-    setDraggingLayer(null);
-    setDropTarget(null);
-  };
-
-  const resetLayerOrder = () => {
-    const next = sortVowels(currentVowels);
-    animateLayerOrder(next);
-    setMessage("레이어 순서를 기본 순서로 되돌렸습니다.");
-    void renderInteractive({ layerOrder: next });
-  };
-
-  const moveLayerByStep = (vowel: string, direction: -1 | 1) => {
-    const order = [...layerOrderRef.current];
-    const from = order.indexOf(vowel);
-    const to = from + direction;
-    if (from < 0 || to < 0 || to >= order.length) return;
-    [order[from], order[to]] = [order[to], order[from]];
-    animateLayerOrder(order);
-    setMessage(`${vowel} 레이어 순서를 이동했습니다.`);
-    void renderInteractive({ layerOrder: order });
-  };
-
-  const beginLayerPanelResize = (event: ReactPointerEvent<HTMLDivElement>) => {
-    resizeRef.current = { startY: event.clientY, startHeight: layerListHeight };
-    event.currentTarget.setPointerCapture(event.pointerId);
-  };
-
-  const resizeLayerPanels = (event: ReactPointerEvent<HTMLDivElement>) => {
-    if (!resizeRef.current || !event.currentTarget.hasPointerCapture(event.pointerId)) return;
-    const next = resizeRef.current.startHeight + (resizeRef.current.startY - event.clientY);
-    setLayerListHeight(clampLayerListHeight(next));
-  };
-
-  const cancelLayerPanelResize = () => {
-    resizeRef.current = null;
-  };
-
-  const endLayerPanelResize = (event: ReactPointerEvent<HTMLDivElement>) => {
-    if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
-    resizeRef.current = null;
-  };
-
-  const enterDrawMode = (nextTool: DrawTool | null = null) => {
-    setTool("draw");
-    setRightPanel("drawing");
-    setRightOpen(true);
-    setDrawTool(nextTool);
-    setDrawingPoints([]);
-    setDrawHover(null);
-    referencePointerRef.current = null;
-    setReferencePreview(null);
-    if (!nextTool) setMessage("그리기 도구를 선택하세요.");
-  };
-
-  const activateDrawTool = (next: DrawTool) => {
-    enterDrawMode(next);
-    if (next === "legend" && !currentLegend) {
-      const legend = createDefaultLegend();
-      persistDrawObjects([...currentDrawObjects, legend]);
-      focusDrawObject(legend.id);
-      setMessage("범례를 추가했습니다. 플롯에서 드래그해 위치를 옮기거나 팔레트로 편집하세요.");
-    } else if (next === "reference") {
-      setMessage(referenceMode === "horizontal" ? "수평 기준선 · 마우스를 올리면 미리보기가 보입니다." : "수직 기준선 · 마우스를 올리면 미리보기가 보입니다.");
-    } else if (next === "area") {
-      setMessage("영역을 그립니다. 점을 스냅하고 Enter 또는 시작점 재클릭으로 닫으세요.");
-    } else if (next === "text") {
-      setMessage("캔버스를 더블클릭하여 텍스트를 배치하세요.");
-    } else if (next === "line") {
-      setMessage("선을 그립니다. 점을 클릭하고 Enter 또는 더블클릭으로 확정하세요.");
-    } else {
-      setMessage("범례를 선택했습니다. 플롯에서 드래그해 위치를 옮길 수 있습니다.");
-    }
   };
 
   const openLegacyPlot = async () => {
@@ -1545,43 +1110,11 @@ export function InteractivePlotWindow() {
       setMessage("축 영역 안에서 더블클릭하세요.");
       return;
     }
-    setTextInput({
+    beginTextInput({
       x: data.x,
       y: data.y,
       axis_units: plotUnits.drawAxisUnits,
-      draft: "",
     });
-  };
-
-  const confirmTextInput = () => {
-    if (!textInput) return;
-    const content = textInput.draft;
-    if (!content.trim()) {
-      setMessage("텍스트가 비어 있으면 배치할 수 없습니다.");
-      return;
-    }
-    const textObj: DrawTextObject = {
-      type: "text",
-      id: `react-text-${currentIndex}-${Date.now()}-${drawIdRef.current++}`,
-      text: content,
-      x: textInput.x,
-      y: textInput.y,
-      font_size: clampDrawTextFontSize(drawTextFontSize),
-      font_family: drawTextFontFamily || DRAW_TEXT_DEFAULT_FAMILY,
-      font_weight: normalizedFontWeight(drawTextFontFamily || DRAW_TEXT_DEFAULT_FAMILY, drawTextFontWeight),
-      font_bold: ["bold", "semibold"].includes(normalizedFontWeight(drawTextFontFamily || DRAW_TEXT_DEFAULT_FAMILY, drawTextFontWeight)),
-      font_italic: drawTextItalic,
-      line_spacing: clampDrawTextLineSpacing(drawTextLineSpacing),
-      text_color: drawTextColor || DRAW_TEXT_DEFAULT_COLOR,
-      axis_units: textInput.axis_units,
-      visible: true,
-      semi: false,
-    };
-    const count = currentDrawObjects.filter((object) => object.type === "text").length;
-    persistDrawObjects([...currentDrawObjects, textObj]);
-    focusDrawObject(textObj.id);
-    setTextInput(null);
-    setMessage(`텍스트 ${count + 1}개를 추가했습니다. 팔레트로 스타일을 수정할 수 있습니다.`);
   };
 
   const nearestPlotLabel = (clientX: number, clientY: number) => {
@@ -1601,492 +1134,6 @@ export function InteractivePlotWindow() {
     const geometry = rulerImageGeometry();
     if (!geometry || !rulerContext) return null;
     return plotGeometry.drawHoverAtClient(geometry, rulerContext, clientX, clientY);
-  };
-
-  const createDefaultLegend = (): DrawLegendObject => ({
-    type: "legend",
-    id: `react-legend-${currentIndex}-${Date.now()}-${drawIdRef.current++}`,
-    name: legendDefaults.name || "범례",
-    entries: [{ series_id: 0, text: (currentSource?.name ?? "데이터").replace(/\.[^.]+$/, "") }],
-    fx: 0.035,
-    fy: 0.205,
-    width_frac: 0.30,
-    height_frac: 0.14,
-    font_size: legendDefaults.font_size,
-    font_family: legendDefaults.font_family,
-    font_weight: legendDefaults.font_weight,
-    font_italic: legendDefaults.font_italic,
-    show_border: legendDefaults.show_border,
-    border_style: legendDefaults.border_style,
-    border_color: legendDefaults.border_color,
-    show_fill: legendDefaults.show_fill,
-    fill_color: legendDefaults.fill_color,
-    fill_opacity: legendDefaults.fill_opacity,
-    visible: true,
-    semi: false,
-  });
-
-  const persistDrawObjects = (objects: DrawObject[]) => {
-    setDrawObjectsByFile((previous) => ({ ...previous, [currentIndex]: objects }));
-    const alive = new Set(objects.map((object) => object.id));
-    setSelectedDrawObjectIds((previous) => {
-      const next = new Set([...previous].filter((id) => alive.has(id)));
-      if (next.size !== previous.size) {
-        const primary = selectedDrawObjectId && next.has(selectedDrawObjectId)
-          ? selectedDrawObjectId
-          : [...next][0] ?? null;
-        setSelectedDrawObjectId(primary);
-        drawSelectionAnchorRef.current = primary ?? "";
-      } else if (selectedDrawObjectId && !alive.has(selectedDrawObjectId)) {
-        setSelectedDrawObjectId(null);
-        drawSelectionAnchorRef.current = "";
-      }
-      return next.size === previous.size ? previous : next;
-    });
-    void renderInteractive({ drawObjects: objects });
-  };
-
-  /** 목록은 위=앞(최신). 저장 배열은 아래→위(렌더 마지막이 위). */
-  const drawObjectsTopFirst = useMemo(
-    () => [...currentDrawObjects].reverse(),
-    [currentDrawObjects],
-  );
-
-  const selectDrawObject = (id: string, event: ReactMouseEvent<HTMLButtonElement>) => {
-    event.preventDefault();
-    const order = drawObjectsTopFirst.map((object) => object.id);
-    const anchor = drawSelectionAnchorRef.current;
-    const withRange = event.shiftKey && anchor && order.includes(anchor);
-    if (withRange) {
-      const start = order.indexOf(anchor);
-      const end = order.indexOf(id);
-      const range = order.slice(Math.min(start, end), Math.max(start, end) + 1);
-      setSelectedDrawObjectIds((previous) => {
-        if (event.ctrlKey || event.metaKey) return new Set([...previous, ...range]);
-        return new Set(range);
-      });
-      setSelectedDrawObjectId(id);
-      return;
-    }
-    if (event.ctrlKey || event.metaKey) {
-      setSelectedDrawObjectIds((previous) => {
-        const next = new Set(previous);
-        if (next.has(id)) next.delete(id);
-        else next.add(id);
-        const nextPrimary = next.has(id) ? id : [...next][0] ?? null;
-        setSelectedDrawObjectId(nextPrimary);
-        if (next.size) drawSelectionAnchorRef.current = nextPrimary ?? "";
-        return next;
-      });
-      return;
-    }
-    if (selectedDrawObjectId === id) {
-      setSelectedDrawObjectId(null);
-      setSelectedDrawObjectIds(new Set());
-      drawSelectionAnchorRef.current = "";
-      return;
-    }
-    setSelectedDrawObjectIds(new Set([id]));
-    setSelectedDrawObjectId(id);
-    drawSelectionAnchorRef.current = id;
-  };
-
-  const focusDrawObject = (id: string) => {
-    setSelectedDrawObjectIds(new Set([id]));
-    setSelectedDrawObjectId(id);
-    drawSelectionAnchorRef.current = id;
-  };
-
-  const deleteDrawObjects = (id: string) => {
-    const targets = selectedDrawObjectIds.has(id) && selectedDrawObjectIds.size > 1
-      ? selectedDrawObjectIds
-      : new Set([id]);
-    persistDrawObjects(currentDrawObjects.filter((object) => !targets.has(object.id)));
-  };
-
-  const toggleDrawObjectVisibility = (id: string) => {
-    persistDrawObjects(currentDrawObjects.map((object) => object.id === id ? { ...object, visible: !object.visible } : object));
-  };
-
-  const toggleAllDrawVisibility = () => {
-    const allHidden = currentDrawObjects.length > 0 && currentDrawObjects.every((object) => !object.visible);
-    persistDrawObjects(currentDrawObjects.map((object) => ({ ...object, visible: allHidden })));
-  };
-
-  const toggleAllDrawSemi = () => {
-    const allSemi = currentDrawObjects.length > 0 && currentDrawObjects.every((object) => object.semi);
-    persistDrawObjects(currentDrawObjects.map((object) => ({ ...object, semi: !allSemi })));
-  };
-
-  const toggleDrawObjectSemi = (id: string) => {
-    persistDrawObjects(currentDrawObjects.map((object) => object.id === id ? { ...object, semi: !object.semi } : object));
-  };
-
-  const beginDrawObjectDrag = (event: ReactPointerEvent<HTMLButtonElement>, id: string) => {
-    event.preventDefault();
-    const visualIds = drawObjectsTopFirst.map((object) => object.id);
-    const ids = selectedDrawObjectIds.has(id) && selectedDrawObjectIds.size > 1
-      ? visualIds.filter((item) => selectedDrawObjectIds.has(item))
-      : [id];
-    drawObjectDragRef.current = { id, ids, startY: event.clientY, moved: false };
-    setDraggingDrawObject(id);
-    if (!selectedDrawObjectIds.has(id)) {
-      setSelectedDrawObjectIds(new Set([id]));
-      setSelectedDrawObjectId(id);
-      drawSelectionAnchorRef.current = id;
-    }
-    event.currentTarget.setPointerCapture(event.pointerId);
-  };
-
-  const moveDrawObjectDrag = (event: ReactPointerEvent<HTMLButtonElement>) => {
-    const drag = drawObjectDragRef.current;
-    if (!drag) return;
-    if (!drag.moved && Math.abs(event.clientY - drag.startY) < 4) return;
-    drag.moved = true;
-    const element = document.elementFromPoint(event.clientX, event.clientY)?.closest<HTMLElement>("[data-draw-object-id]");
-    if (!element) return;
-    const targetId = element.dataset.drawObjectId;
-    if (!targetId || drag.ids.includes(targetId)) return;
-    const rect = element.getBoundingClientRect();
-    setDrawDropTarget({ id: targetId, after: event.clientY > rect.top + rect.height / 2 });
-  };
-
-  const commitDrawObjectDrag = (event: ReactPointerEvent<HTMLButtonElement>) => {
-    const drag = drawObjectDragRef.current;
-    if (!drag) return;
-    const target = drawDropTarget;
-    if (drag.moved && target) {
-      const visual = [...currentDrawObjects].reverse();
-      const draggedSet = new Set(drag.ids);
-      const without = visual.filter((object) => !draggedSet.has(object.id));
-      const insertAt = without.findIndex((object) => object.id === target.id) + (target.after ? 1 : 0);
-      const dragged = visual.filter((object) => draggedSet.has(object.id));
-      if (dragged.length) {
-        const nextVisual = [...without];
-        nextVisual.splice(Math.max(0, insertAt), 0, ...dragged);
-        persistDrawObjects([...nextVisual].reverse());
-      }
-    }
-    drawObjectDragRef.current = null;
-    setDraggingDrawObject(null);
-    setDrawDropTarget(null);
-    if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
-  };
-
-  const cancelDrawObjectDrag = () => {
-    drawObjectDragRef.current = null;
-    setDraggingDrawObject(null);
-    setDrawDropTarget(null);
-  };
-
-  const closeDrawEditor = () => {
-    setDrawEditorOpen(false);
-    setDrawEditorObjectId(null);
-    setLineDraft(null);
-    setPolygonDraft(null);
-    setReferenceDraft(null);
-    setLegendDraft(null);
-    setTextDraft(null);
-  };
-
-  const openDrawDefaultsEditor = (kind?: DrawEditorKind) => {
-    const nextKind: DrawEditorKind = kind
-      ?? (drawTool === "legend" || drawTool === "reference" || drawTool === "line" || drawTool === "text"
-        ? drawTool
-        : drawTool === "area" ? "polygon" : "line");
-    setDrawEditorMode("defaults");
-    setDrawEditorKind(nextKind);
-    setDrawEditorObjectId(null);
-    setLineDraft(null);
-    setPolygonDraft(null);
-    setReferenceDraft(null);
-    setLegendDraft(null);
-    setTextDraft(null);
-    if (nextKind === "line") {
-      setLineDraft({
-        line_color: drawColor ?? DRAW_LINE_DEFAULT_COLOR,
-        line_style: drawLineStyle,
-        line_width: clampDrawLineWidth(drawWidth),
-        arrow_mode: drawArrowMode,
-        arrow_head: drawArrowHead,
-      });
-    } else if (nextKind === "polygon") {
-      setPolygonDraft({
-        border_style: drawPolyBorderStyle,
-        border_color: drawPolyBorderColor,
-        fill_color: drawPolyFillColor,
-        fill_opacity: drawPolyFillOpacity,
-      });
-    } else if (nextKind === "reference") {
-      setReferenceDraft({
-        mode: referenceMode,
-        line_style: drawRefStyle,
-        line_color: drawRefColor,
-      });
-    } else if (nextKind === "text") {
-      setTextDraft({
-        text: "",
-        font_size: drawTextFontSize,
-        font_family: drawTextFontFamily,
-        font_weight: normalizedFontWeight(drawTextFontFamily, drawTextFontWeight),
-        font_italic: drawTextItalic,
-        line_spacing: drawTextLineSpacing,
-        text_color: drawTextColor,
-      });
-    } else {
-      const legend = currentLegend;
-      setLegendDraft({
-        id: legend?.id ?? "legend-defaults",
-        name: legendDefaults.name,
-        entries: legend
-          ? legend.entries.map((entry) => ({ ...entry }))
-          : [{ series_id: 0, text: (currentSource?.name ?? "데이터").replace(/\.[^.]+$/, "") }],
-        fx: legend?.fx ?? 0.035,
-        fy: legend?.fy ?? 0.205,
-        width_frac: legend?.width_frac ?? 0.30,
-        height_frac: legend?.height_frac ?? 0.14,
-        font_size: legendDefaults.font_size,
-        font_family: legendDefaults.font_family,
-        font_weight: legendDefaults.font_weight,
-        font_italic: legendDefaults.font_italic,
-        show_border: legendDefaults.show_border,
-        border_style: legendDefaults.border_style,
-        border_color: legendDefaults.border_color,
-        show_fill: legendDefaults.show_fill,
-        fill_color: legendDefaults.fill_color,
-        fill_opacity: legendDefaults.fill_opacity,
-        visible: true,
-        semi: false,
-      });
-    }
-    setDrawEditorOpen(true);
-  };
-
-  const openDrawLayerEditor = (object: DrawObject) => {
-    focusDrawObject(object.id);
-    setDrawEditorMode("layer");
-    setDrawEditorObjectId(object.id);
-    setLineDraft(null);
-    setPolygonDraft(null);
-    setReferenceDraft(null);
-    setLegendDraft(null);
-    setTextDraft(null);
-    if (object.type === "line") {
-      setDrawEditorKind("line");
-      setLineDraft({
-        line_color: object.line_color,
-        line_style: object.line_style,
-        line_width: clampDrawLineWidth(object.line_width),
-        arrow_mode: object.arrow_mode,
-        arrow_head: object.arrow_head,
-      });
-    } else if (object.type === "polygon") {
-      setDrawEditorKind("polygon");
-      setPolygonDraft({
-        border_style: object.border_style,
-        border_color: object.border_color,
-        fill_color: object.fill_color,
-        fill_opacity: Number.isFinite(object.fill_opacity) ? object.fill_opacity : 0.15,
-      });
-    } else if (object.type === "reference") {
-      setDrawEditorKind("reference");
-      setReferenceDraft({
-        mode: object.mode,
-        line_style: object.line_style,
-        line_color: object.line_color,
-        valueLabel: formatRefLabel(object.value, object.axis_units, true, analysis?.normalization ?? null).trim(),
-      });
-    } else if (object.type === "text") {
-      setDrawEditorKind("text");
-      const family = object.font_family || DRAW_TEXT_DEFAULT_FAMILY;
-      setTextDraft({
-        text: object.text,
-        font_size: clampDrawTextFontSize(object.font_size),
-        font_family: family,
-        font_weight: normalizedFontWeight(family, object.font_weight ?? (object.font_bold ? "bold" : "regular")),
-        font_italic: object.font_italic,
-        line_spacing: clampDrawTextLineSpacing(object.line_spacing ?? DRAW_TEXT_DEFAULT_LINE_SPACING),
-        text_color: object.text_color || DRAW_TEXT_DEFAULT_COLOR,
-      });
-    } else {
-      setDrawEditorKind("legend");
-      setLegendDraft({ ...object, entries: object.entries.map((entry) => ({ ...entry })) });
-    }
-    setDrawEditorOpen(true);
-  };
-
-  const saveDrawEditor = () => {
-    if (drawEditorKind === "line" && lineDraft) {
-      if (drawEditorMode === "defaults") {
-        setDrawColor(lineDraft.line_color);
-        setDrawLineStyle(lineDraft.line_style);
-        setDrawWidth(clampDrawLineWidth(lineDraft.line_width));
-        setDrawArrowMode(lineDraft.arrow_mode);
-        setDrawArrowHead(lineDraft.arrow_head);
-        setMessage("선 기본 스타일을 저장했습니다.");
-      } else if (drawEditorObjectId) {
-        const nextLine = { ...lineDraft, line_width: clampDrawLineWidth(lineDraft.line_width) };
-        persistDrawObjects(currentDrawObjects.map((object) => (
-          object.type === "line" && object.id === drawEditorObjectId
-            ? { ...object, ...nextLine }
-            : object
-        )));
-        setMessage("선 레이어를 수정했습니다.");
-      }
-    } else if (drawEditorKind === "polygon" && polygonDraft) {
-      const nextPoly = {
-        ...polygonDraft,
-        fill_opacity: Math.min(1, Math.max(0, Number(polygonDraft.fill_opacity) || 0)),
-      };
-      if (drawEditorMode === "defaults") {
-        setDrawPolyBorderStyle(nextPoly.border_style);
-        setDrawPolyBorderColor(nextPoly.border_color);
-        setDrawPolyFillColor(nextPoly.fill_color);
-        setDrawPolyFillOpacity(nextPoly.fill_opacity);
-        setMessage("영역 기본 스타일을 저장했습니다.");
-      } else if (drawEditorObjectId) {
-        persistDrawObjects(currentDrawObjects.map((object) => (
-          object.type === "polygon" && object.id === drawEditorObjectId
-            ? { ...object, ...nextPoly }
-            : object
-        )));
-        setMessage("영역 레이어를 수정했습니다.");
-      }
-    } else if (drawEditorKind === "reference" && referenceDraft) {
-      if (drawEditorMode === "defaults") {
-        setReferenceMode(referenceDraft.mode);
-        setDrawRefStyle(referenceDraft.line_style);
-        setDrawRefColor(referenceDraft.line_color);
-        setMessage("기준선 기본 스타일을 저장했습니다.");
-      } else if (drawEditorObjectId) {
-        persistDrawObjects(currentDrawObjects.map((object) => (
-          object.type === "reference" && object.id === drawEditorObjectId
-            ? { ...object, mode: referenceDraft.mode, line_style: referenceDraft.line_style, line_color: referenceDraft.line_color }
-            : object
-        )));
-        setMessage("기준선 레이어를 수정했습니다.");
-      }
-    } else if (drawEditorKind === "legend" && legendDraft) {
-      const nextLegend: DrawLegendObject = {
-        type: "legend",
-        ...legendDraft,
-        entries: legendDraft.entries.map((entry, index) => ({
-          ...entry,
-          series_id: Number.isFinite(entry.series_id) ? entry.series_id : index,
-        })),
-      };
-      if (drawEditorMode === "defaults") {
-        setLegendDefaults({
-          name: nextLegend.name,
-          font_size: nextLegend.font_size,
-          font_family: nextLegend.font_family,
-          font_weight: nextLegend.font_weight,
-          font_italic: nextLegend.font_italic,
-          show_border: nextLegend.show_border,
-          border_style: nextLegend.border_style,
-          border_color: nextLegend.border_color,
-          show_fill: nextLegend.show_fill,
-          fill_color: nextLegend.fill_color,
-          fill_opacity: nextLegend.fill_opacity,
-        });
-        setMessage("범례 기본 스타일을 저장했습니다.");
-      } else {
-        persistDrawObjects([...currentDrawObjects.filter((object) => object.type !== "legend"), nextLegend]);
-        setMessage("범례 레이어를 수정했습니다.");
-      }
-    } else if (drawEditorKind === "text" && textDraft) {
-      const family = textDraft.font_family || DRAW_TEXT_DEFAULT_FAMILY;
-      const weight = normalizedFontWeight(family, textDraft.font_weight);
-      const nextText = {
-        text: textDraft.text,
-        font_size: clampDrawTextFontSize(textDraft.font_size),
-        font_family: family,
-        font_weight: weight,
-        font_bold: weight === "bold" || weight === "semibold",
-        font_italic: textDraft.font_italic,
-        line_spacing: clampDrawTextLineSpacing(textDraft.line_spacing),
-        text_color: textDraft.text_color || DRAW_TEXT_DEFAULT_COLOR,
-      };
-      if (drawEditorMode === "defaults") {
-        setDrawTextFontSize(nextText.font_size);
-        setDrawTextFontFamily(nextText.font_family);
-        setDrawTextFontWeight(nextText.font_weight);
-        setDrawTextItalic(nextText.font_italic);
-        setDrawTextLineSpacing(nextText.line_spacing);
-        setDrawTextColor(nextText.text_color);
-        setMessage("텍스트 기본 스타일을 저장했습니다.");
-      } else if (drawEditorObjectId) {
-        if (!nextText.text.trim()) {
-          setMessage("텍스트가 비어 있으면 적용할 수 없습니다.");
-          return;
-        }
-        persistDrawObjects(currentDrawObjects.map((object) => (
-          object.type === "text" && object.id === drawEditorObjectId
-            ? { ...object, ...nextText }
-            : object
-        )));
-        setMessage("텍스트 레이어를 수정했습니다.");
-      }
-    }
-    closeDrawEditor();
-  };
-
-  const finishDrawLine = (points: DrawPoint[]) => {
-    if (points.length < 2) {
-      setDrawingPoints([]);
-      setDrawHover(null);
-      return;
-    }
-    const line: DrawLineObject = {
-      type: "line",
-      id: `react-line-${currentIndex}-${Date.now()}-${drawIdRef.current++}`,
-      points: points.map(({ x, y }) => [x, y]),
-      line_color: drawColor ?? DRAW_LINE_DEFAULT_COLOR,
-      line_style: drawLineStyle,
-      line_width: clampDrawLineWidth(drawWidth),
-      arrow_mode: drawArrowMode,
-      arrow_head: drawArrowHead,
-      visible: true,
-      semi: false,
-    };
-    persistDrawObjects([...currentDrawObjects, line]);
-    focusDrawObject(line.id);
-    setDrawingPoints([]);
-    setDrawHover(null);
-    setMessage(`선 ${currentDrawLines.length + 1}개를 추가했습니다. 팔레트로 스타일을 수정할 수 있습니다.`);
-  };
-
-  const finishDrawPolygon = (points: DrawPoint[]) => {
-    const unique = points.length >= 2
-      && Math.hypot(points[0].x - points[points.length - 1].x, points[0].y - points[points.length - 1].y) < 1e-6
-      ? points.slice(0, -1)
-      : points;
-    if (unique.length < 3) {
-      setMessage("영역은 점 3개 이상이 필요합니다.");
-      return;
-    }
-    const closed: Array<[number, number]> = [
-      ...unique.map(({ x, y }): [number, number] => [x, y]),
-      [unique[0].x, unique[0].y],
-    ];
-    const polygon: DrawPolygonObject = {
-      type: "polygon",
-      id: `react-poly-${currentIndex}-${Date.now()}-${drawIdRef.current++}`,
-      points: closed,
-      border_style: drawPolyBorderStyle,
-      border_color: drawPolyBorderColor,
-      fill_color: drawPolyFillColor,
-      fill_opacity: drawPolyFillOpacity,
-      show_area_label: false,
-      visible: true,
-      semi: false,
-    };
-    const polyCount = currentDrawObjects.filter((object) => object.type === "polygon").length;
-    persistDrawObjects([...currentDrawObjects, polygon]);
-    focusDrawObject(polygon.id);
-    setDrawingPoints([]);
-    setDrawHover(null);
-    setMessage(`영역 ${polyCount + 1}개를 추가했습니다. 팔레트로 스타일을 수정할 수 있습니다.`);
   };
 
   const rulerLocalPoint = (clientX: number, clientY: number) => {
@@ -2619,7 +1666,6 @@ export function InteractivePlotWindow() {
     () => `${sources.length ? currentSourcePosition + 1 : 0} / ${sources.length}`,
     [currentSourcePosition, sources.length],
   );
-  const effective = <K extends keyof DesignSettings,>(key: K): DesignSettings[K] => (selectedOverride[key] ?? design[key]) as DesignSettings[K];
 
   return (
     <main className={`interactive-plot-workspace ${leftOpen ? "" : "left-is-collapsed"} ${rightOpen ? "" : "right-is-collapsed"}`}>
