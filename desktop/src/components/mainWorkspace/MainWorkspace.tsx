@@ -1,8 +1,4 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { convertFileSrc, invoke } from "@tauri-apps/api/core";
-import { emit, listen } from "@tauri-apps/api/event";
-import { getCurrentWebview } from "@tauri-apps/api/webview";
-import { open, save } from "@tauri-apps/plugin-dialog";
 import {
   BookOpen,
   ChevronRight,
@@ -12,7 +8,7 @@ import {
   Sun,
   X,
 } from "lucide-react";
-import type { ApplicationState, HealthStatus } from "../../../ipc/protocol";
+import type { ApplicationState } from "../../../ipc/protocol";
 import { callSidecar } from "../../sidecarClient";
 import appIconUrl from "../../../../assets/icon.ico";
 import { DataGuide } from "../DataGuide";
@@ -22,76 +18,36 @@ import { AnalysisSettingsPanel } from "./AnalysisSettingsPanel";
 import { PreviewStage } from "./PreviewStage";
 import { PLOT_TYPES, type PlotType } from "./plotTypes";
 import { SourceSidebar } from "./SourceSidebar";
-
-type SidecarEvent = {
-  event: string;
-  payload: Record<string, unknown>;
-};
-
-type LoadFilesResponse = {
-  load_result: {
-    success_count: number;
-    failed: Array<{ name: string; errors: Array<{ path: string; message: string }> }>;
-  };
-  state: ApplicationState;
-};
-
-const SUPPORTED_DATA_EXTENSIONS = new Set(["txt", "csv", "tsv", "xlsx", "xls"]);
-
-const isSupportedDataPath = (path: string) => {
-  const leaf = path.split(/[\\/]/).pop() ?? path;
-  const extension = leaf.includes(".") ? leaf.split(".").pop()?.toLowerCase() : "";
-  return extension ? SUPPORTED_DATA_EXTENSIONS.has(extension) : false;
-};
-
-type Theme = "dark" | "light";
+import { useMainWorkspaceSession } from "./useMainWorkspaceSession";
+import { useThemePreference } from "./useThemePreference";
+import { useWorkspaceActions } from "./useWorkspaceActions";
 
 export function MainWorkspace() {
-  const aliveRef = useRef(true);
-  const [health, setHealth] = useState<HealthStatus | null>(null);
-  const [state, setState] = useState<ApplicationState | null>(null);
-  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
-  const [previewInfo, setPreviewInfo] = useState("");
-  const [status, setStatus] = useState("분석 엔진을 연결하고 있습니다");
-  const [error, setError] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
-  const busyCountRef = useRef(0);
-  // Keep request ids newer than events left behind by a previous window.
-  const previewRequestRef = useRef(Date.now() * 1000);
-  const [dragOver, setDragOver] = useState(false);
   const [settingsAttention, setSettingsAttention] = useState(false);
   const settingsAttentionTimersRef = useRef<number[]>([]);
   const [guideAttention, setGuideAttention] = useState(false);
   const guideAttentionTimersRef = useRef<number[]>([]);
-  const [combinedVisible, setCombinedVisible] = useState(() => {
-    const saved = window.localStorage.getItem("gichanformant-show-combined");
-    return saved === "true";
-  });
   const [inspectorOpen, setInspectorOpen] = useState(true);
   const [guideOpen, setGuideOpen] = useState(false);
   const [supportOpen, setSupportOpen] = useState(false);
-  const [theme, setTheme] = useState<Theme>(() => {
-    const saved = window.localStorage.getItem("gichanformant-theme");
-    const initialTheme =
-      saved === "dark" || saved === "light"
-        ? saved
-        : window.matchMedia("(prefers-color-scheme: light)").matches
-          ? "light"
-          : "dark";
-    document.documentElement.dataset.theme = initialTheme;
-    document.documentElement.style.colorScheme = initialTheme;
-    return initialTheme;
-  });
-
-  useEffect(() => {
-    const media = window.matchMedia("(prefers-color-scheme: dark)");
-    const syncSystemTheme = (event: MediaQueryListEvent) => {
-      if (window.localStorage.getItem("gichanformant-theme")) return;
-      setTheme(event.matches ? "dark" : "light");
-    };
-    media.addEventListener?.("change", syncSystemTheme);
-    return () => media.removeEventListener?.("change", syncSystemTheme);
-  }, []);
+  const {
+    aliveRef,
+    health,
+    state,
+    setState,
+    previewUrl,
+    previewInfo,
+    clearPreview,
+    status,
+    pushStatus,
+    error,
+    setError,
+    busy,
+    beginBusy,
+    endBusySafe,
+    requestMainPreview,
+  } = useMainWorkspaceSession();
+  const { theme, toggleThemePreference } = useThemePreference();
 
   const analysis = state?.analysis;
   const sources = state?.sources ?? [];
@@ -119,22 +75,6 @@ export function MainWorkspace() {
     return `${activePlot.short} · ${outlier} · ${norm}`;
   }, [activePlot.short, analysis]);
 
-  const pushStatus = useCallback((message: string) => {
-    setStatus(message);
-  }, []);
-
-  const beginBusy = useCallback(() => {
-    busyCountRef.current += 1;
-    setBusy(true);
-  }, []);
-
-  // Always balance beginBusy — even if the component unmounted mid-request
-  // (StrictMode remount / window close). Only skip React state updates when dead.
-  const endBusySafe = useCallback(() => {
-    busyCountRef.current = Math.max(0, busyCountRef.current - 1);
-    if (aliveRef.current) setBusy(busyCountRef.current > 0);
-  }, []);
-
   const signalSettingsAttention = useCallback(() => {
     settingsAttentionTimersRef.current.forEach((timer) => window.clearTimeout(timer));
     setSettingsAttention(false);
@@ -157,276 +97,28 @@ export function MainWorkspace() {
     guideAttentionTimersRef.current.forEach((timer) => window.clearTimeout(timer));
   }, []);
 
-  const requestMainPreview = useCallback(() => {
-    void callSidecar("request_preview", { request_id: ++previewRequestRef.current }).catch((err) => {
-      if (aliveRef.current) setError(String(err));
-    });
-  }, []);
-
-  const refresh = useCallback(async () => {
-    beginBusy();
-    setError(null);
-    try {
-      const nextHealth = await invoke<HealthStatus>("sidecar_ensure");
-      if (!aliveRef.current) return;
-      setHealth(nextHealth);
-      const nextState = await callSidecar<ApplicationState>("get_state");
-      if (!aliveRef.current) return;
-      setState(nextState);
-      pushStatus(`엔진 연결됨 · GichanFormant ${nextHealth.version}`);
-      if (nextState.capabilities.can_plot) {
-        requestMainPreview();
-      }
-    } catch (err) {
-      if (!aliveRef.current) return;
-      setError(String(err));
-      pushStatus("분석 엔진 연결 실패");
-    } finally {
-      endBusySafe();
-    }
-  }, [beginBusy, endBusySafe, pushStatus, requestMainPreview]);
-
-  const loadPaths = useCallback(
-    async (paths: string[]) => {
-      const normalizedPaths = paths
-        .map((path) => String(path).trim())
-        .filter(Boolean);
-      if (!normalizedPaths.length) {
-        setError("파일 경로를 받지 못했습니다. 파일 선택 버튼으로 추가해 주세요.");
-        pushStatus("파일 드롭 실패 · 파일 선택 버튼을 사용해 주세요");
-        return;
-      }
-      const loadablePaths = normalizedPaths.filter(isSupportedDataPath);
-      const skippedCount = normalizedPaths.length - loadablePaths.length;
-      if (!loadablePaths.length) {
-        setError("지원하지 않는 파일 형식입니다. TXT, CSV, TSV, XLSX, XLS 파일만 불러올 수 있습니다.");
-        signalGuideAttention();
-        return;
-      }
-      beginBusy();
-      setError(null);
-      try {
-        const response = await callSidecar<LoadFilesResponse>("load_files", { paths: loadablePaths });
-        if (!aliveRef.current) return;
-        setState(response.state);
-        if (response.load_result.success_count > 0 || response.state.capabilities.can_plot) {
-          requestMainPreview();
-        }
-        if (response.load_result.success_count > 0) {
-          signalSettingsAttention();
-        }
-        if (!aliveRef.current) return;
-        if (response.load_result.failed.length > 0 || skippedCount > 0) {
-          const failedCount = response.load_result.failed.length + skippedCount;
-          setError(`${failedCount}개 파일을 건너뛰었습니다. 지원 형식(TXT, CSV, TSV, XLSX, XLS)인지 확인해 주세요.`);
-          signalGuideAttention();
-        }
-        pushStatus(`${response.load_result.success_count}개 소스를 작업 공간에 추가했습니다`);
-      } catch (err) {
-        if (aliveRef.current) {
-          setError(String(err));
-          signalGuideAttention();
-        }
-      } finally {
-        endBusySafe();
-      }
-    },
-    [beginBusy, endBusySafe, pushStatus, requestMainPreview, signalGuideAttention, signalSettingsAttention],
-  );
-
-  useEffect(() => {
-    aliveRef.current = true;
-    console.info("[GichanFormant] runtime", {
-      userAgent: navigator.userAgent,
-      platform: navigator.platform,
-      tauri: "__TAURI_INTERNALS__" in window,
-    });
-    let disposed = false;
-    let disposeEvent: (() => void) | undefined;
-    let disposeDrag: (() => void) | undefined;
-    void listen<SidecarEvent>("sidecar-event", (event) => {
-      if (disposed || !aliveRef.current) return;
-      const { event: name, payload } = event.payload;
-      if (name === "state_changed") {
-        const next = payload.state as ApplicationState | undefined;
-        if (next) setState(next);
-      }
-      if (name === "operation_progress") {
-        const operation = String(payload.operation ?? "작업");
-        const progress = payload.status === "completed" ? "완료" : "처리 중";
-        pushStatus(`${operation} ${progress}`);
-      }
-      if (name === "preview_ready" && (payload.target ?? "main") === "main") {
-        const requestId = Number(payload.request_id ?? 0);
-        if (Number.isFinite(requestId) && requestId > 0 && requestId < previewRequestRef.current) return;
-        const imagePath = String(payload.png_path ?? "");
-        const image = String(payload.png_base64 ?? "");
-        setPreviewUrl(imagePath ? convertFileSrc(imagePath) : image ? `data:image/png;base64,${image}` : null);
-        setPreviewInfo(String(payload.info ?? ""));
-      }
-      if (name === "preview_cleared" && (payload.target ?? "main") === "main") {
-        setPreviewUrl(null);
-        setPreviewInfo("");
-      }
-      if ((name === "preview_failed" && (payload.target ?? "main") === "main") || name === "operation_failed") {
-        setError(String(payload.message ?? "작업을 완료하지 못했습니다"));
-      }
-    }).then((dispose) => {
-      if (disposed) dispose();
-      else {
-        disposeEvent = dispose;
-        // Subscribe before requesting the first preview. A warm sidecar can
-        // otherwise emit preview_ready before Tauri finishes installing this
-        // listener, leaving the workspace permanently blank.
-        void refresh();
-      }
-    }).catch((err) => {
-      if (!disposed && aliveRef.current) setError(String(err));
-    });
-
-    void getCurrentWebview()
-      .onDragDropEvent((event) => {
-        if (disposed || !aliveRef.current) return;
-        console.info("[GichanFormant] drag-drop event", {
-          type: event.payload.type,
-          pathCount: event.payload.type === "drop" ? event.payload.paths?.length ?? 0 : undefined,
-        });
-        if (event.payload.type === "over") {
-          setDragOver(true);
-          pushStatus("파일을 놓으면 추가됩니다");
-        }
-        if (event.payload.type === "leave") setDragOver(false);
-        if (event.payload.type === "drop") {
-          setDragOver(false);
-          const paths = Array.isArray(event.payload.paths) ? event.payload.paths : [];
-          if (!paths.length) {
-            setError("파일 드롭 이벤트는 받았지만 경로가 전달되지 않았습니다. 앱을 관리자 권한 없이 실행하거나 파일 선택 버튼을 사용해 주세요.");
-            pushStatus("파일 경로 전달 실패 · 파일 선택 버튼을 사용해 주세요");
-            return;
-          }
-          void loadPaths(paths);
-        }
-      })
-      .then((fn) => {
-        if (disposed) fn();
-        else disposeDrag = fn;
-      })
-      .catch((err) => {
-        if (!disposed && aliveRef.current) setError(String(err));
-      });
-
-    return () => {
-      disposed = true;
-      aliveRef.current = false;
-      disposeEvent?.();
-      disposeDrag?.();
-    };
-  }, [refresh, loadPaths, pushStatus]);
-
-  useEffect(() => {
-    if (!error) return;
-    const timer = window.setTimeout(() => setError(null), 7000);
-    return () => window.clearTimeout(timer);
-  }, [error]);
-
-  useEffect(() => {
-    document.documentElement.dataset.theme = theme;
-    document.documentElement.style.colorScheme = theme;
-    // Do not write localStorage here — only the explicit toggle persists a preference,
-    // so OS theme changes keep applying until the user picks one.
-    void emit("gichan-theme", theme);
-  }, [theme]);
-
-  const toggleThemePreference = () => {
-    const next: Theme = theme === "dark" ? "light" : "dark";
-    window.localStorage.setItem("gichanformant-theme", next);
-    setTheme(next);
-  };
-
-  const openFiles = async () => {
-    setError(null);
-    try {
-      const selected = await open({
-        multiple: true,
-        title: "분석할 데이터 선택",
-        filters: [
-          { name: "Data", extensions: ["txt", "csv", "xlsx", "xls", "tsv"] },
-        ],
-      });
-      const paths = Array.isArray(selected)
-        ? selected
-        : selected
-          ? [selected]
-          : [];
-      await loadPaths(paths);
-    } catch (err) {
-      setError(String(err));
-    }
-  };
-
-  const openProject = async () => {
-    setError(null);
-    try {
-      const selected = await open({
-        multiple: false,
-        title: "프로젝트 열기",
-        filters: [{ name: "GichanFormant Project", extensions: ["gfproj"] }],
-      });
-      if (!selected || Array.isArray(selected)) return;
-      beginBusy();
-      try {
-        const next = await callSidecar<ApplicationState>("load_project", { path: selected });
-        if (aliveRef.current) {
-          setState(next);
-          requestMainPreview();
-          pushStatus("프로젝트를 불러왔습니다");
-        }
-      } catch (err) {
-        if (aliveRef.current) setError(String(err));
-      } finally {
-        endBusySafe();
-      }
-    } catch (err) {
-      setError(String(err));
-    }
-  };
-
-  const resetWorkspace = async () => {
-    if (!window.confirm("모든 데이터와 설정을 초기화하시겠습니까?")) return;
-    setError(null);
-    beginBusy();
-    try {
-      await callSidecar("reset");
-      setPreviewUrl(null);
-      setPreviewInfo("");
-      pushStatus("새 작업 공간을 준비했습니다");
-    } catch (err) {
-      setError(String(err));
-    } finally {
-      endBusySafe();
-    }
-  };
-
-  const removeFile = async (index: number, name: string) => {
-    if (!window.confirm(`'${name}' 파일을 삭제하시겠습니까?`)) return;
-    setError(null);
-    beginBusy();
-    try {
-      await callSidecar("remove_file", { index });
-      requestMainPreview();
-    } catch (err) {
-      setError(String(err));
-    } finally {
-      endBusySafe();
-    }
-  };
-
-  const toggleCombinedVisibility = () => {
-    const next = !combinedVisible;
-    setCombinedVisible(next);
-    window.localStorage.setItem("gichanformant-show-combined", String(next));
-    pushStatus(next ? "Combined 데이터를 표시합니다" : "Combined 데이터를 숨겼습니다");
-  };
+  const {
+    dragOver,
+    combinedVisible,
+    openFiles,
+    openProject,
+    resetWorkspace,
+    removeFile,
+    toggleCombinedVisibility,
+    saveProject,
+    createPlot,
+  } = useWorkspaceActions({
+    aliveRef,
+    setState,
+    setError,
+    beginBusy,
+    endBusySafe,
+    pushStatus,
+    requestMainPreview,
+    clearPreview,
+    signalSettingsAttention,
+    signalGuideAttention,
+  });
 
   const settingsPatchRef = useRef<Record<string, unknown>>({});
   const settingsTimerRef = useRef<number | null>(null);
@@ -492,37 +184,6 @@ export function MainWorkspace() {
       void patchSettings({ normalization: null });
     }
   }, [analysis, derivedPlotUnsupportedNorm, hasFiles, preLobanovLocked]);
-
-  const saveProject = async () => {
-    const selected = await save({
-      title: "프로젝트 저장",
-      defaultPath: "analysis.gfproj",
-      filters: [{ name: "GichanFormant Project", extensions: ["gfproj"] }],
-    });
-    if (!selected) return;
-    beginBusy();
-    try {
-      await callSidecar("save_project", { path: selected });
-      pushStatus("프로젝트를 저장했습니다");
-    } catch (err) {
-      setError(String(err));
-    } finally {
-      endBusySafe();
-    }
-  };
-
-  const createPlot = async () => {
-    setError(null);
-    beginBusy();
-    try {
-      await invoke("open_interactive_plot");
-      pushStatus("새 포먼트 플롯 창을 열었습니다");
-    } catch (err) {
-      setError(String(err));
-    } finally {
-      endBusySafe();
-    }
-  };
 
   const previewLines = previewInfo.split("\n").filter(Boolean);
 

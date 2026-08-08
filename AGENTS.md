@@ -32,6 +32,8 @@ Two thin orchestrators remain after the interactive-plot / main-window split:
 | Main file sidebar | `mainWorkspace/SourceSidebar.tsx` |
 | Main preview | `mainWorkspace/PreviewStage.tsx` |
 | Main analysis settings | `mainWorkspace/AnalysisSettingsPanel.tsx` |
+| Main runtime / theme | `mainWorkspace/useMainWorkspaceSession.ts`, `useThemePreference.ts` |
+| Main file / project actions | `mainWorkspace/useWorkspaceActions.ts` |
 
 ### Hard constraints
 
