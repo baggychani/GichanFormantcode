@@ -283,6 +283,10 @@ jobs:
         working-directory: desktop
         run: npm ci
 
+      - name: Test React frontend
+        working-directory: desktop
+        run: npm test
+
       - name: Sync Tauri app version
         shell: pwsh
         env:
@@ -318,6 +322,21 @@ jobs:
           $dest = "release-desktop/GichanFormant-Desktop_v${env:VERSION}_x64-Setup.exe"
           Copy-Item -LiteralPath $nsis.FullName -Destination $dest -Force
           Write-Host "Built Desktop installer: $dest"
+
+      - name: Verify bundled sidecar and installed app
+        shell: pwsh
+        env:
+          VERSION: ${{ needs.prepare.outputs.version }}
+        run: |
+          $installer = "release-desktop/GichanFormant-Desktop_v${env:VERSION}_x64-Setup.exe"
+          $sidecar = Get-ChildItem -Path "desktop/src-tauri/binaries" -File -Filter "gichan-formant-sidecar-*.exe" |
+            Select-Object -First 1
+          if (-not $sidecar) {
+            throw "Bundled sidecar executable not found under desktop/src-tauri/binaries"
+          }
+          & "desktop/scripts/verify-windows-release.ps1" `
+            -InstallerPath $installer `
+            -BundledSidecarPath $sidecar.FullName
 
       - uses: actions/upload-artifact@v6
         with:
