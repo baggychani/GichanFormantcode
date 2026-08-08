@@ -1,6 +1,11 @@
 import { act, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { ApplicationState, HealthStatus } from "../../../ipc/protocol";
+import type { ApplicationState } from "../../../ipc/protocol";
+import {
+  createApplicationState,
+  createDeferred,
+  createHealthStatus,
+} from "../../test/fixtures";
 import { MainWorkspace } from "./MainWorkspace";
 
 type SidecarEventHandler = (event: {
@@ -43,34 +48,8 @@ vi.mock("./PreviewStage", () => ({
   ),
 }));
 
-const state: ApplicationState = {
-  analysis: {
-    type: "f1_f2",
-    f1_scale: "linear",
-    f2_scale: "bark",
-    origin: "upper_right",
-    use_bark_units: false,
-    outlier_mode: null,
-    outlier_scope: null,
-    normalization: null,
-  },
-  current_index: 0,
+const state = createApplicationState({
   current_vowels: ["a"],
-  design_defaults: {},
-  plot_session: {
-    revision: 0,
-    active: false,
-    current_idx: 0,
-    ranges: {},
-    sigma: "2",
-    show_ellipse: true,
-    design_settings: {},
-    vowel_filter_state_by_file: {},
-    layer_design_overrides_by_file: {},
-    layer_locked_vowels_by_file: {},
-    layer_order_by_file: {},
-    draw_objects_by_file: {},
-  },
   sources: [{
     index: 0,
     name: "sample.tsv",
@@ -79,18 +58,10 @@ const state: ApplicationState = {
     is_combined: false,
     is_pre_lobanov: false,
   }],
-  capabilities: { can_plot: true, can_compare: false, can_save_project: true },
-};
+  capabilities: { can_plot: true, can_save_project: true },
+});
 
-const health: HealthStatus = {
-  ok: true,
-  pid: 42,
-  uptime_ms: 1,
-  version: "3.0.0",
-  protocol_version: 1,
-  headless: false,
-  commands: [],
-};
+const health = createHealthStatus();
 
 describe("MainWorkspace bootstrap", () => {
   beforeEach(() => {
@@ -206,5 +177,60 @@ describe("MainWorkspace bootstrap", () => {
 
     expect(mocks.disposeEvent).toHaveBeenCalledOnce();
     expect(mocks.invoke).not.toHaveBeenCalled();
+  });
+
+  it("surfaces sidecar startup failure and clears the busy state", async () => {
+    mocks.invoke.mockRejectedValueOnce(new Error("engine offline"));
+
+    render(<MainWorkspace />);
+
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("Error: engine offline");
+    await waitFor(() => expect(screen.queryByText("처리 중…")).not.toBeInTheDocument());
+    expect(mocks.callSidecar).not.toHaveBeenCalledWith("get_state");
+  });
+
+  it("surfaces initial state failure and clears the busy state", async () => {
+    mocks.callSidecar.mockImplementation(async (method: string) => {
+      mocks.order.push(`sidecar:${method}`);
+      if (method === "get_state") throw new Error("state unavailable");
+      return state;
+    });
+
+    render(<MainWorkspace />);
+
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("Error: state unavailable");
+    await waitFor(() => expect(screen.queryByText("처리 중…")).not.toBeInTheDocument());
+    expect(mocks.callSidecar).not.toHaveBeenCalledWith("request_preview", expect.anything());
+  });
+
+  it("does not bootstrap when event subscription fails", async () => {
+    mocks.listen.mockRejectedValueOnce(new Error("listener unavailable"));
+
+    render(<MainWorkspace />);
+
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("Error: listener unavailable");
+    expect(mocks.invoke).not.toHaveBeenCalled();
+  });
+
+  it("does not continue bootstrap after unmounting during get_state", async () => {
+    const pendingState = createDeferred<ApplicationState>();
+    mocks.callSidecar.mockImplementation((method: string) => {
+      mocks.order.push(`sidecar:${method}`);
+      if (method === "get_state") return pendingState.promise;
+      return Promise.resolve(state);
+    });
+
+    const view = render(<MainWorkspace />);
+    await waitFor(() => expect(mocks.callSidecar).toHaveBeenCalledWith("get_state"));
+    view.unmount();
+    await act(async () => {
+      pendingState.resolve(state);
+      await pendingState.promise;
+    });
+
+    expect(mocks.callSidecar).not.toHaveBeenCalledWith("request_preview", expect.anything());
   });
 });

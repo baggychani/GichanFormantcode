@@ -1,6 +1,6 @@
-import { render, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { ApplicationState } from "../../ipc/protocol";
+import { createApplicationState, createDeferred } from "../test/fixtures";
 import { InteractivePlotWindow } from "./InteractivePlotWindow";
 
 type EventHandler = (event: {
@@ -19,37 +19,7 @@ vi.mock("@tauri-apps/api/event", () => ({ listen: mocks.listen }));
 vi.mock("@tauri-apps/plugin-dialog", () => ({ open: vi.fn(), save: vi.fn() }));
 vi.mock("../sidecarClient", () => ({ callSidecar: mocks.callSidecar }));
 
-const emptyState: ApplicationState = {
-  analysis: {
-    type: "f1_f2",
-    f1_scale: "linear",
-    f2_scale: "bark",
-    origin: "upper_right",
-    use_bark_units: false,
-    outlier_mode: null,
-    outlier_scope: null,
-    normalization: null,
-  },
-  current_index: 0,
-  current_vowels: [],
-  design_defaults: {},
-  plot_session: {
-    revision: 0,
-    active: false,
-    current_idx: 0,
-    ranges: {},
-    sigma: "2",
-    show_ellipse: true,
-    design_settings: {},
-    vowel_filter_state_by_file: {},
-    layer_design_overrides_by_file: {},
-    layer_locked_vowels_by_file: {},
-    layer_order_by_file: {},
-    draw_objects_by_file: {},
-  },
-  sources: [],
-  capabilities: { can_plot: false, can_compare: false, can_save_project: false },
-};
+const emptyState = createApplicationState();
 
 describe("InteractivePlotWindow bootstrap", () => {
   beforeEach(() => {
@@ -80,5 +50,64 @@ describe("InteractivePlotWindow bootstrap", () => {
 
     expect(mocks.disposers.get("sidecar-event")).toHaveBeenCalledOnce();
     expect(mocks.disposers.get("gichan-theme")).toHaveBeenCalledOnce();
+  });
+
+  it("surfaces an initial state failure without issuing a render", async () => {
+    mocks.callSidecar.mockImplementation(async (method: string) => {
+      mocks.order.push(`sidecar:${method}`);
+      if (method === "get_state") throw new Error("render engine offline");
+      return emptyState;
+    });
+
+    render(<InteractivePlotWindow />);
+
+    expect(await screen.findByText(
+      "플롯을 불러오지 못했습니다: Error: render engine offline",
+    )).toBeInTheDocument();
+    expect(mocks.callSidecar).not.toHaveBeenCalledWith(
+      "render_interactive_preview",
+      expect.anything(),
+    );
+  });
+
+  it("does not bootstrap when the sidecar event listener fails", async () => {
+    mocks.listen.mockImplementation(async (event: string) => {
+      mocks.order.push(`listen:${event}`);
+      if (event === "sidecar-event") throw new Error("preview listener unavailable");
+      const dispose = vi.fn();
+      mocks.disposers.set(event, dispose);
+      return dispose;
+    });
+
+    render(<InteractivePlotWindow />);
+
+    expect(await screen.findByText("Error: preview listener unavailable")).toBeInTheDocument();
+    expect(mocks.callSidecar).not.toHaveBeenCalledWith("get_state");
+  });
+
+  it("disposes a sidecar listener that resolves after unmount", async () => {
+    const pendingListener = createDeferred<() => void>();
+    const delayedDispose = vi.fn();
+    mocks.listen.mockImplementation(async (event: string) => {
+      mocks.order.push(`listen:${event}`);
+      if (event === "sidecar-event") return pendingListener.promise;
+      const dispose = vi.fn();
+      mocks.disposers.set(event, dispose);
+      return dispose;
+    });
+
+    const view = render(<InteractivePlotWindow />);
+    await waitFor(() => expect(mocks.listen).toHaveBeenCalledWith(
+      "sidecar-event",
+      expect.any(Function),
+    ));
+    view.unmount();
+    await act(async () => {
+      pendingListener.resolve(delayedDispose);
+      await pendingListener.promise;
+    });
+
+    expect(delayedDispose).toHaveBeenCalledOnce();
+    expect(mocks.callSidecar).not.toHaveBeenCalledWith("get_state");
   });
 });
