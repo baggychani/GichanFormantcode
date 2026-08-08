@@ -67,7 +67,7 @@ jobs:
         run: uv run pytest tests/ -q
 
   desktop:
-    name: Desktop build & Rust tests
+    name: React tests, build & Rust tests
     runs-on: windows-latest
     timeout-minutes: 20
     steps:
@@ -84,6 +84,10 @@ jobs:
       - name: Install desktop dependencies
         working-directory: desktop
         run: npm ci
+
+      - name: Test React frontend
+        working-directory: desktop
+        run: npm test
 
       - name: Build React frontend
         working-directory: desktop
