@@ -4,6 +4,8 @@ import json
 import threading
 import time
 
+import pytest
+
 from sidecar.host import SidecarHost
 from sidecar.supervisor import SidecarSupervisor, SupervisorConfig
 
@@ -174,6 +176,51 @@ def test_get_vowel_analysis_bypasses_qt_executor(monkeypatch):
     assert "error" not in response
     assert response["result"]["index"] == 0
     assert calls == []
+    host.close()
+
+
+@pytest.mark.parametrize(
+    ("method", "params", "service_method"),
+    [
+        (
+            "export_interactive_preview",
+            {"path": "plot.png", "format": "png", "options": {}},
+            "export_interactive_preview",
+        ),
+        (
+            "export_interactive_batch",
+            {"directory": "plots", "format": "png", "options": {}},
+            "export_interactive_batch",
+        ),
+    ],
+)
+def test_interactive_exports_bypass_qt_executor(
+    monkeypatch, method, params, service_method
+):
+    host = SidecarHost.create_headless()
+    executor_calls = []
+
+    def fail_if_executed(_command):
+        executor_calls.append(True)
+        raise AssertionError("renderer-owned exports must not wait on the Qt executor")
+
+    host._execute_command = fail_if_executed
+    monkeypatch.setattr(
+        host.service,
+        service_method,
+        lambda *_args, **_kwargs: {"ok": True},
+    )
+
+    response = json.loads(
+        host.handle_message(
+            json.dumps(
+                {"v": 1, "id": "export", "method": method, "params": params}
+            )
+        )
+    )
+
+    assert response["result"]["ok"] is True
+    assert executor_calls == []
     host.close()
 
 

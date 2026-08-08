@@ -161,9 +161,9 @@ fn spawn_development_sidecar() -> Result<SpawnedSidecar, String> {
         command.creation_flags(CREATE_NO_WINDOW);
     }
 
-    let mut child = command.spawn().map_err(|err| {
-        format!("failed to start sidecar (venv python or uv required): {err}")
-    })?;
+    let mut child = command
+        .spawn()
+        .map_err(|err| format!("failed to start sidecar (venv python or uv required): {err}"))?;
     let stdin = child
         .stdin
         .take()
@@ -475,8 +475,13 @@ fn timeout_for_method(method: &str) -> Duration {
         // Preparation crosses the Qt executor and the isolated renderer may
         // need a cold font-cache start. Keep this aligned with Python's
         // renderer watchdog so a request cannot become an orphaned preview.
-        "render_interactive_preview" | "navigate_interactive_preview"
-        | "export_interactive_preview" | "export_interactive_batch" => Duration::from_secs(125),
+        "render_interactive_preview"
+        | "navigate_interactive_preview"
+        | "export_interactive_preview" => Duration::from_secs(125),
+        // A batch is intentionally synchronous so callers receive per-file
+        // results. Large source sets can legitimately exceed one render
+        // watchdog interval without indicating a dead sidecar.
+        "export_interactive_batch" => Duration::from_secs(30 * 60),
         "ping" | "health" | "get_state" | "snapshot" => Duration::from_secs(8),
         _ => Duration::from_secs(15),
     }
@@ -630,7 +635,9 @@ impl WaitTimeout for Child {
 mod tests {
     use serde_json::json;
 
-    use super::{format_sidecar_error, NdjsonChunkBuffer};
+    use std::time::Duration;
+
+    use super::{format_sidecar_error, timeout_for_method, NdjsonChunkBuffer};
 
     #[test]
     fn reconstructs_split_and_coalesced_ndjson_chunks() {
@@ -651,6 +658,18 @@ mod tests {
         assert_eq!(
             format_sidecar_error(&json!("sidecar failed")),
             "\"sidecar failed\""
+        );
+    }
+
+    #[test]
+    fn gives_batch_exports_a_long_operation_timeout() {
+        assert_eq!(
+            timeout_for_method("export_interactive_batch"),
+            Duration::from_secs(30 * 60)
+        );
+        assert!(
+            timeout_for_method("export_interactive_batch")
+                > timeout_for_method("export_interactive_preview")
         );
     }
 }

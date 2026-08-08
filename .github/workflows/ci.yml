@@ -65,3 +65,30 @@ jobs:
         env:
           QT_QPA_PLATFORM: offscreen
         run: uv run pytest tests/ -q
+
+  desktop:
+    name: Desktop build & Rust tests
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: desktop/package-lock.json
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Install desktop dependencies
+        working-directory: desktop
+        run: npm ci
+
+      - name: Build React frontend
+        working-directory: desktop
+        run: npm run build
+
+      - name: Test Tauri bridge
+        working-directory: desktop/src-tauri
+        run: cargo test

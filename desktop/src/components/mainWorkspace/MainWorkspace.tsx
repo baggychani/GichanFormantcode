@@ -241,7 +241,6 @@ export function MainWorkspace() {
       platform: navigator.platform,
       tauri: "__TAURI_INTERNALS__" in window,
     });
-    void refresh();
     let disposed = false;
     let disposeEvent: (() => void) | undefined;
     let disposeDrag: (() => void) | undefined;
@@ -274,7 +273,13 @@ export function MainWorkspace() {
       }
     }).then((dispose) => {
       if (disposed) dispose();
-      else disposeEvent = dispose;
+      else {
+        disposeEvent = dispose;
+        // Subscribe before requesting the first preview. A warm sidecar can
+        // otherwise emit preview_ready before Tauri finishes installing this
+        // listener, leaving the workspace permanently blank.
+        void refresh();
+      }
     }).catch((err) => {
       if (!disposed && aliveRef.current) setError(String(err));
     });

@@ -5,8 +5,8 @@ import pandas as pd
 import pytest
 
 from core.application_events import ApplicationError
+from core.application_service import ApplicationService, _atomic_write_bytes
 from core.application_state import AnalysisSettings
-from core.application_service import ApplicationService
 from core.controller import MainController
 from core.project_service import collect_project_document
 from core.runtime_port import HeadlessRuntime
@@ -111,6 +111,51 @@ def test_application_service_snapshot_is_json_safe_and_accepts_partial_settings(
     assert view.settings == controller.get_analysis_settings()
     assert json.loads(json.dumps(state, ensure_ascii=False)) == state
     assert events[-1].payload["reason"] == "analysis_settings_changed"
+
+
+@pytest.mark.parametrize(
+    "patch",
+    [
+        {"type": "not-a-plot"},
+        {"f1_scale": "square-root"},
+        {"origin": "center"},
+        {"use_bark_units": "false"},
+        {"outlier_mode": "unknown"},
+        {"outlier_scope": "unknown"},
+        {"normalization": "UnknownNorm"},
+    ],
+)
+def test_application_service_rejects_invalid_analysis_settings_without_mutation(
+    patch,
+):
+    controller, _view = _headless_controller()
+    service = ApplicationService(controller)
+    before = service.snapshot()["analysis"]
+
+    with pytest.raises(ApplicationError) as exc_info:
+        service.set_analysis_settings(patch)
+
+    assert exc_info.value.code == "invalid_analysis_settings"
+    assert service.snapshot()["analysis"] == before
+    service.close()
+
+
+def test_atomic_write_bytes_preserves_existing_target_on_replace_failure(
+    monkeypatch, tmp_path
+):
+    target = tmp_path / "plot.png"
+    target.write_bytes(b"existing-image")
+
+    def fail_replace(_source, _target):
+        raise OSError("simulated replace failure")
+
+    monkeypatch.setattr("core.application_service.os.replace", fail_replace)
+
+    with pytest.raises(OSError, match="simulated replace failure"):
+        _atomic_write_bytes(target, b"new-image")
+
+    assert target.read_bytes() == b"existing-image"
+    assert list(tmp_path.glob(".plot.png.*.tmp")) == []
 
 
 def test_application_service_load_files_updates_headless_view(monkeypatch, tmp_path):

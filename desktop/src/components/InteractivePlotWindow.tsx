@@ -561,7 +561,6 @@ export function InteractivePlotWindow() {
 
   useEffect(() => {
     aliveRef.current = true;
-    void refresh();
     let disposed = false;
     let disposeEvent: (() => void) | undefined;
     void listen<SidecarEvent>("sidecar-event", ({ payload }) => {
@@ -614,7 +613,12 @@ export function InteractivePlotWindow() {
       }
     }).then((dispose) => {
       if (disposed) dispose();
-      else disposeEvent = dispose;
+      else {
+        disposeEvent = dispose;
+        // The initial render may complete immediately when the sidecar is
+        // already warm, so do not request it until the event listener exists.
+        void refresh();
+      }
     }).catch((err) => {
       if (!disposed && aliveRef.current) setMessage(String(err));
     });
@@ -891,7 +895,13 @@ export function InteractivePlotWindow() {
 
   const openLegacyPlot = async () => {
     setBusy(true);
-    try { await callSidecar("open_single_plot"); } finally { setBusy(false); }
+    try {
+      await callSidecar("open_single_plot");
+    } catch (err) {
+      setMessage(`PySide 고급 편집 창을 열지 못했습니다: ${String(err)}`);
+    } finally {
+      setBusy(false);
+    }
   };
 
   const openComparePlot = async () => {

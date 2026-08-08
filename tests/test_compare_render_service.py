@@ -17,14 +17,17 @@ class _Engine:
 
 class _Host:
     plot_engine = _Engine()
-    custom_label_offsets = {}
 
     def __init__(self):
+        self.custom_label_offsets = {}
         self.items = {
             0: {"name": "a", "df": object()},
             1: {"name": "b", "df": object()},
         }
         self.presented = False
+
+    def _ensure_plot_engine(self):
+        return None
 
     def _read_manual_ranges(self, _widgets):
         return {"x_min": "0", "x_max": "1"}
@@ -47,7 +50,9 @@ class _Host:
 
 class _Popup:
     normalization = None
-    fixed_plot_params = {}
+
+    def __init__(self):
+        self.fixed_plot_params = {}
 
     @staticmethod
     def get_design_settings():

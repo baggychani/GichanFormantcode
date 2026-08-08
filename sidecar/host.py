@@ -25,8 +25,8 @@ from core.ipc.protocol import (
     protocol_manifest,
     validate_params,
 )
-from core.runtime_port import HeadlessRuntime
 from core.render_scheduler import LatestRenderScheduler, RenderJob
+from core.runtime_port import HeadlessRuntime
 from core.view_port import NullMainView
 
 
@@ -69,7 +69,7 @@ class SidecarHost:
         )
 
     @classmethod
-    def create_headless(cls, **kwargs: Any) -> "SidecarHost":
+    def create_headless(cls, **kwargs: Any) -> SidecarHost:
         return cls(headless=True, **kwargs)
 
     def close(self) -> None:
@@ -149,11 +149,16 @@ class SidecarHost:
             )
 
     def dispatch(self, method: str, params: dict[str, Any]) -> Any:
-        # File parsing, workspace mutation, and vowel-table stats are
-        # framework-free. Running them through Qt's synchronous executor blocks
-        # the IPC worker until the GUI thread finishes, which can turn a small
-        # input into a long sidecar timeout or contend with interactive renders.
-        if method in {"load_files", "get_vowel_analysis"}:
+        # File parsing, renderer-owned exports, workspace mutation, and
+        # vowel-table stats are framework-free. Running them through Qt's
+        # synchronous executor blocks the GUI thread and gives long batch
+        # exports a second, shorter timeout even though they do not touch Qt.
+        if method in {
+            "load_files",
+            "get_vowel_analysis",
+            "export_interactive_preview",
+            "export_interactive_batch",
+        }:
             return self._dispatch_command(method, params)
         return self._execute_command(lambda: self._dispatch_command(method, params))
 

@@ -2,16 +2,17 @@
 
 from __future__ import annotations
 
-from collections import deque
-from copy import deepcopy
 import os
-from pathlib import Path
 import shutil
 import tempfile
-import time
 import threading
+import time
 import uuid
-from typing import Any, Mapping
+from collections import deque
+from collections.abc import Mapping
+from copy import deepcopy
+from pathlib import Path
+from typing import Any
 
 from core.application_events import ApplicationError, ApplicationEventBus
 from core.application_state import AnalysisSettings
@@ -20,16 +21,41 @@ from core.data_loading_service import (
     is_supported_data_path,
 )
 from core.design_defaults import get_single_design_defaults
+from core.export_service import export_combined_txt_file
 from core.interactive_plot_state import (
     PlotSessionState,
     validate_interactive_options,
 )
 from core.interactive_render_worker import InteractiveRenderer
-from core.export_service import export_combined_txt_file
 from engine.plot_engine import PlotEngine
 from utils.math_utils import compute_x_raw
 from utils.pillai_stats import calculate_pillai_score
 from utils.vowel_stats import analyze_vowels, calculate_pairwise_mahalanobis_distances
+
+
+def _atomic_write_bytes(target: Path, data: bytes) -> None:
+    """Replace a file only after its complete payload is durable on disk."""
+    target.parent.mkdir(parents=True, exist_ok=True)
+    descriptor, temporary_name = tempfile.mkstemp(
+        prefix=f".{target.name}.", suffix=".tmp", dir=target.parent
+    )
+    temporary = Path(temporary_name)
+    try:
+        with os.fdopen(descriptor, "wb") as stream:
+            stream.write(data)
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(temporary, target)
+    except BaseException:
+        try:
+            os.close(descriptor)
+        except OSError:
+            pass
+        try:
+            temporary.unlink(missing_ok=True)
+        except OSError:
+            pass
+        raise
 
 
 def _session_ranges_compatible(
@@ -70,9 +96,7 @@ def _session_ranges_compatible(
             return False
         if abs(vals["x_max"] - vals["x_min"]) > max(span_x * 4.0, 20.0):
             return False
-        if abs(vals["y_max"] - vals["y_min"]) > max(span_y * 4.0, 20.0):
-            return False
-        return True
+        return abs(vals["y_max"] - vals["y_min"]) <= max(span_y * 4.0, 20.0)
     if use_bark_units:
         return max_abs <= 40.0
     return max_abs >= 50.0
@@ -326,7 +350,14 @@ class ApplicationService:
             merged["f1_scale"] = "bark"
             merged["f2_scale"] = "bark"
         # Normalization makes Hz/Bark axis controls meaningless (still store values).
-        settings = AnalysisSettings.from_mapping(merged)
+        try:
+            settings = AnalysisSettings.from_mapping(merged)
+        except (TypeError, ValueError) as exc:
+            raise ApplicationError(
+                code="invalid_analysis_settings",
+                message=str(exc),
+                details={"settings": dict(raw)},
+            ) from exc
         self.controller.apply_analysis_settings(settings)
         if (
             previous.normalization != settings.normalization
@@ -717,8 +748,7 @@ class ApplicationService:
             target = target.with_suffix(f".{extension}")
         prepared = self.prepare_interactive_preview(options)
         data = self._interactive_renderer.render_export(prepared, extension)
-        target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_bytes(data)
+        _atomic_write_bytes(target, data)
         return {"ok": True, "path": str(target), "format": extension}
 
     def export_interactive_batch(
@@ -747,7 +777,10 @@ class ApplicationService:
                         serial += 1
                     used.add(candidate.casefold())
                     target = output_dir / candidate
-                    target.write_bytes(self._interactive_renderer.render_export(prepared, extension))
+                    _atomic_write_bytes(
+                        target,
+                        self._interactive_renderer.render_export(prepared, extension),
+                    )
                     exported.append(str(target))
                 except Exception as exc:  # noqa: BLE001 - preserve per-file result
                     errors.append({"name": str(item.get("name", index)), "message": str(exc)})
