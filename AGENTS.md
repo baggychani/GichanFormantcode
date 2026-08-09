@@ -26,6 +26,10 @@ Two thin orchestrators remain after the interactive-plot / main-window split:
 | Draw session / styles | `interactivePlot/useDrawSession.ts`, `DrawingPanel.tsx`, `DrawStyleEditor.tsx` |
 | Ruler / plot-label session | `interactivePlot/useRulerSession.ts` |
 | Preview render / schedule | `interactivePlot/usePlotRender.ts` |
+| Plot runtime / navigation | `interactivePlot/usePlotWindowSession.ts`, `usePlotNavigation.ts` |
+| Plot save / export actions | `interactivePlot/usePlotWindowActions.ts` |
+| Batch export session | `interactivePlot/useBatchExportSession.ts`, `BatchExportDialog.tsx` |
+| Plot shell layout | `interactivePlot/PlotWindowHeader.tsx`, `PlotControlRail.tsx`, `PlotInspector.tsx`, `PlotWindowOverlays.tsx` |
 | Canvas overlays / pointers | `interactivePlot/PlotStage.tsx`, `plotGeometry.ts` |
 | Hz↔Bark converter plugin | `interactivePlot/UnitConverterPopover.tsx` |
 | Left analysis / global design | `AnalysisToolsPanel.tsx`, `GlobalDesignPanel.tsx` |
