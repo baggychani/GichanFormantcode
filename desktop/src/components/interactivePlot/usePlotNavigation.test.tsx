@@ -112,4 +112,36 @@ describe("usePlotNavigation", () => {
     expect(callbacks.setMessage).not.toHaveBeenCalled();
     expect(refs.currentIndexRef.current).toBe(0);
   });
+
+  it("surfaces navigation failure and releases the navigation lock", async () => {
+    mocks.callSidecar.mockRejectedValueOnce(new Error("preview unavailable"));
+    const { callbacks, refs, result } = setup();
+
+    await act(async () => result.current.navigateTo(1));
+
+    expect(callbacks.setMessage).toHaveBeenCalledWith(
+      "파일을 이동하지 못했습니다: Error: preview unavailable",
+    );
+    expect(callbacks.setPreviewLoading).toHaveBeenLastCalledWith(false);
+    expect(callbacks.setNavigating).toHaveBeenLastCalledWith(false);
+    expect(refs.navigatingRef.current).toBe(false);
+  });
+
+  it("suppresses overlapping navigation requests", async () => {
+    const pendingNavigation = createDeferred<{ state: ApplicationState }>();
+    mocks.callSidecar.mockReturnValue(pendingNavigation.promise);
+    const { result } = setup();
+
+    let firstNavigation!: Promise<void>;
+    act(() => {
+      firstNavigation = result.current.navigateTo(1);
+      void result.current.navigateByPosition(1);
+    });
+    expect(mocks.callSidecar).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      pendingNavigation.resolve({ state: nextState });
+      await firstNavigation;
+    });
+  });
 });

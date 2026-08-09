@@ -125,4 +125,39 @@ describe("usePlotWindowActions", () => {
     expect(mocks.callSidecar).not.toHaveBeenCalled();
     expect(setMessage).not.toHaveBeenCalled();
   });
+
+  it("surfaces save dialog failure without crossing the sidecar boundary", async () => {
+    mocks.save.mockRejectedValueOnce(new Error("dialog crashed"));
+    const { result, setMessage } = setup();
+
+    await act(async () => result.current.saveProject());
+
+    expect(setMessage).toHaveBeenCalledWith(
+      "프로젝트 저장 경로를 선택하지 못했습니다: Error: dialog crashed",
+    );
+    expect(mocks.callSidecar).not.toHaveBeenCalled();
+    expect(result.current.busy).toBe(false);
+  });
+
+  it("suppresses a second external action while another action is busy", async () => {
+    const pendingLegacy = createDeferred<unknown>();
+    mocks.callSidecar.mockReturnValue(pendingLegacy.promise);
+    const { result, setMessage } = setup();
+
+    let legacyPromise!: Promise<void>;
+    act(() => {
+      legacyPromise = result.current.openLegacyPlot();
+    });
+    expect(result.current.busy).toBe(true);
+
+    await act(async () => result.current.openComparePlot());
+    expect(mocks.callSidecar).toHaveBeenCalledTimes(1);
+    expect(setMessage).not.toHaveBeenCalledWith("다중 플롯 창을 요청했습니다.");
+
+    await act(async () => {
+      pendingLegacy.resolve(undefined);
+      await legacyPromise;
+    });
+    expect(result.current.busy).toBe(false);
+  });
 });

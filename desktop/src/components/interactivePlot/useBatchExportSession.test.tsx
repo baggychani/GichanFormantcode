@@ -89,4 +89,31 @@ describe("useBatchExportSession", () => {
 
     expect(setMessage).not.toHaveBeenCalled();
   });
+
+  it("surfaces directory picker failure without starting an export", async () => {
+    mocks.open.mockRejectedValueOnce(new Error("dialog unavailable"));
+    const { result, setMessage } = setup();
+
+    act(() => result.current.dialogProps.onChooseDirectory());
+
+    await waitFor(() => expect(setMessage).toHaveBeenCalledWith(
+      "저장 폴더를 선택하지 못했습니다: Error: dialog unavailable",
+    ));
+    expect(mocks.callSidecar).not.toHaveBeenCalled();
+  });
+
+  it("keeps the dialog open and releases busy state after export failure", async () => {
+    mocks.callSidecar.mockRejectedValueOnce(new Error("write denied"));
+    const { result, setMessage } = setup();
+    act(() => result.current.openDialog());
+    await chooseDirectory(result);
+
+    act(() => result.current.dialogProps.onExport());
+
+    await waitFor(() => expect(setMessage).toHaveBeenCalledWith(
+      "일괄 저장 실패: Error: write denied",
+    ));
+    expect(result.current.dialogProps.busy).toBe(false);
+    expect(result.current.isOpen).toBe(true);
+  });
 });

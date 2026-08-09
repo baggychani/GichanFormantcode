@@ -119,4 +119,70 @@ describe("usePlotWindowSession", () => {
       expect.anything(),
     );
   });
+
+  it("does not bootstrap when event subscription fails", async () => {
+    mocks.listen.mockRejectedValueOnce(new Error("event bridge offline"));
+    const { callbacks } = setup();
+
+    await waitFor(() => expect(callbacks.setMessage).toHaveBeenCalledWith(
+      "Error: event bridge offline",
+    ));
+    expect(mocks.callSidecar).not.toHaveBeenCalledWith("get_state");
+  });
+
+  it("disposes a listener that resolves after unmount without bootstrapping", async () => {
+    let resolveListener: ((dispose: () => void) => void) | undefined;
+    mocks.listen.mockImplementation((_name: string, handler: EventHandler) => {
+      mocks.eventHandler = handler;
+      return new Promise<() => void>((resolve) => {
+        resolveListener = resolve;
+      });
+    });
+    const { unmount } = setup();
+    unmount();
+
+    await act(async () => {
+      resolveListener?.(mocks.dispose);
+      await Promise.resolve();
+    });
+
+    expect(mocks.dispose).toHaveBeenCalledOnce();
+    expect(mocks.callSidecar).not.toHaveBeenCalledWith("get_state");
+  });
+
+  it("ignores stale interactive previews", async () => {
+    const { callbacks } = setup();
+    await waitFor(() => expect(mocks.eventHandler).toBeDefined());
+    callbacks.isStalePreviewRequest.mockReturnValue(true);
+
+    act(() => {
+      mocks.eventHandler?.({
+        payload: {
+          event: "preview_ready",
+          payload: { target: "interactive", request_id: 1, png_path: "C:/stale.png" },
+        },
+      });
+    });
+
+    expect(callbacks.applyPreviewReady).not.toHaveBeenCalled();
+    expect(callbacks.consumePreviewSuccessMessage).not.toHaveBeenCalled();
+  });
+
+  it("ignores the matching state broadcast while navigation is active", async () => {
+    const { callbacks, refs } = setup();
+    await waitFor(() => expect(mocks.eventHandler).toBeDefined());
+    callbacks.setState.mockClear();
+    refs.navigatingRef.current = true;
+
+    act(() => {
+      mocks.eventHandler?.({
+        payload: {
+          event: "state_changed",
+          payload: { reason: "current_file_changed", state },
+        },
+      });
+    });
+
+    expect(callbacks.setState).not.toHaveBeenCalled();
+  });
 });
