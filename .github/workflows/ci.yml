@@ -37,6 +37,9 @@ jobs:
       - name: Version files match config.APP_VERSION
         run: uv run python scripts/sync_version.py --check
 
+      - name: Lint (ruff)
+        run: uv run ruff check .
+
       - name: Install Qt runtime (PySide6 on headless Linux)
         run: |
           sudo apt-get update
