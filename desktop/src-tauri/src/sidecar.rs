@@ -495,7 +495,30 @@ fn is_transport_error(error: &str) -> bool {
     error.contains("sidecar output closed")
         || error.contains("sidecar is not running")
         || error.contains("failed to write")
-        || error.contains("timed out waiting")
+        || is_timeout_error(error)
+}
+
+fn is_timeout_error(error: &str) -> bool {
+    error.contains("timed out waiting")
+}
+
+/// The Python sidecar answers requests one at a time on its stdio thread, so a
+/// quick call queued behind a long one (for example a batch export) times out
+/// even though the process is healthy. Restarting then would kill that work
+/// and drop the loaded workspace, so a timeout only counts as a dead sidecar
+/// when nothing else is in flight.
+fn should_restart_after_error(error: &str, other_requests_pending: bool) -> bool {
+    is_transport_error(error) && !(is_timeout_error(error) && other_requests_pending)
+}
+
+fn has_pending_requests(state: &SidecarState) -> Result<bool, String> {
+    let inner = state.inner.lock().map_err(|_| "sidecar lock poisoned")?;
+    let pending = inner.pending.lock().map_err(|_| "pending lock poisoned")?;
+    Ok(!pending.is_empty())
+}
+
+fn busy_error(error: String) -> String {
+    format!("{error}; the sidecar is still processing another request, so it was not restarted")
 }
 
 fn call_with_recovery(
@@ -509,6 +532,9 @@ fn call_with_recovery(
     match call_sidecar(state, method, params.clone(), timeout) {
         Ok(value) => Ok(value),
         Err(first_error) if is_idempotent_method(method) && is_transport_error(&first_error) => {
+            if !should_restart_after_error(&first_error, has_pending_requests(state)?) {
+                return Err(busy_error(first_error));
+            }
             state.stop()?;
             ensure_running(app, state)?;
             call_sidecar(state, method, params, timeout).map_err(|retry_error| {
@@ -527,6 +553,9 @@ fn ensure_healthy(app: &AppHandle, state: &SidecarState) -> Result<Value, String
     match call_sidecar(state, "health", json!({}), SIDECAR_STARTUP_TIMEOUT) {
         Ok(health) => Ok(health),
         Err(first_error) => {
+            if is_timeout_error(&first_error) && has_pending_requests(state)? {
+                return Err(busy_error(first_error));
+            }
             state.stop()?;
             ensure_running(app, state)?;
             call_sidecar(state, "health", json!({}), SIDECAR_STARTUP_TIMEOUT).map_err(
@@ -637,7 +666,29 @@ mod tests {
 
     use std::time::Duration;
 
-    use super::{format_sidecar_error, timeout_for_method, NdjsonChunkBuffer};
+    use super::{
+        format_sidecar_error, should_restart_after_error, timeout_for_method, NdjsonChunkBuffer,
+    };
+
+    #[test]
+    fn does_not_restart_a_busy_sidecar_on_timeout() {
+        let timeout = "timed out waiting for sidecar method 'get_state' after 8s";
+        assert!(!should_restart_after_error(timeout, true));
+        assert!(should_restart_after_error(timeout, false));
+    }
+
+    #[test]
+    fn restarts_a_dead_sidecar_even_while_requests_are_pending() {
+        assert!(should_restart_after_error("sidecar output closed", true));
+        assert!(should_restart_after_error(
+            "failed to write sidecar request: pipe",
+            true
+        ));
+        assert!(!should_restart_after_error(
+            "invalid_params: bad input",
+            false
+        ));
+    }
 
     #[test]
     fn reconstructs_split_and_coalesced_ndjson_chunks() {
