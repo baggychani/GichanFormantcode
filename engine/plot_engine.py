@@ -336,10 +336,8 @@ class PlotEngine:
             eff = {**design_settings, **over}
             v_lbl_color = eff.get("lbl_color", lbl_color)
             v_lbl_size = int(eff.get("lbl_size", lbl_size))
-            v_lbl_bold = (
-                "bold"
-                if eff.get("lbl_bold", SINGLE_DESIGN_DEFAULTS["lbl_bold"])
-                else "normal"
+            v_lbl_bold = bool(
+                eff.get("lbl_bold", SINGLE_DESIGN_DEFAULTS["lbl_bold"])
             )
             v_lbl_italic = "italic" if eff.get("lbl_italic", False) else "normal"
             v_ell_thick = float(eff.get("ell_thick", ell_thick))
@@ -568,7 +566,8 @@ class PlotEngine:
                         "va": va,
                         "lbl_color": v_lbl_color,
                         "lbl_bold": v_lbl_bold,
-                        "lbl_italic": v_lbl_italic,
+                        "lbl_italic": v_lbl_italic == "italic",
+                        "fontweight": fontweight,
                     }
                 )
 
@@ -883,10 +882,8 @@ class PlotEngine:
 
                 lbl_color = cfg_v.get("lbl_color", default_color)
                 lbl_size = cfg_v.get("lbl_size", cfg.get("lbl_size", 16))
-                lbl_bold = (
-                    "bold"
-                    if cfg_v.get("lbl_bold", SINGLE_DESIGN_DEFAULTS["lbl_bold"])
-                    else "normal"
+                lbl_bold = bool(
+                    cfg_v.get("lbl_bold", SINGLE_DESIGN_DEFAULTS["lbl_bold"])
                 )
                 lbl_italic = "italic" if cfg_v.get("lbl_italic", False) else "normal"
                 hide_text = lbl_color == "transparent"
@@ -1124,7 +1121,8 @@ class PlotEngine:
                             "va": va,
                             "lbl_color": lbl_color,
                             "lbl_bold": lbl_bold,
-                            "lbl_italic": lbl_italic,
+                            "lbl_italic": lbl_italic == "italic",
+                            "fontweight": fontweight,
                             "ell_color": ell_color,
                         },
                     )
@@ -1534,10 +1532,8 @@ class PlotEngine:
             eff = {**design_settings, **over}
             v_lbl_color = eff.get("lbl_color", lbl_color)
             v_lbl_size = int(eff.get("lbl_size", lbl_size))
-            v_lbl_bold = (
-                "bold"
-                if eff.get("lbl_bold", SINGLE_DESIGN_DEFAULTS["lbl_bold"])
-                else "normal"
+            v_lbl_bold = bool(
+                eff.get("lbl_bold", SINGLE_DESIGN_DEFAULTS["lbl_bold"])
             )
             v_lbl_italic = "italic" if eff.get("lbl_italic", False) else "normal"
             v_ell_thick = float(eff.get("ell_thick", ell_thick))
@@ -1746,7 +1742,8 @@ class PlotEngine:
                         "va": va,
                         "lbl_color": v_lbl_color,
                         "lbl_bold": v_lbl_bold,
-                        "lbl_italic": v_lbl_italic,
+                        "lbl_italic": v_lbl_italic == "italic",
+                        "fontweight": fontweight,
                     }
                 )
 
@@ -1966,10 +1963,8 @@ class PlotEngine:
                 ell_fill_opacity = cfg_v.get("ell_fill_opacity", None)
                 centroid_marker = cfg_v.get("centroid_marker", "o")
                 lbl_size = cfg_v.get("lbl_size", 16)
-                lbl_bold = (
-                    "bold"
-                    if cfg_v.get("lbl_bold", SINGLE_DESIGN_DEFAULTS["lbl_bold"])
-                    else "normal"
+                lbl_bold = bool(
+                    cfg_v.get("lbl_bold", SINGLE_DESIGN_DEFAULTS["lbl_bold"])
                 )
                 lbl_italic = "italic" if cfg_v.get("lbl_italic", False) else "normal"
                 raw_color = self._resolve_plot_color(
@@ -2159,6 +2154,9 @@ class PlotEngine:
                         "ha": ha,
                         "va": va,
                         "lbl_color": lbl_color,
+                        "lbl_bold": lbl_bold,
+                        "lbl_italic": lbl_italic == "italic",
+                        "fontweight": fontweight,
                     },
                 )
 

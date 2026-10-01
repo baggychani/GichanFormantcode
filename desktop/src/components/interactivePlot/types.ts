@@ -31,6 +31,8 @@ export type PlotLabel = {
   lbl_color?: string;
   lbl_bold?: boolean | string;
   lbl_italic?: boolean;
+  /** 엔진이 실제로 렌더링한 굵기 (regular / medium / semibold / bold / normal) */
+  fontweight?: string;
 };
 /** 라벨 bbox와 동일 — PNG 상단 원점 픽셀 */
 export type TextBounds = {

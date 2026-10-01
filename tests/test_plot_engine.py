@@ -275,6 +275,60 @@ class TestPlotEngine(unittest.TestCase):
         prepared = self.engine._prepare_plot_df(df_a, params)
         self.assertAlmostEqual(float(prepared["x_raw"].iloc[0]), float(expected_x))
 
+    def test_label_metadata_matches_rendered_style_in_every_path(self):
+        """드래그 미리보기(PySide·React)가 쓰는 라벨 메타데이터는 실제 렌더링과 같아야 한다.
+
+        예전에는 lbl_bold/lbl_italic이 "normal" 문자열이라 참으로 해석되어
+        굵게·기울임이 꺼져 있어도 드래그 중에는 굵게·기울임으로 보였다.
+        """
+        import pandas as pd
+        from core.compare_series import CompareSeriesInput
+
+        df = pd.DataFrame(
+            {"F1": [500, 510, 520], "F2": [1500, 1510, 1520], "Label": ["a"] * 3}
+        )
+        design = {"lbl_bold": False, "lbl_italic": False, "font_weight": "semibold"}
+        params = {
+            "type": "f1_f2",
+            "origin": "top_left",
+            "f1_scale": "linear",
+            "f2_scale": "linear",
+            "use_bark_units": False,
+            "sigma": 2.0,
+        }
+        series = [
+            CompareSeriesInput(df=df, display_name="A"),
+            CompareSeriesInput(df=df.copy(), display_name="B"),
+        ]
+        single = self.engine.draw_plot(Figure(), df, params, design_settings=design)
+        single_norm = self.engine.draw_single_normalized(
+            Figure(), df, "Lobanov", design_settings=design
+        )
+        rendered = {
+            "draw_plot": (single[0], single[2]),
+            "draw_single_normalized": (single_norm[0], single_norm[2]),
+        }
+        compare = self.engine.draw_compare_plot(
+            Figure(), series, params, design_settings={"common": design}
+        )
+        compare_norm = self.engine.draw_compare_plot_normalized(
+            Figure(), series, "Lobanov", design_settings={"common": design}
+        )
+        for name, result in (("compare", compare), ("compare_norm", compare_norm)):
+            items = [item for group in result.label_data.values() for item in group]
+            rendered[name] = (result.ax, items)
+
+        self.assertEqual(single[2][0]["fontweight"], "semibold")
+        for name, (ax, items) in rendered.items():
+            with self.subTest(path=name):
+                self.assertTrue(items)
+                weights = {text.get_text(): text.get_fontweight() for text in ax.texts}
+                for item in items:
+                    self.assertIs(item["lbl_bold"], False)
+                    self.assertIs(item["lbl_italic"], False)
+                    shown = item.get("display_vowel", item["vowel"])
+                    self.assertEqual(item["fontweight"], weights[shown])
+
 
 if __name__ == "__main__":
     unittest.main()

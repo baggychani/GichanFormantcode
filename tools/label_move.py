@@ -184,7 +184,8 @@ class LabelMoveTool:
             "fontsize": int(lb.get("fontsize", 14))
             if lb.get("fontsize") is not None
             else 14,
-            "fontweight": "bold" if lb.get("lbl_bold", True) else "normal",
+            "fontweight": lb.get("fontweight")
+            or ("bold" if lb.get("lbl_bold", True) else "normal"),
             "fontstyle": "italic" if lb.get("lbl_italic", False) else "normal",
             "color": lb.get("lbl_color", "#E64A19"),
             "ha": lb.get("ha", "left"),

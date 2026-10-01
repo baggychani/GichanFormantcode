@@ -367,6 +367,7 @@ class PreviewRenderer:
                     "lbl_color": source.get("lbl_color"),
                     "lbl_bold": source.get("lbl_bold"),
                     "lbl_italic": source.get("lbl_italic"),
+                    "fontweight": source.get("fontweight"),
                 })
         else:
             axes_bbox = {"left": 0.0, "bottom": 0.0, "width": 0.0, "height": 0.0}
