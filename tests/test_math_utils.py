@@ -155,6 +155,95 @@ class TestNormalization(unittest.TestCase):
             apply_normalization(invalid, "2mW/F")
 
 
+class TestNormalizationMissingF3(unittest.TestCase):
+    """F3 측정이 없는 토큰(NaN)은 정규화 후에도 '측정 없음'으로 남아야 한다.
+
+    0으로 채우면 Lobanov/Nearey1에서는 화자 평균, Gerstman에서는 최솟값이라는
+    실제 좌표가 되어 F3 기반 통계(평균·SD·Pillai)에 섞인다.
+    """
+
+    def setUp(self):
+        self.df = pd.DataFrame(
+            {
+                "F1": [300, 320, 310, 800, 780, 350],
+                "F2": [2300, 2250, 2280, 1300, 1350, 800],
+                "F3": [3000, np.nan, 2950, 2600, 2550, 2400],
+                "Label": ["i", "i", "i", "a", "a", "u"],
+            }
+        )
+
+    def test_missing_f3_stays_missing(self):
+        for method in ("Lobanov", "Gerstman", "Nearey1"):
+            with self.subTest(method=method):
+                out = apply_normalization(self.df, method)
+                self.assertTrue(pd.isna(out.loc[1, "F3"]))
+                self.assertTrue(np.isfinite(out.loc[1, "F1"]))
+                self.assertTrue(np.isfinite(out.loc[1, "F2"]))
+
+    def test_measured_f3_uses_only_measured_tokens(self):
+        measured = self.df.dropna(subset=["F3"])
+        for method in ("Lobanov", "Gerstman", "Nearey1"):
+            with self.subTest(method=method):
+                out = apply_normalization(self.df, method)
+                expected = apply_normalization(measured, method)
+                np.testing.assert_allclose(
+                    out.loc[measured.index, "F3"], expected["F3"]
+                )
+
+
+class TestNormalizationBySpeaker(unittest.TestCase):
+    """화자 내재적(speaker-intrinsic) 정규화는 Combined에서도 화자별로 계산한다."""
+
+    def setUp(self):
+        male = pd.DataFrame(
+            {
+                "F1": [280, 290, 730, 720, 320, 330],
+                "F2": [2250, 2200, 1100, 1150, 800, 850],
+                "F3": [3000, 2950, 2450, 2500, 2300, 2350],
+                "Label": ["i", "i", "a", "a", "u", "u"],
+            }
+        )
+        female = pd.DataFrame(
+            {
+                "F1": [330, 340, 950, 930, 380, 390],
+                "F2": [2800, 2750, 1400, 1450, 950, 1000],
+                "F3": [3300, 3350, 2900, 2950, 2700, 2750],
+                "Label": ["i", "i", "a", "a", "u", "u"],
+            }
+        )
+        self.speakers = {"M": male, "F": female}
+        # 화자 행을 교차 배치해 행 순서 복원까지 함께 검증한다.
+        tagged = [df.assign(Speaker=name) for name, df in self.speakers.items()]
+        combined = pd.concat(tagged, ignore_index=True)
+        order = [i for pair in zip(range(6), range(6, 12)) for i in pair]
+        self.combined = combined.iloc[order].reset_index(drop=True)
+
+    def test_each_speaker_matches_individual_normalization(self):
+        for method in ("Lobanov", "Gerstman", "Nearey1", "Bigham", "2mW/F"):
+            with self.subTest(method=method):
+                out = apply_normalization(self.combined, method)
+                self.assertListEqual(
+                    out["Speaker"].tolist(), self.combined["Speaker"].tolist()
+                )
+                for name, df in self.speakers.items():
+                    expected = apply_normalization(df, method)
+                    got = out[out["Speaker"] == name]
+                    np.testing.assert_allclose(
+                        got[["F1", "F2"]].to_numpy(),
+                        expected[["F1", "F2"]].to_numpy(),
+                    )
+
+    def test_2mwf_leaves_all_speakers_unnormalized_when_one_lacks_corner(self):
+        """한 화자만 Hz로 남으면 척도가 섞이므로 전체를 적용하지 않는다."""
+        df = self.combined[
+            ~((self.combined["Speaker"] == "F") & (self.combined["Label"] == "a"))
+        ]
+        out = apply_normalization(df, "2mW/F")
+        np.testing.assert_allclose(
+            out[["F1", "F2"]].to_numpy(), df[["F1", "F2"]].to_numpy()
+        )
+
+
 if __name__ == "__main__":
     unittest.main()
 

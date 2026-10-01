@@ -28,7 +28,11 @@ from utils.icon_utils import (
     get_pillai_icon,
     get_euclidean_icon,
 )
-from utils.math_utils import F3_REQUIRED_PLOT_TYPES, compute_x_raw
+from utils.math_utils import (
+    F3_REQUIRED_PLOT_TYPES,
+    compute_x_raw,
+    filter_for_plot_type,
+)
 from ui.widgets.display_utils import truncate_display_name, MAX_DISPLAY_NAME_LEN
 from utils.vowel_stats import (
     analyze_vowels,
@@ -394,6 +398,13 @@ class VowelAnalysisDialog(QDialog):
                 df = self.controller._normalize_dataframe(df_raw, norm, data)
             else:
                 df = df_raw
+            # 플롯과 같은 기준: F3 기반 타입에서는 F3 미측정 토큰을 제외한다.
+            if "F3" in df.columns:
+                df = filter_for_plot_type(df, plot_type)
+                if df.empty:
+                    self._add_empty_tab(name, "F3 측정값이 있는 행 없음")
+                    self._analysis_results.append((name, None))
+                    continue
             x_vals = _build_x_hz(df, plot_type)
             if x_vals is None:
                 self._add_empty_tab(name, "X축 계산 실패")

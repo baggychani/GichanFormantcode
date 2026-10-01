@@ -28,7 +28,7 @@ from core.interactive_plot_state import (
 )
 from core.interactive_render_worker import InteractiveRenderer
 from engine.plot_engine import PlotEngine
-from utils.math_utils import compute_x_raw
+from utils.math_utils import compute_x_raw, filter_for_plot_type
 from utils.pillai_stats import calculate_pillai_score
 from utils.vowel_stats import analyze_vowels, calculate_pairwise_mahalanobis_distances
 
@@ -222,6 +222,10 @@ class ApplicationService:
             working_df = self.controller._normalize_dataframe(
                 dataframe, settings.normalization, item
             )
+        # 플롯과 같은 기준: F3 기반 타입에서는 F3 미측정 토큰을 제외한다.
+        working_df = filter_for_plot_type(working_df, settings.plot_type)
+        if working_df is None or working_df.empty:
+            return self._empty_vowel_analysis(index, item.get("name", ""))
         x_values = compute_x_raw(working_df, settings.plot_type)
         working = working_df[[label_col, "F1"]].copy()
         working["analysis_x"] = x_values

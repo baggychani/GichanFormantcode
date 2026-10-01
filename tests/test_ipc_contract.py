@@ -252,3 +252,45 @@ def test_get_vowel_analysis_caches_identical_section_requests(monkeypatch):
     service.get_vowel_analysis(0, sections=["core"])
     assert analyze_calls["count"] == 2
     service.close()
+
+
+def test_get_vowel_analysis_excludes_tokens_without_f3_for_f3_plot_types():
+    """F3 미측정 토큰은 플롯처럼 F3 기반 분석에서도 빠져야 한다.
+
+    F2'는 F3가 없으면 F2로 대체되고, 정규화 시 F3 결측이 값으로 바뀌면
+    평균·SD·N이 플롯과 다른 데이터로 계산된다.
+    """
+    df = pd.DataFrame(
+        {
+            "F1": [300.0, 320.0, 310.0, 800.0, 780.0, 820.0],
+            "F2": [2300.0, 2250.0, 2280.0, 1300.0, 1350.0, 1280.0],
+            "F3": [3000.0, float("nan"), 2950.0, 2600.0, 2550.0, float("nan")],
+            "Label": ["i", "i", "i", "a", "a", "a"],
+        }
+    )
+    measured = df.dropna(subset=["F3"])
+    for plot_type in ("f1_f3", "f1_f2_prime"):
+        for normalization in (None, "Lobanov"):
+            service = _headless_service()
+            service.controller.plot_data_list = [
+                {
+                    "name": "partial.csv",
+                    "df": df,
+                    "df_original": df.copy(),
+                    "has_f3": True,
+                    "is_pre_lobanov": False,
+                }
+            ]
+            service.set_analysis_settings(
+                {"type": plot_type, "normalization": normalization}
+            )
+            got = service.get_vowel_analysis(0, sections=["core"])["statistics"]
+
+            service.controller.plot_data_list[0]["df"] = measured
+            service.controller.plot_data_list[0]["df_original"] = measured.copy()
+            expected = service.get_vowel_analysis(0, sections=["core"])["statistics"]
+            for vowel in ("i", "a"):
+                assert got[vowel]["count"] == 2, (plot_type, normalization)
+                if normalization is None:
+                    assert got[vowel]["x_mean"] == expected[vowel]["x_mean"]
+            service.close()

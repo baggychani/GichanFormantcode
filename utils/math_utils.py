@@ -160,24 +160,72 @@ def filter_for_plot_type(df, plot_type):
 # 정규화 알고리즘 (Normalization Methods)
 # ---------------------------------------------------------
 
-_LOBANOV_SPEAKER_COLUMNS = ("Speaker", "speaker", "화자", "File", "file")
+_SPEAKER_COLUMNS = ("Speaker", "speaker", "화자", "File", "file")
 
 
-def _lobanov_speaker_column(df: pd.DataFrame) -> str | None:
-    """Lobanov 화자별 그룹화에 쓸 열 이름. 없으면 None(전체 df 기준)."""
-    for name in _LOBANOV_SPEAKER_COLUMNS:
+def speaker_column(df: pd.DataFrame) -> str | None:
+    """화자별 정규화에 쓸 열 이름. 없으면 None(df 전체를 한 화자로 간주)."""
+    for name in _SPEAKER_COLUMNS:
         if name in df.columns:
             return name
     return None
 
 
-def _lobanov_zscore_series(series: pd.Series) -> pd.Series | float:
-    """단일 화자(또는 그룹) 토큰에 대한 Lobanov Z-score."""
+def _speaker_row_positions(df: pd.DataFrame) -> list[np.ndarray]:
+    """화자별 행 위치 목록. 화자 열이 없으면 전체를 한 화자로 본다."""
+    col = speaker_column(df)
+    if col is None:
+        return [np.arange(len(df))]
+    return list(df.groupby(col, sort=False, dropna=False).indices.values())
+
+
+def _normalize_per_speaker(df: pd.DataFrame, normalize_one):
+    """화자 내재적 정규화를 화자별로 적용하고 원래 행 순서로 되돌린다.
+
+    Lobanov·Gerstman·Nearey1·Bigham·W&F는 모두 한 화자의 모음 공간을 기준으로
+    정의되므로, Combined처럼 여러 화자가 섞인 df를 통째로 계산하면 안 된다.
+    normalize_one이 None을 반환하면(그 화자에 적용 불가) 전체 결과도 None.
+    """
+    groups = _speaker_row_positions(df)
+    if len(groups) <= 1:
+        return normalize_one(df)
+    parts = []
+    for positions in groups:
+        part = normalize_one(df.iloc[positions])
+        if part is None:
+            return None
+        parts.append(part)
+    merged = pd.concat(parts)
+    order = np.concatenate(groups)
+    return merged.iloc[np.argsort(order, kind="stable")]
+
+
+def _keep_missing(normalized: pd.Series, original: pd.Series) -> pd.Series:
+    """계산 불가(inf/NaN)는 0으로 두되, 원래 측정이 없던 칸(NaN)은 NaN 유지.
+
+    F3 미측정 토큰을 0으로 채우면 Lobanov/Nearey1에서는 화자 평균,
+    Gerstman에서는 최솟값이라는 실제 좌표가 되어 통계에 섞인다.
+    """
+    filled = normalized.replace([np.inf, -np.inf], np.nan).fillna(0)
+    return filled.where(original.notna())
+
+
+def _lobanov_zscore_series(series: pd.Series) -> pd.Series:
+    """단일 화자 토큰에 대한 Lobanov Z-score."""
     mu = series.mean()
     sigma = series.std()
     if pd.isna(sigma) or sigma is None or (hasattr(sigma, "__float__") and sigma == 0):
-        return 0.0
+        return pd.Series(0.0, index=series.index)
     return (series - mu) / sigma
+
+
+def _lobanov_one_speaker(df):
+    df_norm = df.copy()
+    for col in ["F1", "F2", "F3"]:
+        if col in df_norm.columns:
+            z = _lobanov_zscore_series(df_norm[col])
+            df_norm[col] = _keep_missing(z, df[col])
+    return df_norm
 
 
 def lobanov_normalization(df):
@@ -187,20 +235,7 @@ def lobanov_normalization(df):
     - 화자 식별 열(Speaker 등)이 있으면 화자별로 μ·σ를 계산하고, 없으면 df 전체를 한 화자로 간주합니다.
     - 원본 문헌: Lobanov, B.M. (1971). Classification of Russian vowels spoken by different speakers. JASA 49(2), 606-608. [cite: 177]
     """
-    df_norm = df.copy()
-    speaker_col = _lobanov_speaker_column(df_norm)
-    for col in ["F1", "F2", "F3"]:
-        if col not in df_norm.columns:
-            continue
-        if speaker_col is not None:
-            df_norm[col] = df_norm.groupby(speaker_col, sort=False)[col].transform(
-                _lobanov_zscore_series
-            )
-        else:
-            z = _lobanov_zscore_series(df_norm[col])
-            df_norm[col] = 0.0 if isinstance(z, float) else z
-        df_norm[col] = df_norm[col].replace([np.inf, -np.inf], np.nan).fillna(0)
-    return df_norm
+    return _normalize_per_speaker(df, _lobanov_one_speaker)
 
 
 def gerstman_normalization(df):
@@ -208,7 +243,12 @@ def gerstman_normalization(df):
     [거스트만 정규화 (Gerstman)]
     - 설명: 모음 공간을 포먼트 주파수 범위의 양 끝점에 맞추어 정렬하는 방식입니다[cite: 67]. 각 포먼트의 양극단이 0과 1이 아닌 0과 999가 되도록 스케일링하여 모음 공간의 크기를 평준화합니다[cite: 68, 69]. (참고: Flynn 논문 11번 수식의 분모에 있는 더하기(+) 기호는 오타이며, 본 코드는 올바르게 뺄셈(-)으로 구현되었습니다.)
     - 원본 문헌: Gerstman, L. (1968). Classification of self-normalized vowels. IEEE Transactions of Audio Electroacoustics AU-16, 78-80. [cite: 173]
+    - 화자 식별 열(Speaker 등)이 있으면 화자별로 계산합니다.
     """
+    return _normalize_per_speaker(df, _gerstman_one_speaker)
+
+
+def _gerstman_one_speaker(df):
     df_norm = df.copy()
     for col in ["F1", "F2", "F3"]:
         if col in df_norm.columns:
@@ -221,7 +261,7 @@ def gerstman_normalization(df):
                     df_norm[col] = 0.0
                 else:
                     df_norm[col] = 999 * (df_norm[col] - f_min) / denom
-            df_norm[col] = df_norm[col].replace([np.inf, -np.inf], np.nan).fillna(0)
+            df_norm[col] = _keep_missing(df_norm[col], df[col])
     return df_norm
 
 
@@ -230,18 +270,28 @@ def watt_fabricius_normalization(df, variant="2m"):
     [와트 & 파브리시우스 정규화 변형 (2mW&F)]
     - 설명: 화자의 모음 공간 중심점(centroid)을 기준으로 값을 표현하는 방식입니다[cite: 74]. 모음 공간을 삼각형으로 간주하며, F1과 F2의 최솟값 및 최댓값을 나타내는 지점들에 꼭짓점을 둡니다[cite: 75]. 2mW&F 변형 모델은 가상의 [u'] 지점을 구성할 때, 포인트 모음들의 평균값들 중 최솟값(lowest mean F1, F2 value of the point vowels)을 사용하도록 설정하여 더욱 현실적인 [u'] 배치를 제공합니다[cite: 85, 86].
     - 원본 문헌 (origW&F 기반): Watt, D.J.L., & Fabricius, A.H. (2002). Evaluation of a technique for improving the mapping of multiple speakers vowel spaces in the F1-F2 plane. Leeds Working Papers in Linguistics and Phonetics 9, 159-173. [cite: 186, 187]
+    - 화자 식별 열(Speaker 등)이 있으면 화자별로 계산합니다. 한 화자라도 코너 모음
+      'i'/'a'가 없으면 일부만 Hz로 남아 척도가 섞이므로 전체를 적용하지 않습니다.
     """
+    result = _normalize_per_speaker(
+        df, lambda one: _watt_fabricius_one_speaker(one, variant)
+    )
+    return df.copy() if result is None else result
+
+
+def _watt_fabricius_one_speaker(df, variant):
+    """한 화자의 W&F 정규화. 코너 모음 등으로 적용할 수 없으면 None."""
     df_norm = df.copy()
     vi = df["Vowel"] == "i"
     va = df["Vowel"] == "a"
     if not vi.any() or not va.any():
-        return df_norm
+        return None
 
     i_f1, i_f2 = df.loc[vi, "F1"].mean(), df.loc[vi, "F2"].mean()
     a_f1, a_f2 = df.loc[va, "F1"].mean(), df.loc[va, "F2"].mean()
 
     if np.isnan(i_f1) or np.isnan(i_f2) or np.isnan(a_f1) or np.isnan(a_f2):
-        return df_norm
+        return None
 
     if variant == "2m":
         mean_f1_by_vowel = df.groupby("Vowel")["F1"].mean()
@@ -267,14 +317,10 @@ def watt_fabricius_normalization(df, variant="2m"):
         or s_f2 == 0
         or np.isnan(s_f2)
     ):
-        return df_norm
+        return None
 
-    df_norm["F1"] = (
-        (df_norm["F1"] / s_f1).replace([np.inf, -np.inf], np.nan).fillna(0)
-    )
-    df_norm["F2"] = (
-        (df_norm["F2"] / s_f2).replace([np.inf, -np.inf], np.nan).fillna(0)
-    )
+    df_norm["F1"] = _keep_missing(df_norm["F1"] / s_f1, df["F1"])
+    df_norm["F2"] = _keep_missing(df_norm["F2"] / s_f2, df["F2"])
     return df_norm
 
 
@@ -283,7 +329,12 @@ def bigham_normalization(df):
     [비검 정규화 (Bigham)]
     - 설명: 기존 Watt & Fabricius 방식의 파생형으로, 중심점 S를 구설할 때 삼각형이 아닌 사각형(quadrilateral)의 무게중심을 사용합니다[cite: 86]. 화자의 최소 및 최대 F1, F2 주파수를 나타내는 점들로 꼭짓점을 구성합니다[cite: 87]. 수학적으로 각 포먼트 최솟값과 최댓값의 평균과 동일하게 연산됩니다. Flynn 논문의 실험 결과, 모음 공간 정렬(Alignment) 평가에서 전체 1위를 차지했습니다[cite: 135, 139].
     - 원본 문헌: Bigham, D.S. (2008). Dialect Contact and Accommodation among Emerging Adults in a University setting. PhD Dissertation, University of Texas at Austin. [cite: 152, 153]
+    - 화자 식별 열(Speaker 등)이 있으면 화자별로 계산합니다.
     """
+    return _normalize_per_speaker(df, _bigham_one_speaker)
+
+
+def _bigham_one_speaker(df):
     df_norm = df.copy()
     for col in ["F1", "F2"]:
         if col not in df_norm.columns:
@@ -294,9 +345,7 @@ def bigham_normalization(df):
         s_f = (f_min + f_max) / 2
         if s_f is None or s_f == 0 or np.isnan(s_f):
             continue
-        df_norm[col] = (
-            (df_norm[col] / s_f).replace([np.inf, -np.inf], np.nan).fillna(0)
-        )
+        df_norm[col] = _keep_missing(df_norm[col] / s_f, df[col])
     return df_norm
 
 
@@ -305,7 +354,12 @@ def nearey1_normalization(df):
     [니어리 1 정규화 (Nearey1)]
     - 설명: 포먼트 내재적(formant-intrinsic) 공식입니다[cite: 92]. 포먼트 주파수에 로그 변환을 적용한 값에서, 해당 화자의 모든 모음에 대한 로그 변환 포먼트 평균값을 뺍니다[cite: 91, 93]. Flynn의 연구에서 모음 공간 정렬 시, Hz 원본 데이터보다 뚜렷한 개선 효과를 보여주었습니다[cite: 136].
     - 원본 문헌: Nearey, T.M. (1978). Phonetic Feature Systems for Vowels. PhD Dissertation, Indiana University. [cite: 177, 178]
+    - 화자 식별 열(Speaker 등)이 있으면 화자별로 계산합니다.
     """
+    return _normalize_per_speaker(df, _nearey1_one_speaker)
+
+
+def _nearey1_one_speaker(df):
     df_norm = df.copy()
     for col in ["F1", "F2", "F3"]:
         if col in df_norm.columns:
@@ -315,8 +369,7 @@ def nearey1_normalization(df):
             mean_log = log_vals.mean()
 
             # 로그 변환 값에서 해당 포먼트의 평균 로그 값을 차감 (수식 18)
-            df_norm[col] = log_vals - mean_log
-            df_norm[col] = df_norm[col].replace([np.inf, -np.inf], np.nan).fillna(0)
+            df_norm[col] = _keep_missing(log_vals - mean_log, df[col])
     return df_norm
 
 
