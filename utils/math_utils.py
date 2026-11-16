@@ -382,7 +382,9 @@ def _ensure_xy_columns(df, plot_type):
     """plot_type에 따라 분석용 x, y 컬럼을 담은 DataFrame과 컬럼명 반환. (y, x) 순."""
     if plot_type in F3_REQUIRED_PLOT_TYPES and "F3" not in df.columns:
         return None, None, None
-    out = df[["F1", "F2"]].copy()
+    # 호출부는 그룹의 index를 keep_mask의 위치로 쓴다. F3 미측정 행이 빠진 df는
+    # index가 띄엄띄엄하므로, 위치와 일치하도록 0..n-1로 다시 매긴다.
+    out = df[["F1", "F2"]].reset_index(drop=True)
     out.columns = ["y_val", "x_val"]
     out["x_val"] = compute_x_raw(df, plot_type).values
     label_col = "Label" if "Label" in df.columns else "label"

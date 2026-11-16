@@ -191,7 +191,7 @@ class TestMainController(unittest.TestCase):
             self.assertEqual(len(self.controller.plot_data_list[0]["df_original"]), 4)
 
     def test_combined_scope_tags_concat_and_backtracks_to_files(self):
-        """통합 scope: concat 시 _src_name/_src_row 부여 후 역산으로 개별 df 갱신."""
+        """통합 scope: concat 시 _src_item/_src_row 부여 후 역산으로 개별 df 갱신."""
         df1 = pd.DataFrame(
             {
                 "F1": [500, 510, 999],
@@ -218,8 +218,8 @@ class TestMainController(unittest.TestCase):
 
         kept = pd.concat(
             [
-                df1.iloc[[0, 1]].assign(_src_name="spk1.csv", _src_row=[0, 1]),
-                df2.assign(_src_name="spk2.csv", _src_row=[0, 1]),
+                df1.iloc[[0, 1]].assign(_src_item=0, _src_row=[0, 1]),
+                df2.assign(_src_item=1, _src_row=[0, 1]),
             ],
             ignore_index=True,
         )
@@ -235,7 +235,7 @@ class TestMainController(unittest.TestCase):
                 self.controller.on_outlier_mode_changed()
 
             df_combined = mock_remove.call_args[0][0]
-            self.assertIn("_src_name", df_combined.columns)
+            self.assertIn("_src_item", df_combined.columns)
             self.assertIn("_src_row", df_combined.columns)
             self.assertEqual(len(df_combined), 5)
             self.assertEqual(mock_remove.call_args[1]["scope"], "combined")
@@ -316,7 +316,7 @@ class TestMainController(unittest.TestCase):
             self.assertEqual(mock_remove.call_count, 1)
             self.assertEqual(mock_remove.call_args[1]["scope"], "individual")
             df_passed = mock_remove.call_args[0][0]
-            self.assertNotIn("_src_name", df_passed.columns)
+            self.assertNotIn("_src_item", df_passed.columns)
 
     def test_outlier_off_restores_all_files_from_original(self):
         """이상치 OFF 시 모든 real 파일 df가 df_original로 복원."""

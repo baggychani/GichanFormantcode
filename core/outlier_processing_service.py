@@ -59,16 +59,16 @@ class OutlierProcessingService:
         self, items: list[dict[str, Any]], mode: str, plot_type: str
     ) -> OutlierResult:
         pieces: list[pd.DataFrame] = []
-        originals: dict[str, pd.DataFrame] = {}
-        for item in items:
-            name = str(item.get("name", ""))
+        originals: dict[int, pd.DataFrame] = {}
+        for position, item in enumerate(items):
             original = item.get("df_original")
             if original is None or original.empty:
                 continue
             original = original.reset_index(drop=True).copy()
-            originals[name] = original
+            originals[position] = original
             piece = original.copy()
-            piece["_src_name"] = name
+            # 파일명은 폴더가 다르면 겹칠 수 있으므로 목록 위치로 출처를 구분한다.
+            piece["_src_item"] = position
             piece["_src_row"] = np.arange(len(original), dtype=int)
             pieces.append(piece)
         combined = pd.concat(pieces, ignore_index=True) if pieces else pd.DataFrame()
@@ -76,12 +76,12 @@ class OutlierProcessingService:
         self._distribute_combined(filtered, items, originals)
         result = OutlierResult(total_removed=int(removed or 0))
         if not combined.empty and filtered is not None:
-            before = combined["_src_name"].value_counts().to_dict()
-            after = filtered["_src_name"].value_counts().to_dict() if not filtered.empty else {}
+            before = combined["_src_item"].value_counts().to_dict()
+            after = filtered["_src_item"].value_counts().to_dict() if not filtered.empty else {}
             result.file_removed = [
-                (item.get("name", ""), int(before.get(str(item.get("name", "")), 0)) - int(after.get(str(item.get("name", "")), 0)))
-                for item in items
-                if int(before.get(str(item.get("name", "")), 0)) > int(after.get(str(item.get("name", "")), 0))
+                (item.get("name", ""), int(before.get(position, 0)) - int(after.get(position, 0)))
+                for position, item in enumerate(items)
+                if int(before.get(position, 0)) > int(after.get(position, 0))
             ]
         too_small = (meta or {}).get("groups_too_small") or set()
         if too_small:
@@ -93,21 +93,20 @@ class OutlierProcessingService:
     def _distribute_combined(
         filtered: pd.DataFrame | None,
         items: list[dict[str, Any]],
-        originals: dict[str, pd.DataFrame],
+        originals: dict[int, pd.DataFrame],
     ) -> None:
         if filtered is None or filtered.empty:
             for item in items:
                 original = item.get("df_original")
                 item["df"] = original.iloc[0:0].copy() if hasattr(original, "iloc") else original
             return
-        kept = set(zip(filtered["_src_name"].astype(str), filtered["_src_row"].astype(int)))
-        for item in items:
-            name = str(item.get("name", ""))
-            original = originals.get(name)
+        kept = set(zip(filtered["_src_item"].astype(int), filtered["_src_row"].astype(int)))
+        for position, item in enumerate(items):
+            original = originals.get(position)
             if original is None:
                 item["df"] = item.get("df_original", item.get("df")).copy()
                 continue
-            item["df"] = original.iloc[[row for row in range(len(original)) if (name, row) in kept]].copy()
+            item["df"] = original.iloc[[row for row in range(len(original)) if (position, row) in kept]].copy()
 
     def _apply_individual(
         self, items: list[dict[str, Any]], mode: str, plot_type: str
