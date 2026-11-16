@@ -19,6 +19,9 @@ def export_combined_txt_file(item: dict, file_path: str) -> tuple[bool, str]:
     text = formant_dataframe_to_txt(df, include_f3=bool(item.get("has_f3", False)))
     if not text.strip():
         return False, "유효한 행이 없어 파일을 만들 수 없습니다."
+    if item.get("is_pre_lobanov"):
+        # z-score는 첫 줄 헤더가 있어야 다시 불러올 때 Hz로 오인되지 않는다.
+        text = f"{config.LOBANOV_FILE_HEADER}\n{text}"
     try:
         with open(file_path, "w", encoding="utf-8", newline="\n") as f:
             f.write(text)
