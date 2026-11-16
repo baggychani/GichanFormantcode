@@ -593,10 +593,13 @@ class ApplicationService:
         self.events.emit("plot_session_changed", {"plot_session": payload})
         return payload
 
-    def prepare_interactive_preview(self, raw: Mapping[str, Any]) -> dict[str, Any]:
+    def prepare_interactive_preview(
+        self, raw: Mapping[str, Any], *, session: PlotSessionState | None = None,
+    ) -> dict[str, Any]:
         """Capture a validated immutable-enough render snapshot on the UI thread."""
         options = validate_interactive_options(raw)
-        session = self._plot_session()
+        if session is None:
+            session = self._plot_session()
         current_index = self.controller.get_current_index()
         params = self.controller._get_main_ui_plot_params()
         normalization = params.get("normalization")
@@ -764,19 +767,26 @@ class ApplicationService:
         extension = self._export_extension(image_format)
         original_index = self.controller.get_current_index()
         items = list(self.controller.get_plot_data_list())
-        used: set[str] = set()
+        # Export options must never overwrite durable per-file editor state.
+        export_session = deepcopy(self._plot_session())
+        used = {entry.name.casefold() for entry in output_dir.iterdir()}
         exported: list[str] = []
         errors: list[dict[str, str]] = []
         try:
             for index, item in enumerate(items):
                 try:
                     self.controller.set_current_index(index)
-                    prepared = self.prepare_interactive_preview(options)
+                    prepared = self.prepare_interactive_preview(
+                        options, session=deepcopy(export_session),
+                    )
                     raw_name = Path(str(item.get("name", "plot"))).stem or "plot"
                     safe_name = "".join(char if char.isalnum() or char in " ._-" else "_" for char in raw_name).strip() or "plot"
                     candidate = f"{safe_name}.{extension}"
                     serial = 2
-                    while candidate.casefold() in used:
+                    while (
+                        candidate.casefold() in used
+                        or (output_dir / candidate).exists()
+                    ):
                         candidate = f"{safe_name}_{serial}.{extension}"
                         serial += 1
                     used.add(candidate.casefold())
@@ -790,7 +800,6 @@ class ApplicationService:
                     errors.append({"name": str(item.get("name", index)), "message": str(exc)})
         finally:
             self.controller.set_current_index(original_index)
-            self._plot_session().current_idx = original_index
         return {"ok": not errors or bool(exported), "directory": str(output_dir), "format": extension, "exported": exported, "errors": errors}
 
     def publish_interactive_render_result(self, result: Mapping[str, Any]) -> None:
