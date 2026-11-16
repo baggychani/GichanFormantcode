@@ -1,5 +1,7 @@
 # data_processor.py
 
+import codecs
+
 import pandas as pd
 import numpy as np
 import os
@@ -7,8 +9,10 @@ import os
 import config
 from utils import app_logger
 
-# 텍스트 파일 로드 시 시도할 인코딩 순서 (UTF-16 BOM, UTF-8, 한글 Windows, 기타)
-ENCODINGS = ["utf-8", "utf-16", "utf-16-le", "utf-16-be", "cp949", "euc-kr", "latin-1"]
+# 텍스트 파일 로드 시 시도할 인코딩 순서 (UTF-8, 한글 Windows, 기타).
+# UTF-16은 파일 앞부분에서 확인될 때만 맨 앞에 추가한다 (_encodings_for 참고).
+ENCODINGS = ["utf-8-sig", "cp949", "euc-kr", "latin-1"]
+_ENCODING_SNIFF_BYTES = 4096
 
 # 라벨 열 판별: 값의 절반 이상이 숫자로 파싱되면 라벨 열이 아닌 것으로 본다.
 _LABEL_NUMERIC_RATIO_MAX = 0.5
@@ -18,10 +22,32 @@ _FORMANT_NUMERIC_RATIO_MIN = 0.9
 _SKIP_COLUMN_TOKENS = frozenset({"", "//", "[]", "-", "—"})
 
 
+def _encodings_for(path) -> list[str]:
+    """파일 앞부분을 보고 시도할 인코딩 순서를 정한다.
+
+    UTF-16 디코더는 BOM이 없어도 길이가 짝수인 바이트열을 대부분 오류 없이 읽는다.
+    그래서 무조건 시도하면 cp949 파일이 깨진 글자로 '성공'해 버리고, 뒤의 cp949는
+    시도조차 되지 않는다. BOM이 있거나 NUL 바이트(ASCII 문자의 상위 바이트)가
+    보일 때만 UTF-16으로 판단한다. cp949·UTF-8 텍스트에는 NUL이 없다.
+    """
+    try:
+        with open(path, "rb") as f:
+            head = f.read(_ENCODING_SNIFF_BYTES)
+    except (OSError, TypeError):
+        return list(ENCODINGS)
+    if head.startswith((codecs.BOM_UTF16_LE, codecs.BOM_UTF16_BE)):
+        return ["utf-16", *ENCODINGS]
+    if b"\x00" in head:
+        # BOM 없는 UTF-16: little-endian이면 NUL이 홀수 번째 바이트에 몰린다.
+        little_endian = head[1::2].count(0) >= head[0::2].count(0)
+        return ["utf-16-le" if little_endian else "utf-16-be", *ENCODINGS]
+    return list(ENCODINGS)
+
+
 def _read_csv_with_encoding(path, *, skiprows: int = 0):
     """여러 인코딩을 순서대로 시도하여 CSV/텍스트 파일을 읽는다. 성공 시 DataFrame 반환."""
     last_err = None
-    for enc in ENCODINGS:
+    for enc in _encodings_for(path):
         try:
             return pd.read_csv(
                 path,
@@ -49,7 +75,7 @@ def _format_load_error(exc: Exception) -> str:
 def _peek_first_line(path: str) -> str:
     """텍스트 파일 첫 줄(인코딩 자동 감지). 읽기 실패 시 빈 문자열."""
     last_err = None
-    for enc in ENCODINGS:
+    for enc in _encodings_for(path):
         try:
             with open(path, encoding=enc) as f:
                 return f.readline().strip()
@@ -141,11 +167,13 @@ def _extract_label_series(col_data: pd.Series) -> pd.Series | None:
     return labels
 
 
-def _parse_formant_column(col_data: pd.Series) -> pd.Series:
-    """숫자 포먼트 열을 float Series로 변환. 0은 측정 없음(NaN)."""
+def _parse_formant_column(
+    col_data: pd.Series, *, zero_is_missing: bool = True,
+) -> pd.Series:
+    """Hz의 0은 측정 없음(NaN), 정규화된 z-score의 0은 유효한 값."""
     numeric_data = pd.to_numeric(col_data, errors="coerce")
     formant = numeric_data.astype(float)
-    return formant.mask(formant == 0, np.nan)
+    return formant.mask(formant == 0, np.nan) if zero_is_missing else formant
 
 
 def _find_label_column_index(df: pd.DataFrame, start_idx: int = 2) -> int | None:
@@ -301,7 +329,9 @@ class DataProcessor:
 
         # 3. F3: 라벨 앞 첫 포먼트 열만 (F4 등 추가 열은 소비만 하고 무시)
         if formant_col_indices:
-            f3_series = _parse_formant_column(df.iloc[:, formant_col_indices[0]])
+            f3_series = _parse_formant_column(
+                df.iloc[:, formant_col_indices[0]], zero_is_missing=not lobanov_mode,
+            )
             final_df["F3"] = f3_series.values
 
         # 4. 라벨: 스캔으로 찾은 첫 라벨 열 (2열 파일은 라벨 없음)

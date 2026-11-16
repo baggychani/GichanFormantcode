@@ -8,8 +8,12 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import unittest
 import pandas as pd
+import pytest
 import config
 from model.data_processor import DataProcessor, is_lobanov_file_header
+from core.data_loading_service import load_plot_item_from_file
+from core.normalization_service import normalize_dataframe
+from utils.math_utils import filter_for_plot_type, lobanov_normalization
 
 
 class TestParseFixedColumns(unittest.TestCase):
@@ -178,6 +182,68 @@ class TestParseFixedColumns(unittest.TestCase):
         result_df, error, _ = self.processor._parse_fixed_columns(df)
         self.assertIsNone(error)
         self.assertListEqual(result_df["Label"].tolist(), ["o", "u"])
+
+
+def test_pre_lobanov_f3_zero_survives_file_loading_and_plot_filter(tmp_path):
+    raw = pd.DataFrame({
+        "F1": [400.0, 500.0, 600.0],
+        "F2": [1400.0, 1500.0, 1600.0],
+        "F3": [2400.0, 2500.0, 2600.0],
+        "Label": ["i", "e", "a"],
+    })
+    normalized = lobanov_normalization(raw)
+    assert normalized.loc[1, "F3"] == 0.0
+    path = tmp_path / "normalized.tsv"
+    path.write_text(
+        "Lobanov\n" + normalized.to_csv(sep="\t", header=False, index=False),
+        encoding="utf-8",
+    )
+
+    loaded = load_plot_item_from_file(str(path))
+
+    assert loaded["success"], loaded["errors"]
+    assert loaded["is_pre_lobanov"]
+    working = normalize_dataframe(loaded["item"]["df"], "Lobanov", loaded["item"])
+    pd.testing.assert_frame_equal(working, normalized)
+    assert len(filter_for_plot_type(working, "f1_f3")) == 3
+
+
+@pytest.mark.parametrize("encoding", ["utf-8", "utf-8-sig", "utf-16"])
+def test_pre_lobanov_header_encoding_preserves_z_scores(tmp_path, encoding):
+    path = tmp_path / "normalized.txt"
+    path.write_text("Lobanov\n2.6\t-0.12\t/a/\n1.9\t-0.52\t/i/\n", encoding=encoding)
+
+    loaded = load_plot_item_from_file(str(path))
+
+    assert loaded["success"], loaded["errors"]
+    assert loaded["is_pre_lobanov"]
+    assert loaded["item"]["df"]["F1"].tolist() == [2.6, 1.9]
+    assert loaded["item"]["df"]["F2"].tolist() == [-0.12, -0.52]
+
+
+_KOREAN_ROWS = "400\t2200\t/이/\n700\t1300\t/아/\n450\t900\t/우/\n500\t1900\t/에/\n"
+
+
+@pytest.mark.parametrize("padding", ["", "\n"])
+def test_cp949_file_loads_regardless_of_byte_length(tmp_path, padding):
+    path = tmp_path / "korean.txt"
+    path.write_bytes((_KOREAN_ROWS + padding).encode("cp949"))
+
+    loaded = load_plot_item_from_file(str(path))
+
+    assert loaded["success"], loaded["errors"]
+    assert loaded["item"]["df"]["Label"].tolist() == ["이", "아", "우", "에"]
+
+
+@pytest.mark.parametrize("encoding", ["utf-16", "utf-16-le", "utf-16-be"])
+def test_utf16_files_still_load_with_and_without_bom(tmp_path, encoding):
+    path = tmp_path / "wide.txt"
+    path.write_bytes(_KOREAN_ROWS.encode(encoding))
+
+    loaded = load_plot_item_from_file(str(path))
+
+    assert loaded["success"], loaded["errors"]
+    assert loaded["item"]["df"]["Label"].tolist() == ["이", "아", "우", "에"]
 
 
 if __name__ == "__main__":
