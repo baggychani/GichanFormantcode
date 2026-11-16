@@ -41,16 +41,21 @@ def _atomic_write_bytes(target: Path, data: bytes) -> None:
     )
     temporary = Path(temporary_name)
     try:
-        with os.fdopen(descriptor, "wb") as stream:
+        try:
+            stream = os.fdopen(descriptor, "wb")
+        except BaseException:
+            # fdopen did not take ownership, so this is the only close.
+            os.close(descriptor)
+            raise
+        # From here the stream owns the descriptor. Closing the raw number
+        # again after a failed replace could close a descriptor that another
+        # thread (the preview renderer) has since been handed.
+        with stream:
             stream.write(data)
             stream.flush()
             os.fsync(stream.fileno())
         os.replace(temporary, target)
     except BaseException:
-        try:
-            os.close(descriptor)
-        except OSError:
-            pass
         try:
             temporary.unlink(missing_ok=True)
         except OSError:
@@ -889,6 +894,9 @@ class ApplicationService:
         filename = f"preview-{revision}-{uuid.uuid4().hex}.png"
         preview_path = self._preview_dir / filename
         with self._preview_file_lock:
+            # Temp cleaners (or another instance's stale-directory sweep) can
+            # remove the directory while this process is idle.
+            self._preview_dir.mkdir(parents=True, exist_ok=True)
             preview_path.write_bytes(png_data)
             self._preview_files.append(preview_path)
             while len(self._preview_files) > 3:

@@ -63,11 +63,25 @@ class LatestRenderScheduler:
             try:
                 result = self._render(job.payload)
             except Exception as exc:  # noqa: BLE001 - reported through event boundary
-                if self._is_latest(job):
-                    self._on_error(job, exc)
-            else:
-                if self._is_latest(job):
-                    self._on_result(job, result)
+                self._report_error(job, exc)
+                continue
+            if not self._is_latest(job):
+                continue
+            try:
+                self._on_result(job, result)
+            except Exception as exc:  # noqa: BLE001 - publishing can fail too
+                # For example the preview file could not be written. Report it
+                # like a render failure; an escaped exception would end this
+                # thread and every later render would be accepted but never run.
+                self._report_error(job, exc)
+
+    def _report_error(self, job: RenderJob, error: Exception) -> None:
+        if not self._is_latest(job):
+            return
+        try:
+            self._on_error(job, error)
+        except Exception:  # noqa: BLE001 - nothing left to notify; keep the worker alive
+            pass
 
     def _is_latest(self, job: RenderJob) -> bool:
         with self._condition:
