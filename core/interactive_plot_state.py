@@ -523,6 +523,33 @@ class PlotSessionState:
             self.current_idx = max(0, self.current_idx - 1)
         self.revision += 1
 
+    def relocate_file_state(self, old_idx: int, new_idx: int | None) -> None:
+        """Move one source's index-keyed state, or drop it when ``new_idx`` is None.
+
+        The derived Combined item always sits after the real sources, so its
+        index changes whenever a file is added and disappears when fewer than
+        two files remain. Without this its filters and annotations would stay
+        on the old index and attach to whichever file lands there next.
+        """
+        if old_idx == new_idx:
+            return
+        for mapping in (
+            self.vowel_filter_state_by_file,
+            self.layer_design_overrides_by_file,
+            self.layer_locked_vowels_by_file,
+            self.layer_order_by_file,
+            self.label_offsets_by_file,
+            self.draw_objects_by_file,
+        ):
+            value = mapping.pop(old_idx, None)
+            if new_idx is None:
+                continue
+            if value is None:
+                mapping.pop(new_idx, None)
+            else:
+                mapping[new_idx] = value
+        self.revision += 1
+
     def to_public_dict(self) -> dict[str, Any]:
         draw_objects = {
             str(index): [asdict(obj) if is_dataclass(obj) else deepcopy(obj) for obj in objects]

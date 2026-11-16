@@ -28,6 +28,8 @@ export function VowelAnalysisShell({
   displayIndex,
   normalization,
   plotType,
+  outlierMode,
+  outlierScope,
   onNavigate,
   onClose,
 }: {
@@ -37,6 +39,8 @@ export function VowelAnalysisShell({
   displayIndex: number;
   normalization: string | null | undefined;
   plotType: string | undefined;
+  outlierMode: string | null | undefined;
+  outlierScope: string | null | undefined;
   onNavigate: (index: number) => void;
   onClose: () => void;
 }) {
@@ -45,7 +49,7 @@ export function VowelAnalysisShell({
   const lobbyShownRef = useRef(false);
   // Resets to expanded whenever this shell mounts (entering the analysis lab).
   const [heroCollapsed, setHeroCollapsed] = useState(false);
-  const cacheKey = vowelAnalysisCacheKey(currentIndex, normalization, plotType);
+  const cacheKey = vowelAnalysisCacheKey(currentIndex, normalization, plotType, outlierMode, outlierScope);
   const [analysisData, setAnalysisData] = useState<VowelAnalysisResult | null>(
     () => getCachedVowelAnalysis(cacheKey),
   );

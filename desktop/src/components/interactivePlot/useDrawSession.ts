@@ -39,10 +39,13 @@ import type {
   TextStyleDraft,
   Tool,
 } from "./types";
+import { remapByIdentity } from "./sourceIdentity";
 import type { InteractiveRenderOverrides } from "./usePlotRender";
 
 type UseDrawSessionParams = {
   currentIndex: number;
+  /** Stable identity per source index (see sourceIdentity). */
+  sourceIdentities: string[];
   currentSourceName: string | undefined;
   normalization: string | null;
   tool: Tool;
@@ -58,6 +61,7 @@ type UseDrawSessionParams = {
 
 export function useDrawSession({
   currentIndex,
+  sourceIdentities,
   currentSourceName,
   normalization,
   tool,
@@ -121,6 +125,20 @@ export function useDrawSession({
   const [textInput, setTextInput] = useState<TextInputState | null>(null);
   const drawIdRef = useRef(0);
   const drawObjectDragRef = useRef<{ id: string; ids: string[]; startY: number; moved: boolean } | null>(null);
+
+  // Draw objects are keyed by list index. Adding or removing a file shifts
+  // those indices (Combined always moves to the end), so re-key them by source
+  // identity. This effect is declared before the window's session hydration
+  // effect, so hydration of the current file still wins.
+  const sourceIdentitiesRef = useRef(sourceIdentities);
+  const sourceIdentitiesKey = sourceIdentities.join("\u0001");
+  useEffect(() => {
+    const previous = sourceIdentitiesRef.current;
+    const next = sourceIdentitiesKey ? sourceIdentitiesKey.split("\u0001") : [];
+    sourceIdentitiesRef.current = next;
+    if (!previous.length || previous.join("\u0001") === sourceIdentitiesKey) return;
+    setDrawObjectsByFile((objects) => remapByIdentity(objects, previous, next));
+  }, [sourceIdentitiesKey]);
 
   const currentDrawObjects = drawObjectsByFile[currentIndex] ?? [];
   const currentDrawLines = currentDrawObjects.filter((object): object is DrawLineObject => object.type === "line");

@@ -119,7 +119,9 @@ class ApplicationService:
         self._preview_dir.mkdir(parents=True, exist_ok=True)
         self._preview_files: deque[Path] = deque()
         self._preview_file_lock = threading.Lock()
-        self._vowel_analysis_cache: dict[tuple[Any, ...], dict[str, Any]] = {}
+        self._vowel_analysis_cache: dict[
+            tuple[Any, ...], tuple[Any, dict[str, Any]]
+        ] = {}
         self._vowel_analysis_cache_lock = threading.Lock()
 
     def _clear_vowel_analysis_cache(self) -> None:
@@ -209,13 +211,16 @@ class ApplicationService:
             index,
             settings.normalization,
             settings.plot_type,
-            id(dataframe),
             frozenset(requested),
         )
+        # The entry keeps the DataFrame it was computed from. Comparing by
+        # identity invalidates it whenever outlier filtering swaps the frame;
+        # a bare id() in the key is not enough because a freed frame's id is
+        # reused by later ones.
         with self._vowel_analysis_cache_lock:
             cached = self._vowel_analysis_cache.get(cache_key)
-            if cached is not None:
-                return deepcopy(cached)
+            if cached is not None and cached[0] is dataframe:
+                return deepcopy(cached[1])
 
         working_df = dataframe
         if settings.normalization and hasattr(self.controller, "_normalize_dataframe"):
@@ -298,7 +303,7 @@ class ApplicationService:
             "sections": sorted(requested),
         }
         with self._vowel_analysis_cache_lock:
-            self._vowel_analysis_cache[cache_key] = deepcopy(payload)
+            self._vowel_analysis_cache[cache_key] = (dataframe, deepcopy(payload))
         return payload
 
     def _normalize_vowel_analysis_sections(
@@ -407,6 +412,7 @@ class ApplicationService:
                 "total": len(paths),
             },
         )
+        combined_before = self._combined_index()
         if valid_paths:
             if getattr(self.controller.view, "native_window", None) is None:
                 result = self.controller.workspace_service.add_files(
@@ -431,6 +437,7 @@ class ApplicationService:
                 "total_files": len(self.controller.filepaths),
                 "row_dropped": [],
             }
+        self._follow_combined_index(combined_before)
         self._clear_vowel_analysis_cache()
         state = self._emit_state("files_loaded")
         self.events.emit(
@@ -476,7 +483,20 @@ class ApplicationService:
             set_last_save_dir(str(target.parent))
         return {"ok": True, "path": str(target), "format": "txt"}
 
+    def _combined_index(self) -> int | None:
+        for index, item in enumerate(self.controller.get_plot_data_list()):
+            if item.get("is_combined"):
+                return index
+        return None
+
+    def _follow_combined_index(self, previous: int | None) -> None:
+        """Keep the Combined item's session state on Combined after it moved."""
+        if previous is None:
+            return
+        self._plot_session().relocate_file_state(previous, self._combined_index())
+
     def remove_file(self, index: int) -> dict[str, Any]:
+        combined_before = self._combined_index()
         removed = self.controller.remove_file(index)
         if not removed:
             error = ApplicationError(
@@ -487,6 +507,9 @@ class ApplicationService:
             self.events.emit("operation_failed", error.to_dict())
             raise error
         self._plot_session().remove_file(index)
+        if combined_before is not None:
+            # remove_file() already shifted every later index down by one.
+            self._follow_combined_index(combined_before - 1)
         self._clear_vowel_analysis_cache()
         state = self._emit_state("file_removed")
         self.events.emit("files_changed", {"action": "remove", "state": state})

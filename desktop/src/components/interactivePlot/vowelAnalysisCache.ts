@@ -7,8 +7,17 @@ export function vowelAnalysisCacheKey(
   index: number,
   normalization: string | null | undefined,
   plotType: string | undefined,
+  outlierMode: string | null | undefined,
+  outlierScope: string | null | undefined,
 ): string {
-  return `${index}|${normalization ?? ""}|${plotType ?? "f1_f2"}`;
+  // Outlier filtering changes which tokens the statistics are computed from.
+  return [
+    index,
+    normalization ?? "",
+    plotType ?? "f1_f2",
+    outlierMode ?? "",
+    outlierScope ?? "",
+  ].join("|");
 }
 
 export function mergeVowelAnalysis(

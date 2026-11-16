@@ -27,6 +27,7 @@ import { PlotInspector } from "./interactivePlot/PlotInspector";
 import { PlotStage } from "./interactivePlot/PlotStage";
 import { PlotWindowOverlays } from "./interactivePlot/PlotWindowOverlays";
 import { PlotWindowHeader } from "./interactivePlot/PlotWindowHeader";
+import { sourceIdentity } from "./interactivePlot/sourceIdentity";
 import { useDrawSession } from "./interactivePlot/useDrawSession";
 import { useBatchExportSession } from "./interactivePlot/useBatchExportSession";
 import { useLayerSession } from "./interactivePlot/useLayerSession";
@@ -127,6 +128,9 @@ export function InteractivePlotWindow() {
 
   const analysis = state?.analysis;
   const allSources = state?.sources ?? [];
+  const sourceIdentities = allSources.map(sourceIdentity);
+  const outlierMode = analysis?.outlier_mode;
+  const outlierScope = analysis?.outlier_scope;
   const sources = combinedVisible ? allSources : allSources.filter((source) => !source.is_combined);
   const rawCurrentIndex = state?.current_index ?? 0;
   const currentIndex = sources.some((source) => source.index === rawCurrentIndex)
@@ -300,6 +304,7 @@ export function InteractivePlotWindow() {
     resetTransientDraw,
   } = useDrawSession({
     currentIndex,
+    sourceIdentities,
     currentSourceName: currentSource?.name,
     normalization: analysis?.normalization ?? null,
     tool,
@@ -376,7 +381,7 @@ export function InteractivePlotWindow() {
 
   useEffect(() => {
     if (vowelAnalysisOpen || !sources.length) return;
-    const cacheKey = vowelAnalysisCacheKey(currentIndex, normalization, plotType);
+    const cacheKey = vowelAnalysisCacheKey(currentIndex, normalization, plotType, outlierMode, outlierScope);
     if (hasVowelAnalysisSection(getCachedVowelAnalysis(cacheKey), "core")) return;
     let cancelled = false;
     const runPrefetch = () => {
@@ -399,7 +404,7 @@ export function InteractivePlotWindow() {
         window.clearTimeout(idleHandle);
       }
     };
-  }, [currentIndex, normalization, plotType, sources.length, vowelAnalysisOpen]);
+  }, [currentIndex, normalization, outlierMode, outlierScope, plotType, sources.length, vowelAnalysisOpen]);
 
   useEffect(() => {
     const syncCombinedVisibility = () => setCombinedVisible(window.localStorage.getItem("gichanformant-show-combined") === "true");
@@ -915,6 +920,8 @@ export function InteractivePlotWindow() {
     displayIndex: Math.max(0, sources.findIndex((source) => source.index === currentIndex)),
     normalization,
     plotType,
+    outlierMode,
+    outlierScope,
     onNavigate: (index: number) => void navigateTo(index),
     onClose: () => setVowelAnalysisOpen(false),
   } : null;
